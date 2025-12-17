@@ -1,0 +1,5 @@
+{
+  "name": "Red Pill Charting",
+  "description": "Offline-first financial charting platform designed for performance and privacy. Import CSVs, analyze price action, and visualize market data without internet dependencies.",
+  "requestFramePermissions": []
+}
