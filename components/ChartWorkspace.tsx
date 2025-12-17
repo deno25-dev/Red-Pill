@@ -23,6 +23,7 @@ interface ChartWorkspaceProps {
   
   areDrawingsLocked?: boolean;
   isMagnetMode?: boolean;
+  isStayInDrawingMode?: boolean;
   isLayersPanelOpen?: boolean;
   onToggleLayers?: () => void;
 }
@@ -40,6 +41,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onRequestHistory,
   areDrawingsLocked = false,
   isMagnetMode = false,
+  isStayInDrawingMode = false,
   isLayersPanelOpen = false,
   onToggleLayers
 }) => {
@@ -544,7 +546,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleToolComplete = () => {
-      onSelectTool?.('cross');
+      if (!isStayInDrawingMode) {
+          onSelectTool?.('cross');
+      }
   };
 
   // Determine current properties to display in toolbar

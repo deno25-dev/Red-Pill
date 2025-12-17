@@ -9,12 +9,14 @@ import {
   ISeriesPrimitive,
   IPrimitivePaneRenderer,
   IPrimitivePaneView,
+  ISeriesPrimitiveAxisView,
   PrimitivePaneViewZOrder,
   LineSeries,
   AreaSeries,
   CandlestickSeries,
   HistogramSeries,
-  Logical
+  Logical,
+  MouseEventParams
 } from 'lightweight-charts';
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
 import { COLORS } from '../constants';
@@ -127,18 +129,8 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             } catch { return { x: -10000, y: -10000 }; }
         };
 
-        // Handle DPI Scaling - useMediaCoordinateSpace handles scaling for us, 
-        // so we don't need target.scale(pixelRatio, pixelRatio) anymore.
-        const pixelRatio = window.devicePixelRatio || 1;
+        // Handle DPI Scaling - useMediaCoordinateSpace handles scaling for us
         target.save();
-        // target.scale(pixelRatio, pixelRatio); // Removed for v5
-
-        // Clip to canvas area (optional but good for perf)
-        // const w = target.canvas.width / pixelRatio;
-        // const h = target.canvas.height / pixelRatio;
-        // target.beginPath();
-        // target.rect(0, 0, w, h);
-        // target.clip();
 
         drawingsToRender.forEach(d => {
             if (d.properties.visible === false) return;
@@ -251,10 +243,10 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 
                 if (d.type === 'date_range') {
                      target.fillStyle = d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)';
-                     target.fillRect(x, 0, w, target.canvas.height / pixelRatio); // Use canvas height
+                     target.fillRect(x, 0, w, target.canvas.height); 
                      target.beginPath();
-                     target.moveTo(x, 0); target.lineTo(x, target.canvas.height / pixelRatio);
-                     target.moveTo(x+w, 0); target.lineTo(x+w, target.canvas.height / pixelRatio);
+                     target.moveTo(x, 0); target.lineTo(x, target.canvas.height);
+                     target.moveTo(x+w, 0); target.lineTo(x+w, target.canvas.height);
                      target.stroke();
                 } else {
                     if (isFilled) target.fillRect(x, y, w, h);
@@ -334,6 +326,60 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     }
 }
 
+class DrawingsPriceAxisPaneRenderer {
+    constructor(private _source: DrawingsPrimitive) {}
+
+    draw(target: any) {
+        target.useMediaCoordinateSpace((scope: any) => {
+            this._drawImpl(scope.context, scope.mediaSize.width, scope.mediaSize.height);
+        });
+    }
+
+    _drawImpl(ctx: CanvasRenderingContext2D, width: number, height: number) {
+        const { _drawings, _series } = this._source;
+        if (!_series) return;
+
+        const priceFormatter = _series.priceFormatter();
+
+        _drawings.forEach(d => {
+            if (d.properties.visible === false) return;
+            // Only for Horizontal Ray and Horizontal Line
+            if (d.type !== 'horizontal_ray' && d.type !== 'horizontal_line') return;
+            
+            if (d.points.length === 0) return;
+
+            const price = d.points[0].price;
+            const y = _series.priceToCoordinate(price);
+
+            if (y === null) return;
+
+            const text = priceFormatter.format(price);
+            const bgColor = d.properties.color;
+            const textColor = '#FFFFFF';
+
+            const labelHeight = 22;
+            const labelY = y - labelHeight / 2;
+
+            // Draw Background
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, labelY, width, labelHeight);
+
+            // Draw Text
+            ctx.fillStyle = textColor;
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, width / 2, y);
+        });
+    }
+}
+
+class DrawingsPriceAxisPaneView implements ISeriesPrimitiveAxisView {
+    constructor(private _source: DrawingsPrimitive) {}
+    renderer() { return new DrawingsPriceAxisPaneRenderer(this._source); }
+    zOrder(): PrimitivePaneViewZOrder { return 'top'; }
+}
+
 class DrawingsPrimitive implements ISeriesPrimitive {
     _chart: IChartApi;
     _series: ISeriesApi<any>;
@@ -343,6 +389,7 @@ class DrawingsPrimitive implements ISeriesPrimitive {
     _currentDefaultProperties: DrawingProperties;
     _selectedDrawingId: string | null = null;
     _paneViews: DrawingsPaneView[];
+    _priceAxisViews: DrawingsPriceAxisPaneView[];
 
     constructor(
         chart: IChartApi, 
@@ -355,6 +402,7 @@ class DrawingsPrimitive implements ISeriesPrimitive {
         this._interactionStateRef = interactionStateRef;
         this._currentDefaultProperties = defaults;
         this._paneViews = [new DrawingsPaneView(this)];
+        this._priceAxisViews = [new DrawingsPriceAxisPaneView(this)];
     }
 
     update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null) {
@@ -367,6 +415,10 @@ class DrawingsPrimitive implements ISeriesPrimitive {
     paneViews() {
         return this._paneViews;
     }
+
+    priceAxisPaneViews() {
+        return this._priceAxisViews;
+    }
 }
 
 class DrawingsPaneView implements IPrimitivePaneView {
@@ -375,6 +427,7 @@ class DrawingsPaneView implements IPrimitivePaneView {
     zOrder(): PrimitivePaneViewZOrder { return 'top'; } // Ensure on top
 }
 
+const SINGLE_POINT_TOOLS = ['text', 'horizontal_line', 'vertical_line', 'horizontal_ray'];
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
   const { 
@@ -568,6 +621,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     window.addEventListener('resize', handleResize);
     handleResize();
 
+    // Handle Chart Click for Deselection
+    const handleChartClick = (param: MouseEventParams) => {
+        if (param.point) {
+             const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
+             const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
+             
+             if (!isDrawingTool && !isReplaySelecting) {
+                 onSelectDrawing(null);
+             }
+        }
+    };
+    chart.subscribeClick(handleChartClick);
+
     chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         requestDraw(); 
         if (range && propsRef.current.onRequestMoreData) {
@@ -584,6 +650,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       window.removeEventListener('resize', handleResize);
       if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current);
       if (rafId.current) cancelAnimationFrame(rafId.current);
+      
+      try { chart.unsubscribeClick(handleChartClick); } catch(e) {}
+      
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -890,8 +959,26 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
              if (p1.x === -1000 || p2.x === -1000) continue;
              if (pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) hit = true;
         }
+        else if (d.type === 'brush') {
+             if (screenPoints.length < 2) continue;
+             for (let j = 0; j < screenPoints.length - 1; j++) {
+                 const p1 = screenPoints[j];
+                 const p2 = screenPoints[j+1];
+                 if (p1.x === -1000 || p2.x === -1000) continue;
+                 if (pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) {
+                     hit = true;
+                     break;
+                 }
+             }
+        }
         else if (d.type === 'horizontal_line') {
              if (screenPoints.length > 0 && screenPoints[0].y !== -1000 && Math.abs(y - screenPoints[0].y) < 6) hit = true;
+        }
+        else if (d.type === 'horizontal_ray') {
+             if (screenPoints.length > 0 && screenPoints[0].y !== -1000 && screenPoints[0].x !== -1000) {
+                 // Relaxed tolerance: Allow clicking 10px to the left of the start point
+                 if (Math.abs(y - screenPoints[0].y) < 6 && x >= (screenPoints[0].x - 10)) hit = true;
+             }
         }
         else if (d.type === 'vertical_line') {
              if (screenPoints.length > 0 && screenPoints[0].x !== -1000 && Math.abs(x - screenPoints[0].x) < 6) hit = true;
@@ -1020,7 +1107,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  interactionState.current.isCreating = true;
                  interactionState.current.creatingPoints = [p];
                  interactionState.current.creationStep = 0;
-            } else if (activeToolId === 'text') {
+            } else if (SINGLE_POINT_TOOLS.includes(activeToolId)) {
                  interactionState.current.isCreating = true;
                  interactionState.current.creatingPoints = [p];
                  interactionState.current.creationStep = 0;
@@ -1084,8 +1171,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                      interactionState.current.creatingPoints = points;
                      needsRedraw = true;
                  }
-             } else if (activeToolId === 'text') {
-                 // Text logic
+             } else if (SINGLE_POINT_TOOLS.includes(activeToolId)) {
+                 // Single point tools don't update on move, they wait for second step/finish
              } else {
                  const points = [...interactionState.current.creatingPoints];
                  const step = interactionState.current.creationStep;

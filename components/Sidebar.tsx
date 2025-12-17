@@ -7,7 +7,8 @@ import {
   Magnet,
   Star,
   ChevronRight,
-  Trash2
+  Trash2,
+  Pencil
 } from 'lucide-react';
 import { TOOLS } from '../constants';
 
@@ -23,6 +24,8 @@ interface SidebarProps {
   onToggleDrawingsLock?: () => void;
   isMagnetMode?: boolean;
   onToggleMagnet?: () => void;
+  isStayInDrawingMode?: boolean;
+  onToggleStayInDrawingMode?: () => void;
   onClearAll?: () => void;
 }
 
@@ -93,6 +96,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleDrawingsLock,
   isMagnetMode = false,
   onToggleMagnet,
+  isStayInDrawingMode = false,
+  onToggleStayInDrawingMode,
   onClearAll
 }) => {
   const [hideDrawings, setHideDrawings] = useState(false);
@@ -286,6 +291,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title={isMagnetMode ? "Magnet Mode On" : "Magnet Mode Off"}
         >
           <Magnet size={20} className={isMagnetMode ? "fill-current" : ""} />
+        </button>
+
+        {/* Stay in Drawing Mode Tool */}
+        <button
+          onClick={onToggleStayInDrawingMode}
+          className={`p-2 rounded-lg transition-all group relative flex justify-center ${
+             isStayInDrawingMode 
+               ? 'text-blue-400 bg-[#334155]/50' 
+               : 'text-slate-400 hover:text-white hover:bg-[#334155]'
+          }`}
+          title={isStayInDrawingMode ? "Continuous Drawing Mode On" : "Continuous Drawing Mode Off"}
+        >
+          <Pencil size={20} className={isStayInDrawingMode ? "fill-current" : ""} />
         </button>
 
         {/* Measure Tools Menu */}

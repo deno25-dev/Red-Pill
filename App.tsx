@@ -45,6 +45,7 @@ const App: React.FC = () => {
   // Global Drawing Modes
   const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); // Read-only mode for drawings
   const [isMagnetMode, setIsMagnetMode] = useState(false);
+  const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
 
   // Data Explorer (Files in the ad-hoc panel)
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
@@ -114,6 +115,8 @@ const App: React.FC = () => {
           setFavoriteTools(savedState.favoriteTools || ['trend_line', 'rectangle']);
           setIsFavoritesBarVisible(savedState.isFavoritesBarVisible ?? true);
           setIsWatchlistOpen(savedState.isWatchlistOpen ?? false);
+          setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
+          setIsMagnetMode(savedState.isMagnetMode ?? false);
         } else {
           const mock = generateMockData(MOCK_DATA_COUNT);
           const newTab = createNewTab('default-tab', 'BTC/USD', mock);
@@ -176,14 +179,16 @@ const App: React.FC = () => {
         activeTabId,
         favoriteTools,
         isFavoritesBarVisible,
-        isWatchlistOpen
+        isWatchlistOpen,
+        isStayInDrawingMode,
+        isMagnetMode
       };
       
       saveAppState(stateToSave).catch(e => console.warn("Auto-save failed:", e));
     }, 1000); // 1 second debounce
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isAppReady]);
+  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, isAppReady]);
 
 
   // Retrieve Active Tab
@@ -1064,6 +1069,8 @@ const App: React.FC = () => {
           onToggleDrawingsLock={() => setAreDrawingsLocked(!areDrawingsLocked)}
           isMagnetMode={isMagnetMode}
           onToggleMagnet={() => setIsMagnetMode(!isMagnetMode)}
+          isStayInDrawingMode={isStayInDrawingMode}
+          onToggleStayInDrawingMode={() => setIsStayInDrawingMode(!isStayInDrawingMode)}
           onClearAll={handleClearAll}
         />
 
@@ -1107,6 +1114,7 @@ const App: React.FC = () => {
                     
                     areDrawingsLocked={areDrawingsLocked}
                     isMagnetMode={isMagnetMode}
+                    isStayInDrawingMode={isStayInDrawingMode}
                 />
             )}
         </div>
