@@ -75,6 +75,18 @@ function pDistance(x: number, y: number, x1: number, y1: number, x2: number, y2:
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+// Point in polygon test
+function isPointInPoly(x: number, y: number, points: {x: number, y: number}[]) {
+    let inside = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x, yi = points[i].y;
+        const xj = points[j].x, yj = points[j].y;
+        const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
 // --- PRIMITIVE IMPLEMENTATION ---
 
 class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
@@ -953,7 +965,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         
         if (d.type !== 'brush' && screenPoints.every(p => p.x === -1000)) continue;
 
-        if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line' || d.type === 'measure') {
+        if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') {
              if (screenPoints.length < 2) continue;
              const p1 = screenPoints[0]; const p2 = screenPoints[1];
              if (p1.x === -1000 || p2.x === -1000) continue;
@@ -983,19 +995,53 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         else if (d.type === 'vertical_line') {
              if (screenPoints.length > 0 && screenPoints[0].x !== -1000 && Math.abs(x - screenPoints[0].x) < 6) hit = true;
         }
-        else if (d.type === 'rectangle' || d.type === 'date_range') {
+        else if (d.type === 'rectangle' || d.type === 'date_range' || d.type === 'measure') {
              if (screenPoints.length < 2) continue;
              const minX = Math.min(screenPoints[0].x, screenPoints[1].x);
              const maxX = Math.max(screenPoints[0].x, screenPoints[1].x);
              const minY = d.type === 'date_range' ? 0 : Math.min(screenPoints[0].y, screenPoints[1].y);
              const maxY = d.type === 'date_range' ? 10000 : Math.max(screenPoints[0].y, screenPoints[1].y);
              if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-                 if (d.properties.filled || d.type === 'date_range') hit = true;
+                 if (d.properties.filled || d.type === 'date_range' || d.type === 'measure') hit = true;
                  else {
                      const tol = 6;
                      if (Math.abs(x - minX) < tol || Math.abs(x - maxX) < tol || Math.abs(y - minY) < tol || Math.abs(y - maxY) < tol) hit = true;
                  }
              }
+        }
+        else if (d.type === 'triangle' || d.type === 'rotated_rectangle') {
+            if (screenPoints.length >= 3) {
+                const polyPoints = [...screenPoints];
+                if (d.type === 'rotated_rectangle') {
+                    // Reconstruct 4th point for hit detection
+                    const p0 = screenPoints[0], p1 = screenPoints[1], p2 = screenPoints[2];
+                    const ux = p1.x - p0.x, uy = p1.y - p0.y;
+                    const vx = p2.x - p1.x, vy = p2.y - p1.y;
+                    const uLenSq = ux*ux + uy*uy;
+                    let hx = vx, hy = vy;
+                    if (uLenSq > 0) {
+                        const dot = vx*ux + vy*uy;
+                        const proj = dot/uLenSq;
+                        hx = vx - ux*proj; hy = vy - uy*proj;
+                    }
+                    polyPoints.push({x: p0.x + hx, y: p0.y + hy});
+                }
+                
+                if (isPointInPoly(x, y, polyPoints as any)) hit = true;
+                else {
+                    // Check edges
+                    const tol = 6;
+                    for (let j = 0; j < polyPoints.length; j++) {
+                        const p1 = polyPoints[j];
+                        const p2 = polyPoints[(j + 1) % polyPoints.length];
+                        if (p1.x === -1000 || p2.x === -1000) continue;
+                        if (pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < tol) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                }
+            }
         }
         else if (d.type === 'circle') {
              if (screenPoints.length >= 2) {
