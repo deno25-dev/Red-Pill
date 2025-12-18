@@ -4,7 +4,7 @@ import { ReplayControls } from './ReplayControls';
 import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
-import { TabSession, Timeframe, DrawingProperties } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Group } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check } from 'lucide-react';
@@ -62,8 +62,19 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
     visible: true,
     locked: false,
-    smoothing: 0 // Default raw input
+    smoothing: 0, // Default raw input
+    showPriceDiff: true,
+    showPercentChange: true,
+    showBarCount: true,
+    showDuration: true
   });
+
+  // Automatically deselect if global lock is enabled
+  useEffect(() => {
+    if (areDrawingsLocked) {
+      setSelectedDrawingId(null);
+    }
+  }, [areDrawingsLocked]);
 
   // Replay Accumulator for Standard Mode
   const replayAccumulator = useRef(0);
@@ -731,7 +742,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={tab.drawings}
+                groups={tab.groups}
                 onUpdateDrawings={(drawings) => { onSaveHistory?.(); updateTab({ drawings }); }}
+                onUpdateGroups={(groups) => { onSaveHistory?.(); updateTab({ groups }); }}
                 selectedDrawingId={selectedDrawingId}
                 onSelectDrawing={setSelectedDrawingId}
                 onClose={onToggleLayers || (() => {})}
@@ -826,6 +839,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             config={tab.config} 
             onConfigChange={(newConfig) => updateTab({ config: newConfig })}
             drawings={tab.drawings}
+            groups={tab.groups}
             onUpdateDrawings={(drawings) => updateTab({ drawings })}
             activeToolId={activeToolId || 'cross'}
             onToolComplete={handleToolComplete}

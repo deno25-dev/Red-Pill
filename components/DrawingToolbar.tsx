@@ -11,7 +11,9 @@ import {
   AlignCenter,
   AlignRight,
   Check,
-  Activity
+  Activity,
+  Ruler,
+  Info
 } from 'lucide-react';
 import { DrawingProperties } from '../types';
 
@@ -42,7 +44,7 @@ const RICH_PALETTE = [
   '#ec4899', '#f472b6', '#fbcfe8', // Pinks
 ];
 
-type MenuState = 'none' | 'color' | 'stroke' | 'text' | 'smoothing';
+type MenuState = 'none' | 'color' | 'stroke' | 'text' | 'smoothing' | 'measure';
 
 // Helper to extract alpha (0-100) from hex string (6 or 8 char)
 const getAlphaFromHex = (hex: string): number => {
@@ -154,6 +156,8 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
       }
   };
 
+  const isMeasureType = drawingType === 'measure' || drawingType === 'date_range';
+
   return (
     <div 
       className="absolute z-50 flex flex-col items-center"
@@ -234,48 +238,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
       {/* 2. Stroke/Size Settings Popover */}
       {activeMenu === 'stroke' && (
         <div className="mb-2 bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl p-3 w-52 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            {drawingType === 'text' ? (
-                <>
-                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Font Size</div>
-                    <div className="flex items-center gap-2 mb-4">
-                        <AArrowUp size={16} className="text-slate-400" />
-                        <input 
-                            type="range" 
-                            min="10" 
-                            max="72" 
-                            value={properties.fontSize || 14} 
-                            onChange={(e) => onChange({ fontSize: parseInt(e.target.value) })}
-                            className="flex-1 h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-white"
-                        />
-                        <span className="text-xs font-mono text-white w-6 text-right">{properties.fontSize || 14}</span>
-                    </div>
-
-                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Alignment</div>
-                    <div className="flex items-center gap-1 bg-[#0f172a] p-1 rounded-lg mb-4">
-                        <button 
-                            onClick={() => onChange({ textAlign: 'left' })} 
-                            className={`flex-1 p-1 flex justify-center items-center rounded transition-all ${!properties.textAlign || properties.textAlign === 'left' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
-                            title="Align Left"
-                        >
-                            <AlignLeft size={16}/>
-                        </button>
-                        <button 
-                            onClick={() => onChange({ textAlign: 'center' })} 
-                            className={`flex-1 p-1 flex justify-center items-center rounded transition-all ${properties.textAlign === 'center' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
-                            title="Align Center"
-                        >
-                            <AlignCenter size={16}/>
-                        </button>
-                        <button 
-                            onClick={() => onChange({ textAlign: 'right' })} 
-                            className={`flex-1 p-1 flex justify-center items-center rounded transition-all ${properties.textAlign === 'right' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
-                            title="Align Right"
-                        >
-                            <AlignRight size={16}/>
-                        </button>
-                    </div>
-                </>
-            ) : (
+            {drawingType !== 'text' && (
                 <>
                     <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Thickness</div>
                     <div className="flex items-center gap-2 mb-4">
@@ -292,7 +255,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
                 </>
             )}
 
-            <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Style</div>
+            <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">{drawingType === 'text' ? 'Box Border Style' : 'Style'}</div>
             <div className="flex items-center gap-2">
                <button onClick={() => onChange({ lineStyle: 'solid' })} className={`flex-1 h-8 flex items-center justify-center rounded hover:bg-[#334155] ${properties.lineStyle === 'solid' ? 'bg-[#334155] text-white' : 'text-slate-400'}`} title="Solid"><Minus size={16} /></button>
                <button onClick={() => onChange({ lineStyle: 'dashed' })} className={`flex-1 h-8 flex items-center justify-center rounded hover:bg-[#334155] ${properties.lineStyle === 'dashed' ? 'bg-[#334155] text-white' : 'text-slate-400'}`} title="Dashed"><MoreHorizontal size={16} /></button>
@@ -301,17 +264,64 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
         </div>
       )}
 
-      {/* 3. Text Editing Popover */}
+      {/* 3. Text Settings Popover (Rich formatting) */}
       {activeMenu === 'text' && (
-        <div className="mb-2 bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl p-3 w-64 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <div className="mb-2 bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl p-4 w-72 animate-in fade-in slide-in-from-bottom-2 duration-200">
            <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Text Content</div>
            <textarea 
-             className="w-full bg-[#0f172a] border border-[#334155] rounded-md p-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
+             className="w-full bg-[#0f172a] border border-[#334155] rounded-md p-2.5 text-sm text-white focus:outline-none focus:border-blue-500 resize-none mb-4 custom-scrollbar shadow-inner"
              rows={3}
              value={properties.text || ''}
              onChange={(e) => onChange({ text: e.target.value })}
              placeholder="Enter text..."
            />
+
+           <div className="h-px bg-[#334155] mb-4"></div>
+
+           <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Font Size</div>
+                <div className="flex items-center gap-2">
+                    <AArrowUp size={16} className="text-slate-400" />
+                    <input 
+                        type="range" 
+                        min="10" 
+                        max="72" 
+                        value={properties.fontSize || 14} 
+                        onChange={(e) => onChange({ fontSize: parseInt(e.target.value) })}
+                        className="flex-1 h-1 bg-[#334155] rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <span className="text-xs font-mono text-white w-6 text-right">{properties.fontSize || 14}</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Alignment</div>
+                <div className="flex items-center gap-0.5 bg-[#0f172a] p-1 rounded-lg">
+                    <button 
+                        onClick={() => onChange({ textAlign: 'left' })} 
+                        className={`flex-1 p-1.5 flex justify-center items-center rounded transition-all ${!properties.textAlign || properties.textAlign === 'left' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        title="Align Left"
+                    >
+                        <AlignLeft size={16}/>
+                    </button>
+                    <button 
+                        onClick={() => onChange({ textAlign: 'center' })} 
+                        className={`flex-1 p-1.5 flex justify-center items-center rounded transition-all ${properties.textAlign === 'center' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        title="Align Center"
+                    >
+                        <AlignCenter size={16}/>
+                    </button>
+                    <button 
+                        onClick={() => onChange({ textAlign: 'right' })} 
+                        className={`flex-1 p-1.5 flex justify-center items-center rounded transition-all ${properties.textAlign === 'right' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                        title="Align Right"
+                    >
+                        <AlignRight size={16}/>
+                    </button>
+                </div>
+              </div>
+           </div>
         </div>
       )}
 
@@ -332,6 +342,52 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
             </div>
             <div className="text-[10px] text-slate-500 mt-2 text-center italic">
                 {properties.smoothing === 0 ? "Raw Input" : "Auto-smooth enabled"}
+            </div>
+        </div>
+      )}
+
+      {/* 5. Measure Settings Popover */}
+      {activeMenu === 'measure' && isMeasureType && (
+        <div className="mb-2 bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl p-3 w-64 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="text-[10px] font-bold text-slate-500 uppercase mb-3 flex items-center gap-2">
+                <Info size={12} />
+                <span>Displayed Statistics</span>
+            </div>
+            
+            <div className="space-y-1">
+                {drawingType === 'measure' && (
+                    <>
+                        <button 
+                            onClick={() => onChange({ showPriceDiff: !(properties.showPriceDiff ?? true) })}
+                            className={`w-full flex items-center justify-between p-2 rounded text-xs transition-colors ${properties.showPriceDiff !== false ? 'bg-blue-600/10 text-blue-400' : 'text-slate-500 hover:bg-[#334155]'}`}
+                        >
+                            <span>Price Difference</span>
+                            {properties.showPriceDiff !== false && <Check size={14} />}
+                        </button>
+                        <button 
+                            onClick={() => onChange({ showPercentChange: !(properties.showPercentChange ?? true) })}
+                            className={`w-full flex items-center justify-between p-2 rounded text-xs transition-colors ${properties.showPercentChange !== false ? 'bg-blue-600/10 text-blue-400' : 'text-slate-500 hover:bg-[#334155]'}`}
+                        >
+                            <span>Percentage Change</span>
+                            {properties.showPercentChange !== false && <Check size={14} />}
+                        </button>
+                    </>
+                )}
+                
+                <button 
+                    onClick={() => onChange({ showBarCount: !(properties.showBarCount ?? true) })}
+                    className={`w-full flex items-center justify-between p-2 rounded text-xs transition-colors ${properties.showBarCount !== false ? 'bg-blue-600/10 text-blue-400' : 'text-slate-500 hover:bg-[#334155]'}`}
+                >
+                    <span>Bar Count</span>
+                    {properties.showBarCount !== false && <Check size={14} />}
+                </button>
+                <button 
+                    onClick={() => onChange({ showDuration: !(properties.showDuration ?? true) })}
+                    className={`w-full flex items-center justify-between p-2 rounded text-xs transition-colors ${properties.showDuration !== false ? 'bg-blue-600/10 text-blue-400' : 'text-slate-500 hover:bg-[#334155]'}`}
+                >
+                    <span>Duration</span>
+                    {properties.showDuration !== false && <Check size={14} />}
+                </button>
             </div>
         </div>
       )}
@@ -365,10 +421,10 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
          <button 
             onClick={() => setActiveMenu(activeMenu === 'stroke' ? 'none' : 'stroke')}
             className={`w-8 h-8 rounded-full flex items-center justify-center text-slate-400 transition-all ${activeMenu === 'stroke' ? 'bg-[#334155] text-white' : 'hover:bg-[#334155] hover:text-white'}`}
-            title={drawingType === 'text' ? "Font Size & Style" : "Line Thickness & Style"}
+            title={drawingType === 'text' ? "Border Style" : "Thickness & Style"}
          >
              {drawingType === 'text' ? (
-                 <div className="font-serif font-bold text-sm">T<span className="text-[9px] align-top ml-0.5">{properties.fontSize || 14}</span></div>
+                <Square size={16} strokeWidth={1.5} />
              ) : (
                 <div className="flex flex-col items-center gap-[2px]">
                     <div className="w-4 h-[1px] bg-current"></div>
@@ -389,25 +445,38 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
             </button>
          )}
 
-         {/* Text Content Trigger (Only for Text Tools) */}
+         {/* Text Content & Formatting Trigger (Only for Text Tools) */}
          {drawingType === 'text' && (
              <button 
                 onClick={() => setActiveMenu(activeMenu === 'text' ? 'none' : 'text')}
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-slate-400 transition-all ${activeMenu === 'text' ? 'bg-[#334155] text-white' : 'hover:bg-[#334155] hover:text-white'}`}
-                title="Edit Text"
+                title="Text Settings"
             >
                 <Type size={16} />
             </button>
          )}
+
+         {/* Measure Settings Trigger */}
+         {isMeasureType && (
+             <button 
+                onClick={() => setActiveMenu(activeMenu === 'measure' ? 'none' : 'measure')}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-slate-400 transition-all ${activeMenu === 'measure' ? 'bg-[#334155] text-white' : 'hover:bg-[#334155] hover:text-white'}`}
+                title="Measure Settings"
+            >
+                <Ruler size={16} />
+            </button>
+         )}
          
          {/* Toggle Fill (Direct Action) - Hide for text usually, but can keep for background box */}
-         <button 
-            onClick={() => onChange({ filled: !properties.filled })}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${properties.filled ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-[#334155] hover:text-white'}`}
-            title="Toggle Fill"
-         >
-            {properties.filled ? <Square size={16} fill="currentColor" /> : <Square size={16} />}
-         </button>
+         {!isMeasureType && (
+            <button 
+                onClick={() => onChange({ filled: !properties.filled })}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${properties.filled ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:bg-[#334155] hover:text-white'}`}
+                title="Toggle Fill"
+            >
+                {properties.filled ? <Square size={16} fill="currentColor" /> : <Square size={16} />}
+            </button>
+         )}
 
          <div className="w-px h-4 bg-[#334155] mx-1"></div>
 

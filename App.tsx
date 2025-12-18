@@ -89,6 +89,7 @@ const App: React.FC = () => {
       replaySpeed: 1,
       isDetached: false,
       drawings: [],
+      groups: [],
       undoStack: [],
       redoStack: [],
       trades: []
@@ -784,11 +785,15 @@ const App: React.FC = () => {
           return;
       }
       
-      if (window.confirm('Are you sure you want to remove all drawings?')) {
-          handleSaveHistory();
-          updateActiveTab({ drawings: [] });
+      if (window.confirm('Are you sure you want to remove all drawings from this chart?')) {
+          // Fix: Perform an atomic update to prevent race conditions with history
+          updateActiveTab({ 
+              undoStack: [...activeTab.undoStack.slice(-49), activeTab.drawings],
+              redoStack: [],
+              drawings: [] 
+          });
       }
-  }, [activeTab, handleSaveHistory, updateActiveTab]);
+  }, [activeTab, updateActiveTab]);
 
   const handleOrderSubmit = useCallback((order: any) => {
       if (!activeTab) return;
@@ -973,6 +978,7 @@ const App: React.FC = () => {
         isLibraryOpen={isLibraryOpen}
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
         onOpenDownloadDialog={() => setIsDownloadDialogOpen(true)}
+        onClearAll={handleClearAll}
       />
 
       <div className="flex flex-1 overflow-hidden relative">

@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -140,6 +141,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     setIsLayoutMenuOpen(false);
     if (action === 'load-csv') {
       fileInputRef.current?.click();
+    } else if (action === 'clear-drawings') {
+      onClearAll?.();
     } else {
       onLayoutAction?.(action);
     }
@@ -384,6 +387,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 </button>
                 
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
+
+                {/* Remove All Drawings */}
+                <button 
+                   onClick={() => handleLayoutClick('clear-drawings')}
+                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-red-400 hover:bg-red-900/10 flex items-center gap-3 transition-colors"
+                 >
+                    <Trash2 size={16} />
+                    <span>Remove all drawings</span>
+                </button>
+
+                <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 
                 {/* Create New Layout */}
                  <button 
@@ -413,7 +427,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         </div>
                         <ChevronRight size={14} />
                     </button>
-                     {/* Flyout can be added here */}
                 </div>
             </div>
           )}

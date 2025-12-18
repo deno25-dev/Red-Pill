@@ -39,7 +39,6 @@ export const TOOLS = {
     { id: 'cross', label: 'Cross', icon: Crosshair },
     { id: 'dot', label: 'Dot', icon: Circle },
     { id: 'arrow', label: 'Arrow', icon: MousePointer2 },
-    { id: 'eraser', label: 'Eraser', icon: Eraser },
   ],
   lines: [
     { id: 'trend_line', label: 'Trend Line', icon: Slash },

@@ -18,7 +18,7 @@ import {
   Logical,
   MouseEventParams
 } from 'lightweight-charts';
-import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
+import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Group } from '../types';
 import { COLORS } from '../constants';
 import { smoothPoints } from '../utils/dataUtils';
 
@@ -28,6 +28,7 @@ interface ChartProps {
   config: ChartConfig;
   onConfigChange?: (newConfig: ChartConfig) => void;
   drawings: Drawing[];
+  groups: Group[];
   onUpdateDrawings: (drawings: Drawing[]) => void;
   activeToolId: string;
   onToolComplete: () => void;
@@ -111,7 +112,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     _drawImpl(target: CanvasRenderingContext2D) {
         if (!target || typeof target.beginPath !== 'function') return;
 
-        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _areHidden } = this._source;
+        const { _drawings, _groups, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _areHidden } = this._source;
         if (!_series || !_chart || _areHidden) return;
 
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId } = _interactionStateRef.current;
@@ -151,6 +152,12 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
 
         drawingsToRender.forEach(d => {
             if (d.properties.visible === false) return;
+            
+            // Group visibility check
+            if (d.groupId) {
+                const group = _groups.find(g => g.id === d.groupId);
+                if (group && group.visible === false) return;
+            }
 
             const screenPoints = d.points.map(pointToScreen);
             if (screenPoints.every(p => p.x === -10000 && p.y === -10000)) return;
@@ -340,47 +347,69 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                             }
                         }
 
-                        const statsLines = [];
-                        if (d.type === 'measure') {
-                            statsLines.push(`${priceDiff.toFixed(2)} (${percentDiff >= 0 ? '+' : ''}${percentDiff.toFixed(2)}%)`);
-                        }
-                        statsLines.push(`${barCount} bars, ${formatDuration(timeDiff)}`);
-
-                        const boxW = 140;
-                        const boxH = statsLines.length * 16 + 10;
-                        const boxX = sp2.x + 10;
-                        const boxY = sp2.y - boxH / 2;
-
-                        target.setLineDash([]);
-                        target.fillStyle = 'rgba(15, 23, 42, 0.85)';
-                        target.strokeStyle = d.properties.color;
-                        target.lineWidth = 1;
-                        target.shadowBlur = 4;
-                        target.shadowColor = 'rgba(0,0,0,0.5)';
+                        const statsLines: string[] = [];
                         
-                        const radius = 4;
-                        target.beginPath();
-                        target.moveTo(boxX + radius, boxY);
-                        target.lineTo(boxX + boxW - radius, boxY);
-                        target.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + radius);
-                        target.lineTo(boxX + boxW, boxY + boxH - radius);
-                        target.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - radius, boxY + boxH);
-                        target.lineTo(boxX + radius, boxY + boxH);
-                        target.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - radius);
-                        target.lineTo(boxX, boxY + radius);
-                        target.quadraticCurveTo(boxX, boxY, boxX + radius, boxY);
-                        target.closePath();
-                        target.fill();
-                        target.stroke();
+                        // Price and Percent logic
+                        if (d.type === 'measure') {
+                            const showPrice = d.properties.showPriceDiff ?? true;
+                            const showPercent = d.properties.showPercentChange ?? true;
+                            
+                            let priceLine = '';
+                            if (showPrice) priceLine += priceDiff.toFixed(2);
+                            if (showPrice && showPercent) priceLine += ' ';
+                            if (showPercent) priceLine += `(${percentDiff >= 0 ? '+' : ''}${percentDiff.toFixed(2)}%)`;
+                            
+                            if (priceLine) statsLines.push(priceLine);
+                        }
 
-                        target.shadowBlur = 0;
-                        target.fillStyle = '#FFFFFF';
-                        target.font = '11px sans-serif';
-                        target.textAlign = 'left';
-                        target.textBaseline = 'top';
-                        statsLines.forEach((line, i) => {
-                            target.fillText(line, boxX + 8, boxY + 6 + i * 16);
-                        });
+                        // Bar count and duration logic
+                        const showBars = d.properties.showBarCount ?? true;
+                        const showDurationFlag = d.properties.showDuration ?? true;
+                        
+                        let timeLine = '';
+                        if (showBars) timeLine += `${barCount} bars`;
+                        if (showBars && showDurationFlag) timeLine += ', ';
+                        if (showDurationFlag) timeLine += formatDuration(timeDiff);
+                        
+                        if (timeLine) statsLines.push(timeLine);
+
+                        if (statsLines.length > 0) {
+                            const boxW = 140;
+                            const boxH = statsLines.length * 16 + 10;
+                            const boxX = sp2.x + 10;
+                            const boxY = sp2.y - boxH / 2;
+
+                            target.setLineDash([]);
+                            target.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                            target.strokeStyle = d.properties.color;
+                            target.lineWidth = 1;
+                            target.shadowBlur = 4;
+                            target.shadowColor = 'rgba(0,0,0,0.5)';
+                            
+                            const radius = 4;
+                            target.beginPath();
+                            target.moveTo(boxX + radius, boxY);
+                            target.lineTo(boxX + boxW - radius, boxY);
+                            target.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + radius);
+                            target.lineTo(boxX + boxW, boxY + boxH - radius);
+                            target.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - radius, boxY + boxH);
+                            target.lineTo(boxX + radius, boxY + boxH);
+                            target.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - radius);
+                            target.lineTo(boxX, boxY + radius);
+                            target.quadraticCurveTo(boxX, boxY, boxX + radius, boxY);
+                            target.closePath();
+                            target.fill();
+                            target.stroke();
+
+                            target.shadowBlur = 0;
+                            target.fillStyle = '#FFFFFF';
+                            target.font = '11px sans-serif';
+                            target.textAlign = 'left';
+                            target.textBaseline = 'top';
+                            statsLines.forEach((line, i) => {
+                                target.fillText(line, boxX + 8, boxY + 6 + i * 16);
+                            });
+                        }
                     }
                 }
             }
@@ -459,6 +488,7 @@ class DrawingsPrimitive implements ISeriesPrimitive {
     _chart: IChartApi;
     _series: ISeriesApi<any>;
     _drawings: Drawing[] = [];
+    _groups: Group[] = [];
     _timeToIndex: Map<number, number> | null = null;
     _interactionStateRef: React.MutableRefObject<any>;
     _currentDefaultProperties: DrawingProperties;
@@ -481,8 +511,9 @@ class DrawingsPrimitive implements ISeriesPrimitive {
         this._priceAxisViews = [new DrawingsPriceAxisPaneView(this)];
     }
 
-    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, areHidden: boolean = false) {
+    update(drawings: Drawing[], groups: Group[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, areHidden: boolean = false) {
         this._drawings = drawings;
+        this._groups = groups;
         this._timeToIndex = timeToIndex;
         this._currentDefaultProperties = defaults;
         this._selectedDrawingId = selectedId;
@@ -505,6 +536,7 @@ class DrawingsPaneView implements IPrimitivePaneView {
 }
 
 const SINGLE_POINT_TOOLS = ['text', 'horizontal_line', 'vertical_line', 'horizontal_ray'];
+const NON_DRAWING_TOOLS = ['cross', 'dot', 'arrow'];
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
   const { 
@@ -513,6 +545,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     config, 
     onConfigChange,
     drawings, 
+    groups,
     onUpdateDrawings,
     activeToolId,
     onToolComplete,
@@ -549,6 +582,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const [localVolumeTopMargin, setLocalVolumeTopMargin] = useState(config.volumeTopMargin || 0.8);
 
   const replayMouseX = useRef<number | null>(null);
+  const overlayMousePos = useRef<{ x: number, y: number } | null>(null);
 
   useEffect(() => {
     if (config.volumeTopMargin !== undefined) {
@@ -620,10 +654,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
       if (drawingsPrimitiveRef.current) {
-          drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden);
+          drawingsPrimitiveRef.current.update(drawings, groups, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden);
       }
       requestDraw();
-  }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden]);
+  }, [drawings, groups, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden]);
 
   const requestDraw = () => {
       if (rafId.current) cancelAnimationFrame(rafId.current);
@@ -686,7 +720,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
              const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
-             const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
+             const isDrawingTool = !NON_DRAWING_TOOLS.includes(activeToolId);
              
              if (!isDrawingTool && !isReplaySelecting) {
                  onSelectDrawing(null);
@@ -782,7 +816,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             interactionState, 
             currentDefaultProperties
         );
-        primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden);
+        primitive.update(drawings, groups, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden);
         newSeries.attachPrimitive(primitive);
         drawingsPrimitiveRef.current = primitive;
 
@@ -865,13 +899,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (canvasRef.current) {
-        const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
+        const isDrawingTool = !NON_DRAWING_TOOLS.includes(activeToolId);
         if (isDrawingTool || isReplaySelecting) {
             canvasRef.current.style.pointerEvents = 'auto';
             document.body.style.cursor = 'crosshair';
         } else {
             canvasRef.current.style.pointerEvents = 'none'; 
-            document.body.style.cursor = 'default';
+            if (activeToolId === 'dot' || activeToolId === 'arrow') {
+                document.body.style.cursor = 'none';
+            } else if (activeToolId === 'cross') {
+                document.body.style.cursor = 'crosshair';
+            } else {
+                document.body.style.cursor = 'default';
+            }
         }
     }
   }, [activeToolId, isReplaySelecting]);
@@ -954,13 +994,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const { isReplaySelecting: currentIsReplaySelecting } = propsRef.current;
+    const { isReplaySelecting: currentIsReplaySelecting, activeToolId: currentTool } = propsRef.current;
 
     const width = chartContainerRef.current?.clientWidth || 0;
     const height = chartContainerRef.current?.clientHeight || 0;
     
     ctx.clearRect(0, 0, width, height);
     
+    // Draw Replay Line
     if (currentIsReplaySelecting && replayMouseX.current !== null) {
         ctx.beginPath();
         ctx.strokeStyle = '#ef4444'; 
@@ -974,10 +1015,58 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         ctx.fillStyle = '#ef4444';
         ctx.fillText('Start Replay', replayMouseX.current + 5, 20);
     }
+
+    // Draw Dot Cursor
+    if (currentTool === 'dot' && overlayMousePos.current) {
+        const { x, y } = overlayMousePos.current;
+        
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
+
+    // Draw Arrow Cursor
+    if (currentTool === 'arrow' && overlayMousePos.current) {
+        const { x, y } = overlayMousePos.current;
+        
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Simple professional arrow pointer path
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, 16);
+        ctx.lineTo(4, 12);
+        ctx.lineTo(7.5, 18);
+        ctx.lineTo(9, 17);
+        ctx.lineTo(5.5, 11);
+        ctx.lineTo(11, 11);
+        ctx.closePath();
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 3;
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        ctx.restore();
+    }
   };
 
   const getHitObject = (x: number, y: number) => {
-    const { drawings, selectedDrawingId, areDrawingsHidden } = propsRef.current;
+    const { drawings, groups, selectedDrawingId, areDrawingsHidden, areDrawingsLocked } = propsRef.current;
     if (areDrawingsHidden) return { hitHandle: null, hitDrawing: null };
     
     let hitHandle: { id: string; index: number } | null = null;
@@ -985,7 +1074,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
     if (selectedDrawingId) {
         const d = drawings.find(dr => dr.id === selectedDrawingId);
-        if (d && !d.properties.locked && d.properties.visible !== false) {
+        // handles are only draggable if global lock is off and individual lock is off
+        if (d && !d.properties.locked && !areDrawingsLocked && d.properties.visible !== false) {
              const screenPoints = d.points.map(pointToScreen);
              for(let i=0; i<screenPoints.length; i++) {
                  const p = screenPoints[i];
@@ -1001,6 +1091,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     for (let i = drawings.length - 1; i >= 0; i--) {
         const d = drawings[i];
         if (d.properties.visible === false) continue;
+        
+        // Group locked/visible check
+        if (d.groupId) {
+            const group = groups.find(g => g.id === d.groupId);
+            if (group && group.visible === false) continue;
+        }
+
         const screenPoints = d.points.map(pointToScreen);
         let hit = false;
         
@@ -1095,7 +1192,17 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
              }
         }
 
-        if (hit) { hitDrawing = d; break; }
+        if (hit) {
+            // Check if drawing's group is locked
+            if (d.groupId) {
+                const group = groups.find(g => g.id === d.groupId);
+                if (group && group.locked) {
+                    // Interaction limited to selection
+                }
+            }
+            hitDrawing = d; 
+            break; 
+        }
     }
     return { hitHandle, hitDrawing };
   };
@@ -1126,24 +1233,38 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   };
   
   const handleContainerMouseMove = (e: React.MouseEvent) => {
-      if (isReplaySelecting && canvasRef.current) {
-         const rect = canvasRef.current.getBoundingClientRect();
-         replayMouseX.current = e.clientX - rect.left;
+      const rect = chartContainerRef.current!.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      overlayMousePos.current = { x, y };
+
+      if (isReplaySelecting) {
+         replayMouseX.current = x;
          requestDraw();
          return;
       }
+
+      if (activeToolId === 'dot' || activeToolId === 'arrow') {
+          requestDraw();
+      }
+
       if (interactionState.current.isCreating || interactionState.current.isDragging) return;
-      const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
+      
+      const isDrawingTool = !NON_DRAWING_TOOLS.includes(activeToolId);
       if (isDrawingTool) return;
 
       if (chartContainerRef.current && canvasRef.current) {
-          const rect = chartContainerRef.current.getBoundingClientRect();
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
           const { hitHandle, hitDrawing } = getHitObject(x, y);
           if ((hitHandle || hitDrawing) && !areDrawingsLocked && !areDrawingsHidden) {
               const isLocked = hitDrawing?.properties.locked;
-              if (isLocked) {
+              let isGroupLocked = false;
+              if (hitDrawing?.groupId) {
+                  const group = groups.find(g => g.id === hitDrawing.groupId);
+                  if (group && group.locked) isGroupLocked = true;
+              }
+
+              if (isLocked || isGroupLocked) {
                   canvasRef.current.style.pointerEvents = 'auto';
                   document.body.style.cursor = 'not-allowed';
               } else {
@@ -1152,7 +1273,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               }
           } else {
               canvasRef.current.style.pointerEvents = 'none';
-              document.body.style.cursor = 'default'; 
+              
+              // Restore tool cursor if we stopped hovering an object
+              if (activeToolId === 'dot' || activeToolId === 'arrow') {
+                  document.body.style.cursor = 'none';
+              } else if (activeToolId === 'cross') {
+                  document.body.style.cursor = 'crosshair';
+              } else {
+                  document.body.style.cursor = 'default';
+              }
           }
       }
   };
@@ -1172,12 +1301,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         return; 
     }
 
-    const { hitHandle, hitDrawing } = getHitObject(x, y);
-    const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
+    const isDrawingTool = !NON_DRAWING_TOOLS.includes(activeToolId);
 
     if (isDrawingTool) {
         onActionStart?.();
-        const useMagnet = activeToolId !== 'brush' && activeToolId !== 'text' && activeToolId !== 'cursor' && activeToolId !== 'eraser'; 
+        const useMagnet = activeToolId !== 'brush' && activeToolId !== 'text' && !NON_DRAWING_TOOLS.includes(activeToolId); 
         const p = screenToPoint(x, y, useMagnet);
         
         if (p) {
@@ -1200,23 +1328,31 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             }
         }
     } else if (!areDrawingsLocked && !areDrawingsHidden) {
+        const { hitHandle, hitDrawing } = getHitObject(x, y);
         if (hitHandle) {
             const d = drawings.find(dr => dr.id === hitHandle.id);
-            if (d?.properties.locked) { onSelectDrawing(hitHandle.id); return; }
+            let isGroupLocked = false;
+            if (d?.groupId) {
+                const group = groups.find(g => g.id === d.groupId);
+                if (group && group.locked) isGroupLocked = true;
+            }
+
+            if (d?.properties.locked || isGroupLocked) { onSelectDrawing(hitHandle.id); return; }
             onActionStart?.();
             onSelectDrawing(hitHandle.id);
             interactionState.current.isDragging = true;
             interactionState.current.dragDrawingId = hitHandle.id;
             interactionState.current.dragHandleIndex = hitHandle.index;
         } else if (hitDrawing) {
-            if (activeToolId === 'eraser') {
-                if (hitDrawing.properties.locked) return;
-                onActionStart?.();
-                onUpdateDrawings(drawings.filter(d => d.id !== hitDrawing!.id));
-                return;
-            }
             onSelectDrawing(hitDrawing.id);
-            if (hitDrawing.properties.locked) return; 
+
+            let isGroupLocked = false;
+            if (hitDrawing.groupId) {
+                const group = groups.find(g => g.id === hitDrawing.groupId);
+                if (group && group.locked) isGroupLocked = true;
+            }
+
+            if (hitDrawing.properties.locked || isGroupLocked) return; 
             onActionStart?.();
             interactionState.current.isDragging = true;
             interactionState.current.dragDrawingId = hitDrawing.id;
@@ -1225,6 +1361,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         } else {
             onSelectDrawing(null);
         }
+    } else {
+        onSelectDrawing(null);
     }
     
     requestDraw();
@@ -1260,9 +1398,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  needsRedraw = true;
              }
         }
-    } else if (interactionState.current.isDragging && interactionState.current.dragDrawingId) {
+    } else if (interactionState.current.isDragging && interactionState.current.dragDrawingId && !areDrawingsLocked) {
         const d = drawings.find(d => d.id === interactionState.current.dragDrawingId);
         if (d && !d.properties.locked) {
+            // Group lock check
+            if (d.groupId) {
+                const group = groups.find(g => g.id === d.groupId);
+                if (group && group.locked) return;
+            }
+
             const newPoints = [...d.points];
             const isHandle = interactionState.current.dragHandleIndex !== null && interactionState.current.dragHandleIndex >= 0;
             const p = screenToPoint(x, y, isHandle);
@@ -1376,6 +1520,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     requestDraw();
   };
 
+  const handleContainerMouseLeave = () => {
+    overlayMousePos.current = null;
+    requestDraw();
+  };
+
   if (data.length === 0) {
      return <div className="flex items-center justify-center h-full text-slate-500">No data loaded. Import a CSV.</div>;
   }
@@ -1384,6 +1533,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     <div 
         className="w-full h-full relative group"
         onMouseMove={handleContainerMouseMove}
+        onMouseLeave={handleContainerMouseLeave}
     >
        <div ref={chartContainerRef} className="w-full h-full" />
        
