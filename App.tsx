@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -9,11 +8,9 @@ import { Popout } from './components/Popout';
 import { TradingPanel } from './components/TradingPanel';
 import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
-import { DownloadDialog } from './components/DownloadDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
-import { fetchBinanceKlines } from './utils/binance';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 
@@ -30,10 +27,6 @@ const App: React.FC = () => {
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
 
-  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState('');
-
   const [activeToolId, setActiveToolId] = useState<string>('cross');
   const [favoriteTools, setFavoriteTools] = useState<string[]>(['trend_line', 'rectangle']);
   const [isFavoritesBarVisible, setIsFavoritesBarVisible] = useState(true);
@@ -42,6 +35,11 @@ const App: React.FC = () => {
   const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
+
+  // Layout state
+  const [layout, setLayout] = useState<'single' | 'split-2' | 'split-4'>('single');
+  // Slots for split view
+  const [paneTabIds, setPaneTabIds] = useState<string[]>(['', '', '', '']);
 
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
   const [explorerFolderName, setExplorerFolderName] = useState<string>('');
@@ -60,7 +58,6 @@ const App: React.FC = () => {
   const [tabs, setTabs] = useState<TabSession[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
 
-  // Fix: Move randomUUID call inside the function body to avoid potential "not callable" errors at definition time
   const createNewTab = useCallback((id?: string, title: string = 'New Chart', raw: OHLCV[] = []): TabSession => {
     const tabId = id || (crypto as any).randomUUID();
     return {
@@ -110,11 +107,14 @@ const App: React.FC = () => {
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
           setIsMagnetMode(savedState.isMagnetMode ?? false);
           setAreDrawingsHidden(savedState.areDrawingsHidden ?? false);
+          setLayout(savedState.layout || 'single');
+          setPaneTabIds(savedState.paneTabIds || [savedState.activeTabId, '', '', '']);
         } else {
           const mock = generateMockData(MOCK_DATA_COUNT);
           const newTab = createNewTab('default-tab', 'BTC/USD', mock);
           setTabs([newTab]);
           setActiveTabId(newTab.id);
+          setPaneTabIds([newTab.id, '', '', '']);
         }
 
         try {
@@ -146,6 +146,7 @@ const App: React.FC = () => {
         const newTab = createNewTab('default-tab', 'BTC/USD', mock);
         setTabs([newTab]);
         setActiveTabId(newTab.id);
+        setPaneTabIds([newTab.id, '', '', '']);
       } finally {
         setIsAppReady(true);
       }
@@ -169,14 +170,16 @@ const App: React.FC = () => {
         isWatchlistOpen,
         isStayInDrawingMode,
         isMagnetMode,
-        areDrawingsHidden
+        areDrawingsHidden,
+        layout,
+        paneTabIds
       };
       
       saveAppState(stateToSave).catch(e => console.warn("Auto-save failed:", e));
     }, 1000);
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, areDrawingsHidden, isAppReady]);
+  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, areDrawingsHidden, isAppReady, layout, paneTabIds]);
 
 
   const activeTab = useMemo(() => 
@@ -261,6 +264,12 @@ const App: React.FC = () => {
 
   const handleSwitchTab = (id: string) => {
     setActiveTabId(id);
+    // If we switch via TabBar, we usually want the primary slot to follow
+    if (layout !== 'single') {
+        const newPanes = [...paneTabIds];
+        newPanes[0] = id;
+        setPaneTabIds(newPanes);
+    }
   };
 
   const readChunk = async (file: File, start: number, end: number): Promise<string> => {
@@ -332,7 +341,6 @@ const App: React.FC = () => {
           }
 
           const initialTf = forceTimeframe || Timeframe.M1;
-          // Fix: Ensure resampleData is treated as a callable function (Line 438 fix)
           const displayData = forceTimeframe ? parsedData : (resampleData as any)(parsedData, initialTf);
 
           const updates: Partial<TabSession> = {
@@ -482,164 +490,6 @@ const App: React.FC = () => {
       }
   };
 
-  const checkExistingFile = async (symbol: string, interval: string) => {
-      if (!databaseHandle) return null;
-      if (databaseHandle.isFallback) {
-          const filename = `${symbol}_${interval}.csv`;
-          const existing = databaseFiles.find(f => f.name === filename);
-          if (existing) {
-              try {
-                  const file = await (existing as any).getFile();
-                  const size = file.size;
-                  const start = Math.max(0, size - 500);
-                  const text = await readChunk(file, start, size);
-                  const lines = text.trim().split('\n');
-                  if (lines.length > 0) {
-                      const lastLine = lines[lines.length - 1];
-                      const dateStr = lastLine.split(',')[0];
-                      const time = new Date(dateStr).getTime();
-                      if (!isNaN(time)) return time;
-                  }
-              } catch(e) {}
-          }
-          return null;
-      }
-
-      const filename = `${symbol}_${interval}.csv`;
-      try {
-          const fileHandle = await databaseHandle.getFileHandle(filename);
-          const file = await fileHandle.getFile();
-          
-          const size = file.size;
-          const start = Math.max(0, size - 500);
-          const text = await readChunk(file, start, size);
-          
-          const lines = text.trim().split('\n');
-          if (lines.length > 0) {
-              const lastLine = lines[lines.length - 1];
-              const dateStr = lastLine.split(',')[0];
-              const time = new Date(dateStr).getTime();
-              if (!isNaN(time)) return time;
-          }
-      } catch (e) {
-      }
-      return null;
-  };
-
-  const handleDownloadData = async (symbol: string, interval: string, startTime: number, endTime: number, mode: 'new' | 'update') => {
-      const useFileSystem = databaseHandle && !databaseHandle.isFallback;
-      
-      if (mode === 'update' && !useFileSystem) {
-          if (!confirm("Cannot append to file in Read-Only mode. Download new data as a separate file?")) return;
-      }
-
-      setIsDownloading(true);
-      setDownloadProgress('Starting...');
-      
-      let writable = null;
-      let accumulatedCSV = '';
-      
-      try {
-          const filename = `${symbol}_${interval}.csv`;
-          
-          if (useFileSystem) {
-              try {
-                  const perm = await databaseHandle.queryPermission({ mode: 'readwrite' });
-                  if (perm !== 'granted') {
-                      const req = await databaseHandle.requestPermission({ mode: 'readwrite' });
-                      if (req !== 'granted') throw new Error("Permission denied");
-                  }
-                  
-                  const fileHandle = await databaseHandle.getFileHandle(filename, { create: true });
-                  
-                  if (mode === 'update') {
-                      writable = await fileHandle.createWritable({ keepExistingData: true });
-                      const file = await fileHandle.getFile();
-                      writable.seek(file.size);
-                  } else {
-                      writable = await fileHandle.createWritable();
-                  }
-              } catch (e) {
-                  console.error("FileSystem Error:", e);
-                  alert("Failed to write to database folder. Attempting browser download instead.");
-              }
-          }
-
-          let currentStartTime = startTime;
-          const now = Date.now();
-          let totalDownloaded = 0;
-
-          while (currentStartTime < endTime) {
-              if (currentStartTime > now + 60000) break;
-
-              // Fixed: Added endTime parameter to support range fetching as requested by App.tsx (Line 570 fix)
-              const candles = await fetchBinanceKlines(symbol, interval, currentStartTime, 1000, endTime);
-              
-              if (candles.length === 0) break;
-              
-              const validCandles = candles.filter(c => c.openTime <= endTime);
-              
-              if (validCandles.length === 0) break;
-
-              const lines = validCandles.map(c => {
-                  const date = new Date(c.openTime).toISOString();
-                  return `${date},${c.open},${c.high},${c.low},${c.close},${c.volume}`;
-              }).join('\n');
-              
-              if (writable) {
-                  const prefix = (mode === 'update' || totalDownloaded > 0) ? '\n' : '';
-                  await writable.write(prefix + lines);
-              } else {
-                  const prefix = (accumulatedCSV.length > 0) ? '\n' : '';
-                  accumulatedCSV += prefix + lines;
-              }
-              
-              totalDownloaded += validCandles.length;
-              setDownloadProgress(`Downloaded ${totalDownloaded} candles...`);
-              
-              const lastCandle = validCandles[validCandles.length - 1];
-              
-              if (validCandles.length < candles.length) break;
-
-              currentStartTime = lastCandle.closeTime + 1;
-              
-              await new Promise(r => setTimeout(r, 100));
-          }
-          
-          if (writable) {
-              await writable.close();
-              const files = await scanRecursive(databaseHandle);
-              setDatabaseFiles(files);
-          } else {
-              if (accumulatedCSV.length > 0) {
-                  const blob = new Blob([accumulatedCSV], { type: 'text/csv;charset=utf-8;' });
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement("a");
-                  link.setAttribute("href", url);
-                  link.setAttribute("download", filename);
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-              } else {
-                  alert("No data found for the selected range.");
-              }
-          }
-          
-          setDownloadProgress('Done!');
-          if (totalDownloaded > 0) {
-              alert(`Successfully downloaded ${totalDownloaded} candles for ${symbol}.`);
-              setIsDownloadDialogOpen(false);
-          }
-
-      } catch (e: any) {
-          console.error("Download failed:", e);
-          alert(`Download failed: ${e.message}`);
-      } finally {
-          setIsDownloading(false);
-          setDownloadProgress('');
-      }
-  };
-
   const handleTimeframeChange = async (id: string, tf: Timeframe) => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
@@ -775,6 +625,25 @@ const App: React.FC = () => {
     } else if (action === 'rename') {
         const newTitle = prompt("Enter new name for this chart:", activeTab.title);
         if (newTitle) updateActiveTab({ title: newTitle });
+    } else if (action === 'full') {
+        setLayout('single');
+    } else if (action === 'split-2x') {
+        setLayout('split-2');
+        // Fill panes with existing tabs or duplicates if needed
+        const newPaneIds = [activeTabId, '', '', ''];
+        const otherTab = tabs.find(t => t.id !== activeTabId);
+        if (otherTab) newPaneIds[1] = otherTab.id;
+        else newPaneIds[1] = activeTabId;
+        setPaneTabIds(newPaneIds);
+    } else if (action === 'split-4x') {
+        setLayout('split-4');
+        const newPaneIds = [activeTabId, '', '', ''];
+        // Best effort to fill slots
+        const others = tabs.filter(t => t.id !== activeTabId);
+        for(let i=1; i<4; i++) {
+            newPaneIds[i] = others[i-1]?.id || activeTabId;
+        }
+        setPaneTabIds(newPaneIds);
     }
   };
 
@@ -786,7 +655,6 @@ const App: React.FC = () => {
       }
       
       if (window.confirm('Are you sure you want to remove all drawings from this chart?')) {
-          // Fix: Perform an atomic update to prevent race conditions with history
           updateActiveTab({ 
               undoStack: [...activeTab.undoStack.slice(-49), activeTab.drawings],
               redoStack: [],
@@ -907,6 +775,36 @@ const App: React.FC = () => {
 
   const currentSymbolName = getBaseSymbolName(activeTab.title);
 
+  // Helper for rendering multiple workspaces
+  const renderWorkspace = (paneIndex: number) => {
+      const tabId = paneTabIds[paneIndex];
+      const tab = tabs.find(t => t.id === tabId) || tabs[0];
+      if (!tab) return null;
+      
+      return (
+        <ChartWorkspace 
+            key={`${paneIndex}-${tab.id}`}
+            tab={tab} 
+            updateTab={(updates) => updateTab(tab.id, updates)}
+            onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
+            loading={paneIndex === 0 ? loading : false}
+            favoriteTools={favoriteTools}
+            onSelectTool={setActiveToolId}
+            activeToolId={activeToolId}
+            isFavoritesBarVisible={paneIndex === 0 ? isFavoritesBarVisible : false}
+            onSaveHistory={handleSaveHistory}
+            onRequestHistory={handleRequestHistory}
+            
+            areDrawingsLocked={areDrawingsLocked}
+            areDrawingsHidden={areDrawingsHidden}
+            isMagnetMode={isMagnetMode}
+            isStayInDrawingMode={isStayInDrawingMode}
+            onFocus={() => setActiveTabId(tab.id)}
+            isFocused={tab.id === activeTabId}
+        />
+      );
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
       
@@ -929,18 +827,6 @@ const App: React.FC = () => {
         onFileSelect={handleLibraryFileSelect}
         onConnectDatabase={handleConnectDatabase}
         isConnected={!!databaseHandle}
-      />
-
-      <DownloadDialog 
-        isOpen={isDownloadDialogOpen}
-        onClose={() => setIsDownloadDialogOpen(false)}
-        onDownload={handleDownloadData}
-        checkExistingFile={checkExistingFile}
-        isDownloading={isDownloading}
-        progress={downloadProgress}
-        onConnectDatabase={handleConnectDatabase}
-        isConnected={!!databaseHandle && !databaseHandle?.isFallback}
-        databaseName={databaseHandle?.name}
       />
 
       <TabBar 
@@ -977,8 +863,8 @@ const App: React.FC = () => {
         isTradingPanelOpen={isTradingPanelOpen}
         isLibraryOpen={isLibraryOpen}
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
-        onOpenDownloadDialog={() => setIsDownloadDialogOpen(true)}
         onClearAll={handleClearAll}
+        currentLayout={layout}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -1025,23 +911,22 @@ const App: React.FC = () => {
                     </button>
                 </div>
             ) : (
-                <ChartWorkspace 
-                    tab={activeTab} 
-                    updateTab={(updates) => updateActiveTab(updates)}
-                    onTimeframeChange={(tf) => handleTimeframeChange(activeTab.id, tf)}
-                    loading={loading}
-                    favoriteTools={favoriteTools}
-                    onSelectTool={setActiveToolId}
-                    activeToolId={activeToolId}
-                    isFavoritesBarVisible={isFavoritesBarVisible}
-                    onSaveHistory={handleSaveHistory}
-                    onRequestHistory={handleRequestHistory}
-                    
-                    areDrawingsLocked={areDrawingsLocked}
-                    areDrawingsHidden={areDrawingsHidden}
-                    isMagnetMode={isMagnetMode}
-                    isStayInDrawingMode={isStayInDrawingMode}
-                />
+                <div className={`flex-1 grid gap-1 overflow-hidden h-full ${
+                    layout === 'split-4' 
+                        ? 'grid-cols-2 grid-rows-2' 
+                        : layout === 'split-2' 
+                            ? 'grid-cols-2' 
+                            : 'grid-cols-1'
+                }`}>
+                    {renderWorkspace(0)}
+                    {layout !== 'single' && renderWorkspace(1)}
+                    {layout === 'split-4' && (
+                        <>
+                            {renderWorkspace(2)}
+                            {renderWorkspace(3)}
+                        </>
+                    )}
+                </div>
             )}
         </div>
 

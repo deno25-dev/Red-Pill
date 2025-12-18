@@ -27,6 +27,8 @@ interface ChartWorkspaceProps {
   isStayInDrawingMode?: boolean;
   isLayersPanelOpen?: boolean;
   onToggleLayers?: () => void;
+  onFocus?: () => void;
+  isFocused?: boolean;
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -45,7 +47,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   isMagnetMode = false,
   isStayInDrawingMode = false,
   isLayersPanelOpen = false,
-  onToggleLayers
+  onToggleLayers,
+  onFocus,
+  isFocused = true
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
@@ -431,7 +435,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const toolbarStartPos = useRef({ x: 0, y: 0 });
 
   // Determine if toolbar should be shown: active drawing tool OR selected drawing
-  const isToolbarVisible = selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser');
+  // Cursors (cross, dot, arrow) are not drawing tools and shouldn't trigger the toolbar.
+  const isToolbarVisible = selectedDrawingId !== null || (activeToolId && !['cross', 'dot', 'arrow'].includes(activeToolId));
 
   // Initialize position
   useEffect(() => {
@@ -583,7 +588,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   }, [selectedDrawingId, tab.drawings, activeToolId]);
 
   return (
-    <div className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
+    <div 
+        className={`flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a] transition-all ${isFocused ? 'ring-1 ring-blue-500/30' : 'opacity-80'}`}
+        onMouseDown={onFocus}
+    >
         {/* Chart Header Info Overlay */}
         <div 
           onMouseDown={handleHeaderMouseDown}
@@ -691,7 +699,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         </div>
 
         {/* Favorites Floating Bar */}
-        {isFavoritesBarVisible && favoriteTools.length > 0 && (
+        {isFocused && isFavoritesBarVisible && favoriteTools.length > 0 && (
             <div
                 ref={favBarRef}
                 onMouseDown={handleFavMouseDown}
@@ -727,19 +735,21 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         )}
         
         {/* Drawing Properties Toolbar */}
-        <DrawingToolbar 
-           isVisible={isToolbarVisible}
-           properties={activeProperties}
-           onChange={handleDrawingPropertyChange}
-           onDelete={deleteSelectedDrawing}
-           isSelection={selectedDrawingId !== null}
-           position={toolbarPos.x !== 0 ? toolbarPos : undefined}
-           onDragStart={handleToolbarMouseDown}
-           drawingType={selectedDrawingType}
-        />
+        {isFocused && (
+            <DrawingToolbar 
+                isVisible={isToolbarVisible}
+                properties={activeProperties}
+                onChange={handleDrawingPropertyChange}
+                onDelete={deleteSelectedDrawing}
+                isSelection={selectedDrawingId !== null}
+                position={toolbarPos.x !== 0 ? toolbarPos : undefined}
+                onDragStart={handleToolbarMouseDown}
+                drawingType={selectedDrawingType}
+            />
+        )}
         
         {/* Layers Panel */}
-        {isLayersPanelOpen && (
+        {isFocused && isLayersPanelOpen && (
             <LayersPanel 
                 drawings={tab.drawings}
                 groups={tab.groups}
@@ -841,11 +851,11 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             drawings={tab.drawings}
             groups={tab.groups}
             onUpdateDrawings={(drawings) => updateTab({ drawings })}
-            activeToolId={activeToolId || 'cross'}
+            activeToolId={isFocused ? (activeToolId || 'cross') : 'cross'}
             onToolComplete={handleToolComplete}
             currentDefaultProperties={defaultDrawingProperties}
-            selectedDrawingId={selectedDrawingId}
-            onSelectDrawing={setSelectedDrawingId}
+            selectedDrawingId={isFocused ? selectedDrawingId : null}
+            onSelectDrawing={isFocused ? setSelectedDrawingId : () => {}}
             onActionStart={onSaveHistory}
             isReplaySelecting={tab.isReplaySelecting}
             onReplayPointSelect={handleReplayPointSelect}
@@ -857,11 +867,13 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         </div>
 
         {/* Trade & Order Book Panel */}
-        <BottomPanel 
-            isOpen={isBottomPanelOpen} 
-            onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} 
-            trades={tab.trades || []} 
-        />
+        {isFocused && (
+            <BottomPanel 
+                isOpen={isBottomPanelOpen} 
+                onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} 
+                trades={tab.trades || []} 
+            />
+        )}
 
         {/* Status Bar */}
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
@@ -874,18 +886,12 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             
             <div className="flex items-center gap-4">
                <span className="hidden md:inline text-slate-600">
-                   Red Pill Charting v0.2.1 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}
+                   {tab.title} • {tab.timeframe}
                </span>
                <div className="w-px h-3 bg-slate-700 hidden md:block"></div>
                <span className="font-mono text-slate-400 flex items-center gap-2">
                    <span>
-                    {currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}
-                   </span>
-                   <span>
                     {currentDate.toLocaleTimeString('en-GB', { hour12: false })}
-                   </span>
-                   <span className="text-slate-500 text-[9px] uppercase border border-slate-700 px-1 rounded">
-                       {Intl.DateTimeFormat().resolvedOptions().timeZone}
                    </span>
                </span>
             </div>

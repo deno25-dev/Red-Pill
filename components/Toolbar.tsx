@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -34,8 +33,7 @@ import {
   Folder,
   Search,
   Trash2,
-  Layers,
-  CloudDownload
+  Layers
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -66,7 +64,7 @@ interface ToolbarProps {
   onClearAll?: () => void;
   onToggleLayers?: () => void;
   isLayersOpen?: boolean;
-  onOpenDownloadDialog?: () => void;
+  currentLayout?: 'single' | 'split-2' | 'split-4';
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -97,7 +95,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onClearAll,
   onToggleLayers,
   isLayersOpen,
-  onOpenDownloadDialog
+  currentLayout = 'single'
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -263,17 +261,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
 
-                 {/* Download Data */}
-                 <button
-                    onClick={() => { setIsToolsOpen(false); onOpenDownloadDialog?.(); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                >
-                    <CloudDownload size={16} className="text-sky-400" />
-                    Download Data
-                </button>
-
-                <div className="h-px bg-[#334155] my-1 mx-2"></div>
-
                 {/* Indicators Submenu */}
                 <div className="relative group/indicators w-full">
                     <button
@@ -337,26 +324,35 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 {/* Full Chart */}
                 <button 
                   onClick={() => handleLayoutClick('full')}
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
+                  className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
                 >
-                    <Maximize size={16} className="text-slate-400" />
-                    <span>Full Chart</span>
+                    <div className="flex items-center gap-3">
+                        <Maximize size={16} className="text-slate-400" />
+                        <span>Full Chart</span>
+                    </div>
+                    {currentLayout === 'single' && <Check size={14} className="text-blue-400" />}
                 </button>
                 {/* Split 2x */}
                  <button 
                    onClick={() => handleLayoutClick('split-2x')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
+                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
                  >
-                    <Columns2 size={16} className="text-slate-400" />
-                    <span>Split Chart 2x</span>
+                    <div className="flex items-center gap-3">
+                        <Columns2 size={16} className="text-slate-400" />
+                        <span>Split Chart 2x</span>
+                    </div>
+                    {currentLayout === 'split-2' && <Check size={14} className="text-blue-400" />}
                 </button>
                 {/* Split 4x */}
                  <button 
                    onClick={() => handleLayoutClick('split-4x')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
+                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
                  >
-                    <Grid2x2 size={16} className="text-slate-400" />
-                    <span>Split Chart 4x</span>
+                    <div className="flex items-center gap-3">
+                        <Grid2x2 size={16} className="text-slate-400" />
+                        <span>Split Chart 4x</span>
+                    </div>
+                    {currentLayout === 'split-4' && <Check size={14} className="text-blue-400" />}
                 </button>
                 
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
