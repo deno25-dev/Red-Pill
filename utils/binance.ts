@@ -1,3 +1,4 @@
+
 import { Timeframe } from '../types';
 
 export const BINANCE_INTERVALS = [
@@ -64,13 +65,15 @@ const robustFetch = async (endpoint: string) => {
   }
 };
 
+// Fixed: Added endTime parameter to support range fetching as requested by App.tsx (Line 570 fix)
 export const fetchBinanceKlines = async (
   symbol: string,
   interval: string,
   startTime: number,
-  limit: number = 1000
+  limit: number = 1000,
+  endTime?: number
 ): Promise<BinanceKline[]> => {
-  const endpoint = `/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&limit=${limit}`;
+  const endpoint = `/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&limit=${limit}${endTime ? `&endTime=${endTime}` : ''}`;
   
   const data = await robustFetch(endpoint);
   

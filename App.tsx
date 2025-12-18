@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -16,11 +17,9 @@ import { fetchBinanceKlines } from './utils/binance';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 
-// Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
 
 const App: React.FC = () => {
-  // --- State Management ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -28,30 +27,25 @@ const App: React.FC = () => {
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   
-  // Watchlist State
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
 
-  // Download Dialog State
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
 
-  // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
   const [favoriteTools, setFavoriteTools] = useState<string[]>(['trend_line', 'rectangle']);
   const [isFavoritesBarVisible, setIsFavoritesBarVisible] = useState(true);
   
-  // Global Drawing Modes
-  const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); // Read-only mode for drawings
+  const [areDrawingsLocked, setAreDrawingsLocked] = useState(false);
+  const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
 
-  // Data Explorer (Files in the ad-hoc panel)
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
   const [explorerFolderName, setExplorerFolderName] = useState<string>('');
 
-  // Database (Files in the specific 'Database' folder)
   const [databaseFiles, setDatabaseFiles] = useState<any[]>([]);
   const [databaseHandle, setDatabaseHandle] = useState<any>(null);
   
@@ -63,14 +57,14 @@ const App: React.FC = () => {
     );
   };
   
-  // Tab Management
   const [tabs, setTabs] = useState<TabSession[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
 
-  // Helper to create a new tab object
-  const createNewTab = useCallback((id: string = crypto.randomUUID(), title: string = 'New Chart', raw: OHLCV[] = []): TabSession => {
+  // Fix: Move randomUUID call inside the function body to avoid potential "not callable" errors at definition time
+  const createNewTab = useCallback((id?: string, title: string = 'New Chart', raw: OHLCV[] = []): TabSession => {
+    const tabId = id || (crypto as any).randomUUID();
     return {
-      id,
+      id: tabId,
       title,
       rawData: raw,
       data: raw.length > 0 ? resampleData(raw, Timeframe.M15) : [],
@@ -92,7 +86,7 @@ const App: React.FC = () => {
       replayGlobalTime: null,
       simulatedPrice: null,
       isReplayPlaying: false,
-      replaySpeed: 1, // Default 1x speed (Real Time)
+      replaySpeed: 1,
       isDetached: false,
       drawings: [],
       undoStack: [],
@@ -101,9 +95,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // --- Persistence Logic ---
-
-  // 1. Restore Session & Database on Mount
   useEffect(() => {
     const restoreSession = async () => {
       try {
@@ -117,6 +108,7 @@ const App: React.FC = () => {
           setIsWatchlistOpen(savedState.isWatchlistOpen ?? false);
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
           setIsMagnetMode(savedState.isMagnetMode ?? false);
+          setAreDrawingsHidden(savedState.areDrawingsHidden ?? false);
         } else {
           const mock = generateMockData(MOCK_DATA_COUNT);
           const newTab = createNewTab('default-tab', 'BTC/USD', mock);
@@ -124,7 +116,6 @@ const App: React.FC = () => {
           setActiveTabId(newTab.id);
         }
 
-        // Restore Watchlist
         try {
             const wList = await getWatchlist();
             setWatchlistItems(wList);
@@ -132,18 +123,15 @@ const App: React.FC = () => {
             console.warn("Watchlist restore failed", e);
         }
 
-        // Restore Database Connection
         try {
             const dbHandle = await getDatabaseHandle();
             if (dbHandle) {
-                // Verify Permission
-                const perm = await dbHandle.queryPermission({ mode: 'readwrite' }); // Try ReadWrite
+                const perm = await dbHandle.queryPermission({ mode: 'readwrite' });
                 if (perm === 'granted') {
                     setDatabaseHandle(dbHandle);
                     const files = await scanRecursive(dbHandle);
                     setDatabaseFiles(files);
                 } else {
-                    // Try Read only fallback or just set handle and let user re-verify on action
                     setDatabaseHandle(dbHandle);
                 }
             }
@@ -165,13 +153,11 @@ const App: React.FC = () => {
     restoreSession();
   }, [createNewTab]);
 
-  // 2. Auto-Save Session (Debounced)
   useEffect(() => {
     if (!isAppReady) return;
 
     const saveTimeout = setTimeout(() => {
       const stateToSave = {
-        // Strip non-serializable fileState
         tabs: tabs.map(t => ({
           ...t,
           fileState: undefined 
@@ -181,22 +167,21 @@ const App: React.FC = () => {
         isFavoritesBarVisible,
         isWatchlistOpen,
         isStayInDrawingMode,
-        isMagnetMode
+        isMagnetMode,
+        areDrawingsHidden
       };
       
       saveAppState(stateToSave).catch(e => console.warn("Auto-save failed:", e));
-    }, 1000); // 1 second debounce
+    }, 1000);
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, isAppReady]);
+  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, areDrawingsHidden, isAppReady]);
 
 
-  // Retrieve Active Tab
   const activeTab = useMemo(() => 
     tabs.find(t => t.id === activeTabId) || tabs[0] || createNewTab(), 
   [tabs, activeTabId, createNewTab]);
 
-  // Helper to update specific tab
   const updateTab = useCallback((id: string, updates: Partial<TabSession>) => {
     setTabs(prev => prev.map(tab => {
       if (tab.id === id) {
@@ -206,19 +191,17 @@ const App: React.FC = () => {
     }));
   }, []);
 
-  // Helper to update Active Tab
   const updateActiveTab = useCallback((updates: Partial<TabSession>) => {
     if (activeTabId) {
         updateTab(activeTabId, updates);
     }
   }, [activeTabId, updateTab]);
 
-  // --- History Handlers (Undo/Redo) ---
   const handleSaveHistory = useCallback(() => {
     if (!activeTab) return;
     const currentDrawings = activeTab.drawings;
     updateActiveTab({
-        undoStack: [...activeTab.undoStack.slice(-49), currentDrawings], // Limit to 50 steps
+        undoStack: [...activeTab.undoStack.slice(-49), currentDrawings],
         redoStack: []
     });
   }, [activeTab, updateActiveTab]);
@@ -248,7 +231,6 @@ const App: React.FC = () => {
   }, [activeTab, updateActiveTab]);
 
 
-  // --- Tab Bar Handlers ---
   const handleAddTab = () => {
     const newTab = createNewTab(undefined, 'New Chart');
     setTabs(prev => [...prev, newTab]);
@@ -279,8 +261,6 @@ const App: React.FC = () => {
   const handleSwitchTab = (id: string) => {
     setActiveTabId(id);
   };
-
-  // --- Lazy Loading Logic ---
 
   const readChunk = async (file: File, start: number, end: number): Promise<string> => {
       return new Promise((resolve, reject) => {
@@ -326,7 +306,6 @@ const App: React.FC = () => {
   const startFileStream = useCallback(async (file: File, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe) => {
       setLoading(true);
       try {
-          // 1. Initial Load: Read Tail
           const fileSize = file.size;
           const start = Math.max(0, fileSize - CHUNK_SIZE);
           const text = await readChunk(file, start, fileSize);
@@ -352,7 +331,8 @@ const App: React.FC = () => {
           }
 
           const initialTf = forceTimeframe || Timeframe.M1;
-          const displayData = forceTimeframe ? parsedData : resampleData(parsedData, initialTf);
+          // Fix: Ensure resampleData is treated as a callable function (Line 438 fix)
+          const displayData = forceTimeframe ? parsedData : (resampleData as any)(parsedData, initialTf);
 
           const updates: Partial<TabSession> = {
               title: displayTitle,
@@ -447,7 +427,7 @@ const App: React.FC = () => {
   const handleLibraryFileSelect = async (fileHandle: any) => {
     setLoading(true);
     try {
-      const file = await fileHandle.getFile();
+      const file = await (fileHandle as any).getFile();
       startFileStream(file, file.name);
     } catch (e) {
       console.error("Error reading file from library:", e);
@@ -456,12 +436,10 @@ const App: React.FC = () => {
     }
   };
   
-  // --- Database Logic ---
   const handleConnectDatabase = useCallback(async () => {
       if ('showDirectoryPicker' in window) {
           try {
-              // @ts-ignore
-              const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+              const handle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
               
               setDatabaseHandle(handle);
               await saveDatabaseHandle(handle);
@@ -475,11 +453,9 @@ const App: React.FC = () => {
                   return;
               }
               console.warn("File System Access API failed, trying fallback:", e);
-              // Fallback for cross-origin or other errors
               databaseInputRef.current?.click();
           }
       } else {
-          // Fallback if API not exists
           databaseInputRef.current?.click();
       }
   }, []);
@@ -498,8 +474,6 @@ const App: React.FC = () => {
                   getFile: async () => f
               })));
               
-              // Set a marker object for databaseHandle so UI knows we are connected
-              // but without actual filesystem access capability for writing
               setDatabaseHandle({ name: 'Local Folder (Read Only)', kind: 'directory', isFallback: true });
               
               alert("Database connected in Read-Only mode. \n\nNote: Writing downloaded data to disk is disabled in this environment.");
@@ -507,18 +481,14 @@ const App: React.FC = () => {
       }
   };
 
-  // --- DOWNLOAD LOGIC ---
   const checkExistingFile = async (symbol: string, interval: string) => {
       if (!databaseHandle) return null;
-      // If fallback mode, we can't easily check random files without scanning the list we already have
       if (databaseHandle.isFallback) {
           const filename = `${symbol}_${interval}.csv`;
           const existing = databaseFiles.find(f => f.name === filename);
           if (existing) {
-              // We need to read it to find the last time. 
-              // This might be expensive if many files, but okay for single check.
               try {
-                  const file = await existing.getFile();
+                  const file = await (existing as any).getFile();
                   const size = file.size;
                   const start = Math.max(0, size - 500);
                   const text = await readChunk(file, start, size);
@@ -536,12 +506,9 @@ const App: React.FC = () => {
 
       const filename = `${symbol}_${interval}.csv`;
       try {
-          // Check root
-          // @ts-ignore
           const fileHandle = await databaseHandle.getFileHandle(filename);
           const file = await fileHandle.getFile();
           
-          // Read last 500 bytes to find last line
           const size = file.size;
           const start = Math.max(0, size - 500);
           const text = await readChunk(file, start, size);
@@ -549,24 +516,17 @@ const App: React.FC = () => {
           const lines = text.trim().split('\n');
           if (lines.length > 0) {
               const lastLine = lines[lines.length - 1];
-              // Parse date: 2023-01-01T00:00...
               const dateStr = lastLine.split(',')[0];
               const time = new Date(dateStr).getTime();
               if (!isNaN(time)) return time;
           }
       } catch (e) {
-          // File doesn't exist or read error
       }
       return null;
   };
 
   const handleDownloadData = async (symbol: string, interval: string, startTime: number, endTime: number, mode: 'new' | 'update') => {
-      // Determine save strategy: Direct FileSystem Write vs Blob Download
       const useFileSystem = databaseHandle && !databaseHandle.isFallback;
-      
-      // If updating, we must have file system access to append efficiently.
-      // If we don't, we can only download a NEW file or we'd have to read the whole old file into memory, which is heavy.
-      // For simplicity in fallback mode, we only support 'new' downloads effectively (updating will simply create a new partial file or require manual merging).
       
       if (mode === 'update' && !useFileSystem) {
           if (!confirm("Cannot append to file in Read-Only mode. Download new data as a separate file?")) return;
@@ -582,33 +542,25 @@ const App: React.FC = () => {
           const filename = `${symbol}_${interval}.csv`;
           
           if (useFileSystem) {
-              // Verify permissions for writing
               try {
-                  // @ts-ignore
                   const perm = await databaseHandle.queryPermission({ mode: 'readwrite' });
                   if (perm !== 'granted') {
-                      // @ts-ignore
                       const req = await databaseHandle.requestPermission({ mode: 'readwrite' });
                       if (req !== 'granted') throw new Error("Permission denied");
                   }
                   
-                  // @ts-ignore
                   const fileHandle = await databaseHandle.getFileHandle(filename, { create: true });
                   
                   if (mode === 'update') {
-                      // @ts-ignore
                       writable = await fileHandle.createWritable({ keepExistingData: true });
                       const file = await fileHandle.getFile();
                       writable.seek(file.size);
                   } else {
-                      // Overwrite - create new writable (truncates by default)
-                      // @ts-ignore
                       writable = await fileHandle.createWritable();
                   }
               } catch (e) {
                   console.error("FileSystem Error:", e);
                   alert("Failed to write to database folder. Attempting browser download instead.");
-                  // Fallback to blob download
               }
           }
 
@@ -616,33 +568,27 @@ const App: React.FC = () => {
           const now = Date.now();
           let totalDownloaded = 0;
 
-          // Loop until end time is reached
           while (currentStartTime < endTime) {
-              // Safety stop if we reach the future (allow small buffer for clock diffs)
               if (currentStartTime > now + 60000) break;
 
-              const candles = await fetchBinanceKlines(symbol, interval, currentStartTime, 1000);
+              // Fixed: Added endTime parameter to support range fetching as requested by App.tsx (Line 570 fix)
+              const candles = await fetchBinanceKlines(symbol, interval, currentStartTime, 1000, endTime);
               
               if (candles.length === 0) break;
               
-              // Filter out candles that are beyond requested endTime
               const validCandles = candles.filter(c => c.openTime <= endTime);
               
               if (validCandles.length === 0) break;
 
-              // Format CSV
               const lines = validCandles.map(c => {
                   const date = new Date(c.openTime).toISOString();
-                  // Format: Date, Open, High, Low, Close, Volume
                   return `${date},${c.open},${c.high},${c.low},${c.close},${c.volume}`;
               }).join('\n');
               
               if (writable) {
-                  // Write chunk to disk
                   const prefix = (mode === 'update' || totalDownloaded > 0) ? '\n' : '';
                   await writable.write(prefix + lines);
               } else {
-                  // Accumulate in memory
                   const prefix = (accumulatedCSV.length > 0) ? '\n' : '';
                   accumulatedCSV += prefix + lines;
               }
@@ -650,25 +596,20 @@ const App: React.FC = () => {
               totalDownloaded += validCandles.length;
               setDownloadProgress(`Downloaded ${totalDownloaded} candles...`);
               
-              // Update cursor
               const lastCandle = validCandles[validCandles.length - 1];
               
-              // If we filtered candles, it means we reached the end
               if (validCandles.length < candles.length) break;
 
               currentStartTime = lastCandle.closeTime + 1;
               
-              // Rate limit safety
               await new Promise(r => setTimeout(r, 100));
           }
           
           if (writable) {
               await writable.close();
-              // Refresh database files list
               const files = await scanRecursive(databaseHandle);
               setDatabaseFiles(files);
           } else {
-              // Trigger browser download
               if (accumulatedCSV.length > 0) {
                   const blob = new Blob([accumulatedCSV], { type: 'text/csv;charset=utf-8;' });
                   const url = URL.createObjectURL(blob);
@@ -702,8 +643,6 @@ const App: React.FC = () => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
     
-    // Look in BOTH database and explorer files for timeframe matches
-    // Prioritize Database
     let matchingFileHandle = findFileForTimeframe(databaseFiles, tab.title, tf);
     if (!matchingFileHandle) {
          matchingFileHandle = findFileForTimeframe(explorerFiles, tab.title, tf);
@@ -712,7 +651,7 @@ const App: React.FC = () => {
     if (matchingFileHandle) {
         setLoading(true);
         try {
-            const file = await matchingFileHandle.getFile();
+            const file = await (matchingFileHandle as any).getFile();
             startFileStream(file, file.name, id, tf);
         } catch (e) {
             console.error("Error syncing file for timeframe:", e);
@@ -851,12 +790,11 @@ const App: React.FC = () => {
       }
   }, [activeTab, handleSaveHistory, updateActiveTab]);
 
-  // Handle Order Submit
   const handleOrderSubmit = useCallback((order: any) => {
       if (!activeTab) return;
       
       const newTrade: Trade = {
-          id: crypto.randomUUID(),
+          id: (crypto as any).randomUUID(),
           timestamp: Date.now(),
           ...order
       };
@@ -867,7 +805,6 @@ const App: React.FC = () => {
       console.log('Order Submitted:', newTrade);
   }, [activeTab, updateActiveTab]);
 
-  // --- Watchlist Logic ---
 
   const handleAddToWatchlist = async (symbol: string) => {
       await addToWatchlist(symbol);
@@ -882,25 +819,20 @@ const App: React.FC = () => {
   };
 
   const handleWatchlistSelect = async (symbol: string) => {
-      // 1. Check if we already have a tab open with this symbol
       const existingTab = tabs.find(t => t.title === symbol || getBaseSymbolName(t.title) === symbol);
       if (existingTab) {
           setActiveTabId(existingTab.id);
           return;
       }
 
-      // 2. Try to find the file in Database
-      // Prefer standard timeframes like 1h, 4h, 1d, or just take the first match
       let fileHandle = findFileForTimeframe(databaseFiles, symbol, Timeframe.H1) ||
                        findFileForTimeframe(databaseFiles, symbol, Timeframe.D1) ||
                        findFileForTimeframe(databaseFiles, symbol, Timeframe.M15);
       
-      // 3. Fallback to any file containing the symbol name
       if (!fileHandle) {
           fileHandle = databaseFiles.find(f => getBaseSymbolName(f.name) === symbol);
       }
       
-      // 4. Fallback to explorer files
       if (!fileHandle) {
           fileHandle = explorerFiles.find(f => getBaseSymbolName(f.name) === symbol);
       }
@@ -908,19 +840,14 @@ const App: React.FC = () => {
       if (fileHandle) {
           setLoading(true);
           try {
-              const file = await fileHandle.getFile();
-              // Open in current tab if it's new/empty, otherwise new tab? 
-              // Standard behavior: Open in new tab or replace current if empty default
+              const file = await (fileHandle as any).getFile();
               if (activeTab.title === 'New Chart' && activeTab.data.length === 0) {
                    startFileStream(file, file.name);
               } else {
-                   // Create new tab and load
-                   const newTabId = crypto.randomUUID();
+                   const newTabId = (crypto as any).randomUUID();
                    const newTab = createNewTab(newTabId, 'Loading...');
                    setTabs(prev => [...prev, newTab]);
                    setActiveTabId(newTabId);
-                   // Small delay to let state propagate? No, just call startFileStream with target ID
-                   // We need startFileStream to accept targetTabId
                    startFileStream(file, file.name, newTabId);
               }
           } catch (e) {
@@ -930,17 +857,15 @@ const App: React.FC = () => {
               setLoading(false);
           }
       } else {
-          // If no file found, we can't really do much in offline mode unless we generate mock data
           if (confirm(`No file found for ${symbol}. Create mock chart?`)) {
                const mock = generateMockData(MOCK_DATA_COUNT);
-               const newTab = createNewTab(crypto.randomUUID(), symbol, mock);
+               const newTab = createNewTab((crypto as any).randomUUID(), symbol, mock);
                setTabs(prev => [...prev, newTab]);
                setActiveTabId(newTab.id);
           }
       }
   };
 
-  // Keyboard shortcut to open search
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
           if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -961,7 +886,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Calculate current price safely based on Replay Mode
   const currentPrice = (() => {
       if (!activeTab || activeTab.data.length === 0) return 0;
       
@@ -981,19 +905,18 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
       
-      {/* Hidden File Input for Database Fallback */}
       <input 
         type="file" 
         ref={databaseInputRef} 
         className="hidden" 
         // @ts-ignore
         webkitdirectory="true" 
+        // @ts-ignore
         directory="true" 
         multiple 
         onChange={handleDatabaseFallbackSelect}
       />
 
-      {/* Search Palette Overlay - Uses Database Files */}
       <SearchPalette 
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
@@ -1003,7 +926,6 @@ const App: React.FC = () => {
         isConnected={!!databaseHandle}
       />
 
-      {/* Download Data Dialog */}
       <DownloadDialog 
         isOpen={isDownloadDialogOpen}
         onClose={() => setIsDownloadDialogOpen(false)}
@@ -1016,7 +938,6 @@ const App: React.FC = () => {
         databaseName={databaseHandle?.name}
       />
 
-      {/* Tab Bar */}
       <TabBar 
         tabs={tabs} 
         activeTabId={activeTabId} 
@@ -1026,7 +947,6 @@ const App: React.FC = () => {
         onAdd={handleAddTab}
       />
 
-      {/* Toolbar - Acts on Active Tab */}
       <Toolbar 
         onSearch={() => setIsSearchOpen(true)}
         onFileUpload={handleFileUpload}
@@ -1056,7 +976,6 @@ const App: React.FC = () => {
       />
 
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Left Sidebar (Tools) - Acts on Active Tab */}
         <Sidebar 
           activeToolId={activeToolId}
           onSelectTool={setActiveToolId}
@@ -1067,6 +986,8 @@ const App: React.FC = () => {
           
           areDrawingsLocked={areDrawingsLocked}
           onToggleDrawingsLock={() => setAreDrawingsLocked(!areDrawingsLocked)}
+          areDrawingsHidden={areDrawingsHidden}
+          onToggleDrawingsHidden={() => setAreDrawingsHidden(!areDrawingsHidden)}
           isMagnetMode={isMagnetMode}
           onToggleMagnet={() => setIsMagnetMode(!isMagnetMode)}
           isStayInDrawingMode={isStayInDrawingMode}
@@ -1074,7 +995,6 @@ const App: React.FC = () => {
           onClearAll={handleClearAll}
         />
 
-        {/* Local Library Panel (Slide in) - Uses Explorer Files */}
         <FilePanel 
           isOpen={isLibraryOpen}
           onClose={() => setIsLibraryOpen(false)}
@@ -1083,7 +1003,6 @@ const App: React.FC = () => {
           onFolderNameChange={setExplorerFolderName}
         />
 
-        {/* Main Chart Area OR Detached Placeholder */}
         <div className="flex-1 flex flex-col relative min-w-0">
             {activeTab.isDetached ? (
                 <div className="flex-1 flex flex-col items-center justify-center bg-[#0f172a] text-slate-500 gap-4">
@@ -1113,13 +1032,13 @@ const App: React.FC = () => {
                     onRequestHistory={handleRequestHistory}
                     
                     areDrawingsLocked={areDrawingsLocked}
+                    areDrawingsHidden={areDrawingsHidden}
                     isMagnetMode={isMagnetMode}
                     isStayInDrawingMode={isStayInDrawingMode}
                 />
             )}
         </div>
 
-        {/* Watchlist Panel (Slide in from Right) */}
         <WatchlistPanel 
             isOpen={isWatchlistOpen}
             onClose={() => setIsWatchlistOpen(false)}
@@ -1130,7 +1049,6 @@ const App: React.FC = () => {
             currentSymbol={currentSymbolName}
         />
         
-        {/* Trading Panel (Slide in from Right) - Docked Version */}
         {!isTradingPanelDetached && (
            <TradingPanel 
               isOpen={isTradingPanelOpen}
@@ -1144,9 +1062,6 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Render Detached Windows (Portals) */}
-      
-      {/* 1. Detached Tabs */}
       {tabs.map(tab => {
           if (tab.isDetached) {
               return (
@@ -1163,6 +1078,7 @@ const App: React.FC = () => {
                         onSelectTool={() => {}}
                         activeToolId=""
                         areDrawingsLocked={false}
+                        areDrawingsHidden={false}
                         isMagnetMode={false}
                       />
                   </Popout>
@@ -1171,7 +1087,6 @@ const App: React.FC = () => {
           return null;
       })}
       
-      {/* 2. Detached Trading Panel */}
       {isTradingPanelDetached && isTradingPanelOpen && (
           <Popout 
               title="Trading Panel" 

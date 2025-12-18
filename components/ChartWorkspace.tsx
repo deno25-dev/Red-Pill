@@ -22,6 +22,7 @@ interface ChartWorkspaceProps {
   onRequestHistory?: () => void;
   
   areDrawingsLocked?: boolean;
+  areDrawingsHidden?: boolean;
   isMagnetMode?: boolean;
   isStayInDrawingMode?: boolean;
   isLayersPanelOpen?: boolean;
@@ -40,6 +41,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onSaveHistory,
   onRequestHistory,
   areDrawingsLocked = false,
+  areDrawingsHidden = false,
   isMagnetMode = false,
   isStayInDrawingMode = false,
   isLayersPanelOpen = false,
@@ -835,6 +837,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             onReplayPointSelect={handleReplayPointSelect}
             onRequestMoreData={onRequestHistory}
             areDrawingsLocked={areDrawingsLocked}
+            areDrawingsHidden={areDrawingsHidden}
             isMagnetMode={isMagnetMode}
         />
         </div>

@@ -39,10 +39,10 @@ interface ChartProps {
   onReplayPointSelect?: (time: number) => void;
   onRequestMoreData?: () => void;
   areDrawingsLocked?: boolean;
+  areDrawingsHidden?: boolean;
   isMagnetMode?: boolean;
 }
 
-// Distance between point (x, y) and line segment (x1, y1) - (x2, y2)
 function pDistance(x: number, y: number, x1: number, y1: number, x2: number, y2: number) {
   var A = x - x1;
   var B = y - y1;
@@ -52,7 +52,7 @@ function pDistance(x: number, y: number, x1: number, y1: number, x2: number, y2:
   var dot = A * C + B * D;
   var len_sq = C * C + D * D;
   var param = -1;
-  if (len_sq != 0) //in case of 0 length line
+  if (len_sq != 0)
       param = dot / len_sq;
 
   var xx, yy;
@@ -75,7 +75,6 @@ function pDistance(x: number, y: number, x1: number, y1: number, x2: number, y2:
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-// Point in polygon test
 function isPointInPoly(x: number, y: number, points: {x: number, y: number}[]) {
     let inside = false;
     for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
@@ -87,7 +86,6 @@ function isPointInPoly(x: number, y: number, points: {x: number, y: number}[]) {
     return inside;
 }
 
-// Helper to format duration
 function formatDuration(ms: number) {
     const totalSeconds = Math.floor(ms / 1000);
     const days = Math.floor(totalSeconds / 86400);
@@ -101,8 +99,6 @@ function formatDuration(ms: number) {
     return parts.join(' ');
 }
 
-// --- PRIMITIVE IMPLEMENTATION ---
-
 class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     constructor(private _source: DrawingsPrimitive) {}
 
@@ -115,8 +111,8 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     _drawImpl(target: CanvasRenderingContext2D) {
         if (!target || typeof target.beginPath !== 'function') return;
 
-        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties } = this._source;
-        if (!_series || !_chart) return;
+        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _areHidden } = this._source;
+        if (!_series || !_chart || _areHidden) return;
 
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId } = _interactionStateRef.current;
         
@@ -323,7 +319,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 }
             }
 
-            // Statistics Overlay for Measure and Date Range
             if (d.type === 'measure' || d.type === 'date_range') {
                 if (d.points.length >= 2) {
                     const dp1 = d.points[0];
@@ -351,7 +346,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                         }
                         statsLines.push(`${barCount} bars, ${formatDuration(timeDiff)}`);
 
-                        // Draw stats box
                         const boxW = 140;
                         const boxH = statsLines.length * 16 + 10;
                         const boxX = sp2.x + 10;
@@ -364,7 +358,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                         target.shadowBlur = 4;
                         target.shadowColor = 'rgba(0,0,0,0.5)';
                         
-                        // Round rect
                         const radius = 4;
                         target.beginPath();
                         target.moveTo(boxX + radius, boxY);
@@ -421,8 +414,8 @@ class DrawingsPriceAxisPaneRenderer {
     }
 
     _drawImpl(ctx: CanvasRenderingContext2D, width: number, height: number) {
-        const { _drawings, _series } = this._source;
-        if (!_series) return;
+        const { _drawings, _series, _areHidden } = this._source;
+        if (!_series || _areHidden) return;
 
         const priceFormatter = _series.priceFormatter();
 
@@ -470,6 +463,7 @@ class DrawingsPrimitive implements ISeriesPrimitive {
     _interactionStateRef: React.MutableRefObject<any>;
     _currentDefaultProperties: DrawingProperties;
     _selectedDrawingId: string | null = null;
+    _areHidden: boolean = false;
     _paneViews: DrawingsPaneView[];
     _priceAxisViews: DrawingsPriceAxisPaneView[];
 
@@ -487,11 +481,12 @@ class DrawingsPrimitive implements ISeriesPrimitive {
         this._priceAxisViews = [new DrawingsPriceAxisPaneView(this)];
     }
 
-    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null) {
+    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, areHidden: boolean = false) {
         this._drawings = drawings;
         this._timeToIndex = timeToIndex;
         this._currentDefaultProperties = defaults;
         this._selectedDrawingId = selectedId;
+        this._areHidden = areHidden;
     }
 
     paneViews() {
@@ -529,6 +524,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onReplayPointSelect,
     onRequestMoreData,
     areDrawingsLocked = false,
+    areDrawingsHidden = false,
     isMagnetMode = false
   } = props;
 
@@ -624,10 +620,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
       if (drawingsPrimitiveRef.current) {
-          drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId);
+          drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden);
       }
       requestDraw();
-  }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId]);
+  }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden]);
 
   const requestDraw = () => {
       if (rafId.current) cancelAnimationFrame(rafId.current);
@@ -637,8 +633,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const renderOverlayAndSync = () => {
       renderOverlay();
       if (chartRef.current) {
-          // @ts-ignore
-          if (chartRef.current._renderer) chartRef.current._renderer._redrawVisible();
+          if ((chartRef.current as any)._renderer) (chartRef.current as any)._renderer._redrawVisible();
           else chartRef.current.timeScale().applyOptions({});
       }
   };
@@ -787,7 +782,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             interactionState, 
             currentDefaultProperties
         );
-        primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId);
+        primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, areDrawingsHidden);
         newSeries.attachPrimitive(primitive);
         drawingsPrimitiveRef.current = primitive;
 
@@ -982,9 +977,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   };
 
   const getHitObject = (x: number, y: number) => {
+    const { drawings, selectedDrawingId, areDrawingsHidden } = propsRef.current;
+    if (areDrawingsHidden) return { hitHandle: null, hitDrawing: null };
+    
     let hitHandle: { id: string; index: number } | null = null;
     let hitDrawing: Drawing | null = null;
-    const { drawings, selectedDrawingId } = propsRef.current;
 
     if (selectedDrawingId) {
         const d = drawings.find(dr => dr.id === selectedDrawingId);
@@ -1144,7 +1141,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           const x = e.clientX - rect.left;
           const y = e.clientY - rect.top;
           const { hitHandle, hitDrawing } = getHitObject(x, y);
-          if ((hitHandle || hitDrawing) && !areDrawingsLocked) {
+          if ((hitHandle || hitDrawing) && !areDrawingsLocked && !areDrawingsHidden) {
               const isLocked = hitDrawing?.properties.locked;
               if (isLocked) {
                   canvasRef.current.style.pointerEvents = 'auto';
@@ -1202,7 +1199,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                 interactionState.current.creatingPoints = points;
             }
         }
-    } else if (!areDrawingsLocked) {
+    } else if (!areDrawingsLocked && !areDrawingsHidden) {
         if (hitHandle) {
             const d = drawings.find(dr => dr.id === hitHandle.id);
             if (d?.properties.locked) { onSelectDrawing(hitHandle.id); return; }
@@ -1306,7 +1303,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  finalPoints = smoothPoints(finalPoints, currentDefaultProperties.smoothing);
              }
              const newDrawing: Drawing = {
-                id: crypto.randomUUID(),
+                id: (crypto as any).randomUUID(),
                 type: activeToolId,
                 points: finalPoints,
                 properties: currentDefaultProperties
@@ -1343,7 +1340,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                     return;
                 }
                 const newDrawing: Drawing = {
-                    id: crypto.randomUUID(),
+                    id: (crypto as any).randomUUID(),
                     type: activeToolId,
                     points: [...interactionState.current.creatingPoints],
                     properties: { ...currentDefaultProperties, text: text || "Text" }
@@ -1358,7 +1355,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             return;
         } else {
             const newDrawing: Drawing = {
-                id: crypto.randomUUID(),
+                id: (crypto as any).randomUUID(),
                 type: activeToolId,
                 points: interactionState.current.creatingPoints,
                 properties: currentDefaultProperties
