@@ -863,7 +863,6 @@ const App: React.FC = () => {
         isTradingPanelOpen={isTradingPanelOpen}
         isLibraryOpen={isLibraryOpen}
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
-        onClearAll={handleClearAll}
         currentLayout={layout}
       />
 
