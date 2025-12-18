@@ -564,6 +564,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleToolComplete = () => {
+      if (activeToolId === 'brush') return; // Stay engaged for brush tool
       if (!isStayInDrawingMode) {
           onSelectTool?.('cross');
       }
