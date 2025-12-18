@@ -87,6 +87,20 @@ function isPointInPoly(x: number, y: number, points: {x: number, y: number}[]) {
     return inside;
 }
 
+// Helper to format duration
+function formatDuration(ms: number) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const days = Math.floor(totalSeconds / 86400);
+    const hours = Math.floor((totalSeconds % 86400) / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    const parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+    return parts.join(' ');
+}
+
 // --- PRIMITIVE IMPLEMENTATION ---
 
 class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
@@ -99,18 +113,15 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     }
 
     _drawImpl(target: CanvasRenderingContext2D) {
-        // Robust check for context
         if (!target || typeof target.beginPath !== 'function') return;
 
         const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties } = this._source;
         if (!_series || !_chart) return;
 
-        // Interaction State
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId } = _interactionStateRef.current;
         
         let drawingsToRender = _drawings;
         
-        // Append Phantom Drawing if Creating
         if (isCreating && creatingPoints.length > 0) {
              const phantom: Drawing = {
                 id: 'temp-creation',
@@ -121,7 +132,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             drawingsToRender = [...drawingsToRender, phantom];
         }
 
-        // Helpers
         const timeScale = _chart.timeScale();
         const pointToScreen = (p: DrawingPoint) => {
             try {
@@ -141,7 +151,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             } catch { return { x: -10000, y: -10000 }; }
         };
 
-        // Handle DPI Scaling - useMediaCoordinateSpace handles scaling for us
         target.save();
 
         drawingsToRender.forEach(d => {
@@ -153,7 +162,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             const isSelected = d.id === this._source._selectedDrawingId;
             const isBeingDragged = d.id === dragDrawingId;
 
-            // Styles
             target.beginPath();
             target.strokeStyle = d.properties.color;
             target.lineCap = 'round';
@@ -176,7 +184,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             const isFilled = d.properties.filled;
             target.fillStyle = isFilled ? d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)' : 'transparent';
 
-            // --- SHAPES ---
             if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') {
                 if (screenPoints.length < 2) return;
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
@@ -222,7 +229,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             }
             else if (d.type === 'horizontal_line') {
                 if (screenPoints.length > 0 && screenPoints[0].y !== -10000) {
-                    // Use a very wide logical range
                     target.moveTo(-50000, screenPoints[0].y);
                     target.lineTo(50000, screenPoints[0].y);
                     target.stroke();
@@ -245,7 +251,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             else if (d.type === 'rectangle' || d.type === 'date_range') {
                 if (screenPoints.length < 2) return;
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
-                // Safe check
                 if (p1.x === -10000 || p2.x === -10000) return;
 
                 const x = Math.min(p1.x, p2.x);
@@ -318,7 +323,75 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 }
             }
 
-            // Handles
+            // Statistics Overlay for Measure and Date Range
+            if (d.type === 'measure' || d.type === 'date_range') {
+                if (d.points.length >= 2) {
+                    const dp1 = d.points[0];
+                    const dp2 = d.points[1];
+                    const sp1 = screenPoints[0];
+                    const sp2 = screenPoints[1];
+
+                    if (sp1.x !== -10000 && sp2.x !== -10000) {
+                        const priceDiff = dp2.price - dp1.price;
+                        const percentDiff = (priceDiff / dp1.price) * 100;
+                        const timeDiff = Math.abs(dp2.time - dp1.time);
+                        
+                        let barCount = 0;
+                        if (_timeToIndex) {
+                            const idx1 = _timeToIndex.get(dp1.time);
+                            const idx2 = _timeToIndex.get(dp2.time);
+                            if (idx1 !== undefined && idx2 !== undefined) {
+                                barCount = Math.abs(idx2 - idx1);
+                            }
+                        }
+
+                        const statsLines = [];
+                        if (d.type === 'measure') {
+                            statsLines.push(`${priceDiff.toFixed(2)} (${percentDiff >= 0 ? '+' : ''}${percentDiff.toFixed(2)}%)`);
+                        }
+                        statsLines.push(`${barCount} bars, ${formatDuration(timeDiff)}`);
+
+                        // Draw stats box
+                        const boxW = 140;
+                        const boxH = statsLines.length * 16 + 10;
+                        const boxX = sp2.x + 10;
+                        const boxY = sp2.y - boxH / 2;
+
+                        target.setLineDash([]);
+                        target.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                        target.strokeStyle = d.properties.color;
+                        target.lineWidth = 1;
+                        target.shadowBlur = 4;
+                        target.shadowColor = 'rgba(0,0,0,0.5)';
+                        
+                        // Round rect
+                        const radius = 4;
+                        target.beginPath();
+                        target.moveTo(boxX + radius, boxY);
+                        target.lineTo(boxX + boxW - radius, boxY);
+                        target.quadraticCurveTo(boxX + boxW, boxY, boxX + boxW, boxY + radius);
+                        target.lineTo(boxX + boxW, boxY + boxH - radius);
+                        target.quadraticCurveTo(boxX + boxW, boxY + boxH, boxX + boxW - radius, boxY + boxH);
+                        target.lineTo(boxX + radius, boxY + boxH);
+                        target.quadraticCurveTo(boxX, boxY + boxH, boxX, boxY + boxH - radius);
+                        target.lineTo(boxX, boxY + radius);
+                        target.quadraticCurveTo(boxX, boxY, boxX + radius, boxY);
+                        target.closePath();
+                        target.fill();
+                        target.stroke();
+
+                        target.shadowBlur = 0;
+                        target.fillStyle = '#FFFFFF';
+                        target.font = '11px sans-serif';
+                        target.textAlign = 'left';
+                        target.textBaseline = 'top';
+                        statsLines.forEach((line, i) => {
+                            target.fillText(line, boxX + 8, boxY + 6 + i * 16);
+                        });
+                    }
+                }
+            }
+
             if (isSelected && !isDragging && !isCreating) {
                  target.fillStyle = '#ffffff';
                  target.strokeStyle = '#3b82f6';
@@ -355,7 +428,6 @@ class DrawingsPriceAxisPaneRenderer {
 
         _drawings.forEach(d => {
             if (d.properties.visible === false) return;
-            // Only for Horizontal Ray and Horizontal Line
             if (d.type !== 'horizontal_ray' && d.type !== 'horizontal_line') return;
             
             if (d.points.length === 0) return;
@@ -372,11 +444,9 @@ class DrawingsPriceAxisPaneRenderer {
             const labelHeight = 22;
             const labelY = y - labelHeight / 2;
 
-            // Draw Background
             ctx.fillStyle = bgColor;
             ctx.fillRect(0, labelY, width, labelHeight);
 
-            // Draw Text
             ctx.fillStyle = textColor;
             ctx.font = 'bold 11px sans-serif';
             ctx.textAlign = 'center';
@@ -436,7 +506,7 @@ class DrawingsPrimitive implements ISeriesPrimitive {
 class DrawingsPaneView implements IPrimitivePaneView {
     constructor(private _source: DrawingsPrimitive) {}
     renderer() { return new DrawingsPaneRenderer(this._source); }
-    zOrder(): PrimitivePaneViewZOrder { return 'top'; } // Ensure on top
+    zOrder(): PrimitivePaneViewZOrder { return 'top'; } 
 }
 
 const SINGLE_POINT_TOOLS = ['text', 'horizontal_line', 'vertical_line', 'horizontal_ray'];
@@ -462,12 +532,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     isMagnetMode = false
   } = props;
 
-  // --- STATE REF PATTERN ---
   const propsRef = useRef(props);
   useEffect(() => { propsRef.current = props; });
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null); // For interaction events only
+  const canvasRef = useRef<HTMLCanvasElement>(null); 
   
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick" | "Line" | "Area"> | null>(null);
@@ -480,14 +549,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   const toolTipRef = useRef<HTMLDivElement>(null);
   
-  // Volume Resizing State
   const isResizingVolume = useRef(false);
   const [localVolumeTopMargin, setLocalVolumeTopMargin] = useState(config.volumeTopMargin || 0.8);
 
-  // Replay Selection Mouse Pos
   const replayMouseX = useRef<number | null>(null);
 
-  // Sync prop config
   useEffect(() => {
     if (config.volumeTopMargin !== undefined) {
       setLocalVolumeTopMargin(config.volumeTopMargin);
@@ -496,7 +562,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (chartRef.current) {
-        // Update volume scale margins
         try {
             chartRef.current.priceScale('volume').applyOptions({
                 scaleMargins: { top: localVolumeTopMargin, bottom: 0 }
@@ -505,7 +570,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [localVolumeTopMargin]);
 
-  // Interaction State
   const interactionState = useRef<{
     isDragging: boolean;
     isCreating: boolean;
@@ -526,12 +590,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     activeToolId: activeToolId
   });
 
-  // Sync active tool
   useEffect(() => {
       interactionState.current.activeToolId = activeToolId;
   }, [activeToolId]);
 
-  // --- DATA PROCESSING HELPER ---
   const processedData = useMemo(() => {
     const length = data.length;
     const processed = new Array(length);
@@ -549,7 +611,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     return processed;
   }, [data]);
 
-  // Time to Index Map
   const timeToIndex = useMemo(() => {
       const map = new Map<number, number>();
       for(let i=0; i<data.length; i++) {
@@ -561,7 +622,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const timeToIndexRef = useRef(timeToIndex);
   useEffect(() => { timeToIndexRef.current = timeToIndex; }, [timeToIndex]);
 
-  // Sync Primitive Data
   useEffect(() => {
       if (drawingsPrimitiveRef.current) {
           drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId);
@@ -569,7 +629,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       requestDraw();
   }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId]);
 
-  // Helper to request draw (Overlay + Primitive update)
   const requestDraw = () => {
       if (rafId.current) cancelAnimationFrame(rafId.current);
       rafId.current = requestAnimationFrame(renderOverlayAndSync);
@@ -578,15 +637,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const renderOverlayAndSync = () => {
       renderOverlay();
       if (chartRef.current) {
-          // This is a known lightweight-charts hack to force redraw efficiently
           // @ts-ignore
           if (chartRef.current._renderer) chartRef.current._renderer._redrawVisible();
-          // Fallback if private API fails (v4 vs v5):
           else chartRef.current.timeScale().applyOptions({});
       }
   };
 
-  // --- 1. INITIALIZE CHART INSTANCE ---
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -610,7 +666,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
     chartRef.current = chart;
 
-    // Handle Resize
     const handleResize = () => {
         if (chartContainerRef.current && chartRef.current && canvasRef.current) {
             const w = chartContainerRef.current.clientWidth;
@@ -633,7 +688,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     window.addEventListener('resize', handleResize);
     handleResize();
 
-    // Handle Chart Click for Deselection
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
              const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
@@ -674,7 +728,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     };
   }, []);
 
-  // --- 2. UPDATE CHART OPTIONS ---
   useEffect(() => {
     if (!chartRef.current) return;
     chartRef.current.applyOptions({
@@ -696,7 +749,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     });
   }, [config.theme, config.priceScaleMode, config.autoScale]);
 
-  // --- 3. MANAGE MAIN SERIES (Creation & Type Switch) ---
   useEffect(() => {
     if (!chartRef.current) return;
 
@@ -729,7 +781,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         seriesRef.current = newSeries;
         newSeries.setData(processedData);
         
-        // Attach Primitive
         const primitive = new DrawingsPrimitive(
             chartRef.current, 
             newSeries, 
@@ -748,7 +799,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   }, [config.chartType]); 
 
-  // --- 4. DATA SYNC ---
   useEffect(() => {
     if (!seriesRef.current) return;
     try { seriesRef.current.setData(processedData); } catch(e) { console.error(e); }
@@ -780,7 +830,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [data, smaData, config.chartType, processedData]); 
 
-  // --- 5. MANAGE VOLUME/SMA EXISTENCE ---
   useEffect(() => {
     if (!chartRef.current) return;
 
@@ -819,7 +868,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [config.showVolume, config.showSMA]);
 
-  // --- 6. POINTER EVENTS MANAGEMENT ---
   useEffect(() => {
     if (canvasRef.current) {
         const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
@@ -834,7 +882,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   }, [activeToolId, isReplaySelecting]);
 
 
-  // Helper: pointToScreen
   const pointToScreen = (p: DrawingPoint) => {
     if (!chartRef.current || !seriesRef.current) return { x: -1000, y: -1000 };
     try {
@@ -906,7 +953,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     } catch (e) { return null; }
   };
 
-  // --- OVERLAY DRAWING LOGIC (Interaction only: Cursor & Replay) ---
   const renderOverlay = () => {
     const canvas = canvasRef.current;
     if (!canvas || !chartRef.current) return;
@@ -918,10 +964,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const width = chartContainerRef.current?.clientWidth || 0;
     const height = chartContainerRef.current?.clientHeight || 0;
     
-    // Clear Overlay
     ctx.clearRect(0, 0, width, height);
     
-    // Draw Replay Selection Cursor
     if (currentIsReplaySelecting && replayMouseX.current !== null) {
         ctx.beginPath();
         ctx.strokeStyle = '#ef4444'; 
@@ -988,7 +1032,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         }
         else if (d.type === 'horizontal_ray') {
              if (screenPoints.length > 0 && screenPoints[0].y !== -1000 && screenPoints[0].x !== -1000) {
-                 // Relaxed tolerance: Allow clicking 10px to the left of the start point
                  if (Math.abs(y - screenPoints[0].y) < 6 && x >= (screenPoints[0].x - 10)) hit = true;
              }
         }
@@ -1013,7 +1056,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             if (screenPoints.length >= 3) {
                 const polyPoints = [...screenPoints];
                 if (d.type === 'rotated_rectangle') {
-                    // Reconstruct 4th point for hit detection
                     const p0 = screenPoints[0], p1 = screenPoints[1], p2 = screenPoints[2];
                     const ux = p1.x - p0.x, uy = p1.y - p0.y;
                     const vx = p2.x - p1.x, vy = p2.y - p1.y;
@@ -1029,7 +1071,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                 
                 if (isPointInPoly(x, y, polyPoints as any)) hit = true;
                 else {
-                    // Check edges
                     const tol = 6;
                     for (let j = 0; j < polyPoints.length; j++) {
                         const p1 = polyPoints[j];
@@ -1053,7 +1094,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         }
         else if (d.type === 'text') {
              if (screenPoints.length >= 1 && screenPoints[0].x !== -1000) {
-                 // Simple text hit box approx
                  if (x >= screenPoints[0].x && x <= screenPoints[0].x + 50 && y >= screenPoints[0].y && y <= screenPoints[0].y + 20) hit = true;
              }
         }
@@ -1063,7 +1103,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     return { hitHandle, hitDrawing };
   };
 
-  // --- VOLUME RESIZE HANDLERS ---
   const handleVolumeResizeMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1089,7 +1128,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     win.addEventListener('mouseup', handleMouseUp);
   };
   
-  // --- CONTAINER MOUSE MOVE ---
   const handleContainerMouseMove = (e: React.MouseEvent) => {
       if (isReplaySelecting && canvasRef.current) {
          const rect = canvasRef.current.getBoundingClientRect();
@@ -1122,7 +1160,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       }
   };
 
-  // --- CANVAS MOUSE HANDLERS ---
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -1218,7 +1255,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                      needsRedraw = true;
                  }
              } else if (SINGLE_POINT_TOOLS.includes(activeToolId)) {
-                 // Single point tools don't update on move, they wait for second step/finish
              } else {
                  const points = [...interactionState.current.creatingPoints];
                  const step = interactionState.current.creationStep;
@@ -1354,7 +1390,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     >
        <div ref={chartContainerRef} className="w-full h-full" />
        
-       {/* Canvas for Events/Interactions (Transparent) */}
        <canvas 
          ref={canvasRef}
          className="absolute inset-0 z-10"
@@ -1364,7 +1399,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
          onMouseUp={handleCanvasMouseUp}
        />
 
-       {/* Volume Resize Handle */}
        {config.showVolume && (
            <div 
              className="absolute left-0 right-0 z-30 h-1 cursor-ns-resize group/resize"
