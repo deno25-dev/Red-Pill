@@ -22,8 +22,6 @@ interface SidebarProps {
   
   areDrawingsLocked?: boolean;
   onToggleDrawingsLock?: () => void;
-  areDrawingsHidden?: boolean;
-  onToggleDrawingsHidden?: () => void;
   isMagnetMode?: boolean;
   onToggleMagnet?: () => void;
   isStayInDrawingMode?: boolean;
@@ -96,14 +94,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleFavoritesBar,
   areDrawingsLocked = false,
   onToggleDrawingsLock,
-  areDrawingsHidden = false,
-  onToggleDrawingsHidden,
   isMagnetMode = false,
   onToggleMagnet,
   isStayInDrawingMode = false,
   onToggleStayInDrawingMode,
   onClearAll
 }) => {
+  const [hideDrawings, setHideDrawings] = useState(false);
+  
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   // Close menus when clicking anywhere (left click)
@@ -343,15 +341,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Hide/Unhide Drawing Tools */}
         <button
-          onClick={onToggleDrawingsHidden}
+          onClick={() => setHideDrawings(!hideDrawings)}
           className={`p-2 rounded-lg transition-all group relative flex justify-center ${
-             areDrawingsHidden 
+             hideDrawings 
                ? 'text-blue-400 bg-[#334155]/50' 
                : 'text-slate-400 hover:text-white hover:bg-[#334155]'
           }`}
-          title={areDrawingsHidden ? "Show Drawings" : "Hide Drawings"}
+          title={hideDrawings ? "Show Drawings" : "Hide Drawings"}
         >
-          {areDrawingsHidden ? <EyeOff size={20} /> : <Eye size={20} />}
+          {hideDrawings ? <EyeOff size={20} /> : <Eye size={20} />}
         </button>
 
         {/* Toggle Favorites Bar */}

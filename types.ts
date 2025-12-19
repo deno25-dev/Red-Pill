@@ -62,19 +62,6 @@ export interface DrawingProperties {
   locked?: boolean;
   textAlign?: 'left' | 'center' | 'right';
   smoothing?: number; // 0 to 20, 0 = raw input
-  // Measurement stats visibility
-  showPriceDiff?: boolean;
-  showPercentChange?: boolean;
-  showBarCount?: boolean;
-  showDuration?: boolean;
-}
-
-export interface Group {
-  id: string;
-  label: string;
-  visible: boolean;
-  locked: boolean;
-  expanded?: boolean;
 }
 
 export interface Drawing {
@@ -82,7 +69,6 @@ export interface Drawing {
   type: string;
   points: DrawingPoint[];
   properties: DrawingProperties;
-  groupId?: string;
 }
 
 export interface FileStreamState {
@@ -135,7 +121,6 @@ export interface TabSession {
   isDetached: boolean;
   // Drawings
   drawings: Drawing[];
-  groups: Group[];
   undoStack: Drawing[][];
   redoStack: Drawing[][];
   

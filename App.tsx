@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -8,42 +9,62 @@ import { Popout } from './components/Popout';
 import { TradingPanel } from './components/TradingPanel';
 import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
+import { DownloadDialog } from './components/DownloadDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
+import { fetchBinanceKlines } from './utils/binance';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 
+// Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
 
+type LayoutMode = 'single' | 'split-2x' | 'split-4x';
+
 const App: React.FC = () => {
+  // --- State Management ---
   const [isAppReady, setIsAppReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isTradingPanelOpen, setIsTradingPanelOpen] = useState(false);
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('single');
   
+  // Synchronization Toggles
+  const [isSymbolSync, setIsSymbolSync] = useState(false);
+  const [isIntervalSync, setIsIntervalSync] = useState(false);
+  const [isCrosshairSync, setIsCrosshairSync] = useState(false);
+  const [isTimeSync, setIsTimeSync] = useState(false);
+
+  // Layout Slots: Tracks which tab is in which pane position
+  const [layoutTabIds, setLayoutTabIds] = useState<string[]>([]);
+
+  // Watchlist State
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
 
+  // Download Dialog State
+  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
+
+  // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
   const [favoriteTools, setFavoriteTools] = useState<string[]>(['trend_line', 'rectangle']);
   const [isFavoritesBarVisible, setIsFavoritesBarVisible] = useState(true);
   
-  const [areDrawingsLocked, setAreDrawingsLocked] = useState(false);
-  const [areDrawingsHidden, setAreDrawingsHidden] = useState(false);
+  // Global Drawing Modes
+  const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); 
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
 
-  // Layout state
-  const [layout, setLayout] = useState<'single' | 'split-2' | 'split-4'>('single');
-  // Slots for split view
-  const [paneTabIds, setPaneTabIds] = useState<string[]>(['', '', '', '']);
-
+  // Data Explorer (Files in the ad-hoc panel)
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
   const [explorerFolderName, setExplorerFolderName] = useState<string>('');
 
+  // Database (Files in the specific 'Database' folder)
   const [databaseFiles, setDatabaseFiles] = useState<any[]>([]);
   const [databaseHandle, setDatabaseHandle] = useState<any>(null);
   
@@ -55,13 +76,14 @@ const App: React.FC = () => {
     );
   };
   
+  // Tab Management
   const [tabs, setTabs] = useState<TabSession[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
 
-  const createNewTab = useCallback((id?: string, title: string = 'New Chart', raw: OHLCV[] = []): TabSession => {
-    const tabId = id || (crypto as any).randomUUID();
+  // Helper to create a new tab object
+  const createNewTab = useCallback((id: string = crypto.randomUUID(), title: string = 'New Chart', raw: OHLCV[] = []): TabSession => {
     return {
-      id: tabId,
+      id,
       title,
       rawData: raw,
       data: raw.length > 0 ? resampleData(raw, Timeframe.M15) : [],
@@ -83,15 +105,16 @@ const App: React.FC = () => {
       replayGlobalTime: null,
       simulatedPrice: null,
       isReplayPlaying: false,
-      replaySpeed: 1,
+      replaySpeed: 1, 
       isDetached: false,
       drawings: [],
-      groups: [],
       undoStack: [],
       redoStack: [],
       trades: []
     };
   }, []);
+
+  // --- Persistence Logic ---
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -106,15 +129,19 @@ const App: React.FC = () => {
           setIsWatchlistOpen(savedState.isWatchlistOpen ?? false);
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
           setIsMagnetMode(savedState.isMagnetMode ?? false);
-          setAreDrawingsHidden(savedState.areDrawingsHidden ?? false);
-          setLayout(savedState.layout || 'single');
-          setPaneTabIds(savedState.paneTabIds || [savedState.activeTabId, '', '', '']);
+          setLayoutMode(savedState.layoutMode || 'single');
+          setLayoutTabIds(savedState.layoutTabIds || []);
+          
+          setIsSymbolSync(savedState.isSymbolSync ?? false);
+          setIsIntervalSync(savedState.isIntervalSync ?? false);
+          setIsCrosshairSync(savedState.isCrosshairSync ?? false);
+          setIsTimeSync(savedState.isTimeSync ?? false);
         } else {
           const mock = generateMockData(MOCK_DATA_COUNT);
           const newTab = createNewTab('default-tab', 'BTC/USD', mock);
           setTabs([newTab]);
           setActiveTabId(newTab.id);
-          setPaneTabIds([newTab.id, '', '', '']);
+          setLayoutTabIds([newTab.id]);
         }
 
         try {
@@ -146,7 +173,7 @@ const App: React.FC = () => {
         const newTab = createNewTab('default-tab', 'BTC/USD', mock);
         setTabs([newTab]);
         setActiveTabId(newTab.id);
-        setPaneTabIds([newTab.id, '', '', '']);
+        setLayoutTabIds([newTab.id]);
       } finally {
         setIsAppReady(true);
       }
@@ -170,16 +197,19 @@ const App: React.FC = () => {
         isWatchlistOpen,
         isStayInDrawingMode,
         isMagnetMode,
-        areDrawingsHidden,
-        layout,
-        paneTabIds
+        layoutMode,
+        layoutTabIds,
+        isSymbolSync,
+        isIntervalSync,
+        isCrosshairSync,
+        isTimeSync
       };
       
       saveAppState(stateToSave).catch(e => console.warn("Auto-save failed:", e));
-    }, 1000);
+    }, 1000); 
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, areDrawingsHidden, isAppReady, layout, paneTabIds]);
+  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, isAppReady, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
 
 
   const activeTab = useMemo(() => 
@@ -201,11 +231,12 @@ const App: React.FC = () => {
     }
   }, [activeTabId, updateTab]);
 
+  // --- History Handlers (Undo/Redo) ---
   const handleSaveHistory = useCallback(() => {
     if (!activeTab) return;
     const currentDrawings = activeTab.drawings;
     updateActiveTab({
-        undoStack: [...activeTab.undoStack.slice(-49), currentDrawings],
+        undoStack: [...activeTab.undoStack.slice(-49), currentDrawings], 
         redoStack: []
     });
   }, [activeTab, updateActiveTab]);
@@ -235,10 +266,12 @@ const App: React.FC = () => {
   }, [activeTab, updateActiveTab]);
 
 
+  // --- Tab Bar Handlers ---
   const handleAddTab = () => {
     const newTab = createNewTab(undefined, 'New Chart');
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newTab.id);
+    if (layoutMode === 'single') setLayoutTabIds([newTab.id]);
   };
 
   const handleCloseTab = (id: string, e: React.MouseEvent) => {
@@ -250,6 +283,10 @@ const App: React.FC = () => {
     
     if (activeTabId === id) {
       setActiveTabId(newTabs[newTabs.length - 1].id);
+    }
+    
+    if (layoutTabIds.includes(id)) {
+        setLayoutTabIds(prev => prev.map(slotId => slotId === id ? newTabs[newTabs.length - 1].id : slotId));
     }
   };
 
@@ -264,12 +301,7 @@ const App: React.FC = () => {
 
   const handleSwitchTab = (id: string) => {
     setActiveTabId(id);
-    // If we switch via TabBar, we usually want the primary slot to follow
-    if (layout !== 'single') {
-        const newPanes = [...paneTabIds];
-        newPanes[0] = id;
-        setPaneTabIds(newPanes);
-    }
+    if (layoutMode === 'single') setLayoutTabIds([id]);
   };
 
   const readChunk = async (file: File, start: number, end: number): Promise<string> => {
@@ -341,7 +373,7 @@ const App: React.FC = () => {
           }
 
           const initialTf = forceTimeframe || Timeframe.M1;
-          const displayData = forceTimeframe ? parsedData : (resampleData as any)(parsedData, initialTf);
+          const displayData = forceTimeframe ? parsedData : resampleData(parsedData, initialTf);
 
           const updates: Partial<TabSession> = {
               title: displayTitle,
@@ -360,10 +392,14 @@ const App: React.FC = () => {
               isReplayPlaying: false
           };
 
-          if (targetTabId) {
-              updateTab(targetTabId, updates);
+          const tabIdToUpdate = targetTabId || activeTabId;
+          
+          if (isSymbolSync && layoutTabIds.length > 1) {
+              layoutTabIds.forEach(id => {
+                  updateTab(id, updates);
+              });
           } else {
-              updateActiveTab(updates);
+              updateTab(tabIdToUpdate, updates);
           }
 
       } catch (e) {
@@ -372,21 +408,22 @@ const App: React.FC = () => {
       } finally {
           setLoading(false);
       }
-  }, [explorerFolderName, updateActiveTab, updateTab]);
+  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, updateTab]);
 
-  const handleRequestHistory = useCallback(async () => {
-      if (!activeTab || !activeTab.fileState || !activeTab.fileState.hasMore || activeTab.fileState.isLoading) return;
+  const handleRequestHistory = useCallback(async (tabId: string) => {
+      const tab = tabs.find(t => t.id === tabId);
+      if (!tab || !tab.fileState || !tab.fileState.hasMore || tab.fileState.isLoading) return;
 
-      updateActiveTab({ 
-          fileState: { ...activeTab.fileState, isLoading: true } 
+      updateTab(tabId, { 
+          fileState: { ...tab.fileState, isLoading: true } 
       });
 
       try {
-          const result = await loadPreviousChunk(activeTab, activeTab.fileState);
+          const result = await loadPreviousChunk(tab, tab.fileState);
           if (result) {
               const { newPoints, newCursor, newLeftover, hasMore } = result;
               newPoints.sort((a, b) => a.time - b.time);
-              const fullRawData = [...newPoints, ...activeTab.rawData];
+              const fullRawData = [...newPoints, ...tab.rawData];
               fullRawData.sort((a, b) => a.time - b.time);
               
               const uniqueData: OHLCV[] = [];
@@ -399,34 +436,34 @@ const App: React.FC = () => {
                   }
               }
               
-              const displayData = activeTab.timeframe === Timeframe.M1 
+              const displayData = tab.timeframe === Timeframe.M1 
                   ? uniqueData 
-                  : resampleData(uniqueData, activeTab.timeframe);
+                  : resampleData(uniqueData, tab.timeframe);
               
-              updateActiveTab({
+              updateTab(tabId, {
                   rawData: uniqueData,
                   data: displayData,
                   fileState: {
-                      ...activeTab.fileState,
+                      ...tab.fileState,
                       cursor: newCursor,
                       leftover: newLeftover,
                       hasMore: hasMore,
                       isLoading: false
                   },
-                  replayIndex: activeTab.replayIndex + (displayData.length - activeTab.data.length)
+                  replayIndex: tab.replayIndex + (displayData.length - tab.data.length)
               });
           } else {
-               updateActiveTab({ 
-                   fileState: { ...activeTab.fileState, isLoading: false } 
+               updateTab(tabId, { 
+                   fileState: { ...tab.fileState, isLoading: false } 
                });
           }
       } catch (e) {
           console.error("Error loading history:", e);
-          updateActiveTab({ 
-             fileState: { ...activeTab.fileState, isLoading: false } 
+          updateTab(tabId, { 
+             fileState: { ...tab.fileState, isLoading: false } 
           });
       }
-  }, [activeTab, updateActiveTab]);
+  }, [tabs, updateTab]);
 
 
   const handleFileUpload = useCallback((file: File) => {
@@ -436,7 +473,7 @@ const App: React.FC = () => {
   const handleLibraryFileSelect = async (fileHandle: any) => {
     setLoading(true);
     try {
-      const file = await (fileHandle as any).getFile();
+      const file = await fileHandle.getFile();
       startFileStream(file, file.name);
     } catch (e) {
       console.error("Error reading file from library:", e);
@@ -448,7 +485,8 @@ const App: React.FC = () => {
   const handleConnectDatabase = useCallback(async () => {
       if ('showDirectoryPicker' in window) {
           try {
-              const handle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+              // @ts-ignore
+              const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
               
               setDatabaseHandle(handle);
               await saveDatabaseHandle(handle);
@@ -490,51 +528,218 @@ const App: React.FC = () => {
       }
   };
 
+  const checkExistingFile = async (symbol: string, interval: string) => {
+      if (!databaseHandle) return null;
+      if (databaseHandle.isFallback) {
+          const filename = `${symbol}_${interval}.csv`;
+          const existing = databaseFiles.find(f => f.name === filename);
+          if (existing) {
+              try {
+                  const file = await existing.getFile();
+                  const size = file.size;
+                  const start = Math.max(0, size - 500);
+                  const text = await readChunk(file, start, size);
+                  const lines = text.trim().split('\n');
+                  if (lines.length > 0) {
+                      const lastLine = lines[lines.length - 1];
+                      const dateStr = lastLine.split(',')[0];
+                      const time = new Date(dateStr).getTime();
+                      if (!isNaN(time)) return time;
+                  }
+              } catch(e) {}
+          }
+          return null;
+      }
+
+      const filename = `${symbol}_${interval}.csv`;
+      try {
+          // @ts-ignore
+          const fileHandle = await databaseHandle.getFileHandle(filename);
+          const file = await fileHandle.getFile();
+          
+          const size = file.size;
+          const start = Math.max(0, size - 500);
+          const text = await readChunk(file, start, size);
+          
+          const lines = text.trim().split('\n');
+          if (lines.length > 0) {
+              const lastLine = lines[lines.length - 1];
+              const dateStr = lastLine.split(',')[0];
+              const time = new Date(dateStr).getTime();
+              if (!isNaN(time)) return time;
+          }
+      } catch (e) {
+      }
+      return null;
+  };
+
+  const handleDownloadData = async (symbol: string, interval: string, startTime: number, endTime: number, mode: 'new' | 'update') => {
+      const useFileSystem = databaseHandle && !databaseHandle.isFallback;
+      
+      if (mode === 'update' && !useFileSystem) {
+          if (!confirm("Cannot append to file in Read-Only mode. Download new data as a separate file?")) return;
+      }
+
+      setIsDownloading(true);
+      setDownloadProgress('Starting...');
+      
+      let writable = null;
+      let accumulatedCSV = '';
+      
+      try {
+          const filename = `${symbol}_${interval}.csv`;
+          
+          if (useFileSystem) {
+              try {
+                  // @ts-ignore
+                  const perm = await databaseHandle.queryPermission({ mode: 'readwrite' });
+                  if (perm !== 'granted') {
+                      // @ts-ignore
+                      const req = await databaseHandle.requestPermission({ mode: 'readwrite' });
+                      if (req !== 'granted') throw new Error("Permission denied");
+                  }
+                  
+                  // @ts-ignore
+                  const fileHandle = await databaseHandle.getFileHandle(filename, { create: true });
+                  
+                  if (mode === 'update') {
+                      // @ts-ignore
+                      writable = await fileHandle.createWritable({ keepExistingData: true });
+                      const file = await fileHandle.getFile();
+                      writable.seek(file.size);
+                  } else {
+                      // @ts-ignore
+                      writable = await fileHandle.createWritable();
+                  }
+              } catch (e) {
+                  console.error("FileSystem Error:", e);
+                  alert("Failed to write to database folder. Attempting browser download instead.");
+              }
+          }
+
+          let currentStartTime = startTime;
+          const now = Date.now();
+          let totalDownloaded = 0;
+
+          while (currentStartTime < endTime) {
+              if (currentStartTime > now + 60000) break;
+
+              const candles = await fetchBinanceKlines(symbol, interval, currentStartTime, 1000);
+              
+              if (candles.length === 0) break;
+              
+              const validCandles = candles.filter(c => c.openTime <= endTime);
+              
+              if (validCandles.length === 0) break;
+
+              const lines = validCandles.map(c => {
+                  const date = new Date(c.openTime).toISOString();
+                  return `${date},${c.open},${c.high},${c.low},${c.close},${c.volume}`;
+              }).join('\n');
+              
+              if (writable) {
+                  const prefix = (mode === 'update' || totalDownloaded > 0) ? '\n' : '';
+                  await writable.write(prefix + lines);
+              } else {
+                  const prefix = (accumulatedCSV.length > 0) ? '\n' : '';
+                  accumulatedCSV += prefix + lines;
+              }
+              
+              totalDownloaded += validCandles.length;
+              setDownloadProgress(`Downloaded ${totalDownloaded} candles...`);
+              
+              const lastCandle = validCandles[validCandles.length - 1];
+              if (validCandles.length < candles.length) break;
+
+              currentStartTime = lastCandle.closeTime + 1;
+              await new Promise(r => setTimeout(r, 100));
+          }
+          
+          if (writable) {
+              await writable.close();
+              const files = await scanRecursive(databaseHandle);
+              setDatabaseFiles(files);
+          } else {
+              if (accumulatedCSV.length > 0) {
+                  const blob = new Blob([accumulatedCSV], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.setAttribute("href", url);
+                  link.setAttribute("download", filename);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+              } else {
+                  alert("No data found for the selected range.");
+              }
+          }
+          
+          setDownloadProgress('Done!');
+          if (totalDownloaded > 0) {
+              alert(`Successfully downloaded ${totalDownloaded} candles for ${symbol}.`);
+              setIsDownloadDialogOpen(false);
+          }
+
+      } catch (e: any) {
+          console.error("Download failed:", e);
+          alert(`Download failed: ${e.message}`);
+      } finally {
+          setIsDownloading(false);
+          setDownloadProgress('');
+      }
+  };
+
   const handleTimeframeChange = async (id: string, tf: Timeframe) => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
     
-    let matchingFileHandle = findFileForTimeframe(databaseFiles, tab.title, tf);
-    if (!matchingFileHandle) {
-         matchingFileHandle = findFileForTimeframe(explorerFiles, tab.title, tf);
-    }
+    const targets = (isIntervalSync && layoutTabIds.length > 1) ? layoutTabIds : [id];
 
-    if (matchingFileHandle) {
-        setLoading(true);
-        try {
-            const file = await (matchingFileHandle as any).getFile();
-            startFileStream(file, file.name, id, tf);
-        } catch (e) {
-            console.error("Error syncing file for timeframe:", e);
-            setLoading(false);
+    targets.forEach(async (targetId) => {
+        const targetTab = tabs.find(t => t.id === targetId);
+        if (!targetTab) return;
+
+        let matchingFileHandle = findFileForTimeframe(databaseFiles, targetTab.title, tf);
+        if (!matchingFileHandle) {
+             matchingFileHandle = findFileForTimeframe(explorerFiles, targetTab.title, tf);
         }
-        return; 
-    }
 
-    const resampled = resampleData(tab.rawData, tf);
-    
-    let newReplayIndex = resampled.length - 1;
-    let newGlobalTime = tab.replayGlobalTime;
-
-    if (tab.isReplayMode || tab.isAdvancedReplayMode) {
-        if (tab.replayGlobalTime) {
-            const idx = resampled.findIndex(d => d.time >= tab.replayGlobalTime!);
-            if (idx !== -1) {
-                newReplayIndex = idx;
-            } else {
-                newReplayIndex = resampled.length - 1;
+        if (matchingFileHandle) {
+            try {
+                const file = await matchingFileHandle.getFile();
+                // Avoid using activeTabId inside forEach async
+                startFileStream(file, file.name, targetId, tf);
+            } catch (e) {
+                console.error("Error syncing file for timeframe:", e);
             }
+            return; 
         }
-    } else {
-        newGlobalTime = null;
-    }
 
-    updateTab(id, {
-      timeframe: tf,
-      data: resampled,
-      replayIndex: newReplayIndex,
-      replayGlobalTime: newGlobalTime, 
-      simulatedPrice: null 
+        const resampled = resampleData(targetTab.rawData, tf);
+        
+        let newReplayIndex = resampled.length - 1;
+        let newGlobalTime = targetTab.replayGlobalTime;
+
+        if (targetTab.isReplayMode || targetTab.isAdvancedReplayMode) {
+            if (targetTab.replayGlobalTime) {
+                const idx = resampled.findIndex(d => d.time >= targetTab.replayGlobalTime!);
+                if (idx !== -1) {
+                    newReplayIndex = idx;
+                } else {
+                    newReplayIndex = resampled.length - 1;
+                }
+            }
+        } else {
+            newGlobalTime = null;
+        }
+
+        updateTab(targetId, {
+          timeframe: tf,
+          data: resampled,
+          replayIndex: newReplayIndex,
+          replayGlobalTime: newGlobalTime, 
+          simulatedPrice: null 
+        });
     });
   };
 
@@ -603,7 +808,7 @@ const App: React.FC = () => {
      }
   };
 
-  const handleLayoutAction = (action: string) => {
+  const handleLayoutAction = async (action: string) => {
     if (!activeTab) return;
     
     if (action === 'save-csv') {
@@ -626,24 +831,145 @@ const App: React.FC = () => {
         const newTitle = prompt("Enter new name for this chart:", activeTab.title);
         if (newTitle) updateActiveTab({ title: newTitle });
     } else if (action === 'full') {
-        setLayout('single');
+        setLayoutMode('single');
+        setLayoutTabIds([activeTabId]);
     } else if (action === 'split-2x') {
-        setLayout('split-2');
-        // Fill panes with existing tabs or duplicates if needed
-        const newPaneIds = [activeTabId, '', '', ''];
-        const otherTab = tabs.find(t => t.id !== activeTabId);
-        if (otherTab) newPaneIds[1] = otherTab.id;
-        else newPaneIds[1] = activeTabId;
-        setPaneTabIds(newPaneIds);
-    } else if (action === 'split-4x') {
-        setLayout('split-4');
-        const newPaneIds = [activeTabId, '', '', ''];
-        // Best effort to fill slots
-        const others = tabs.filter(t => t.id !== activeTabId);
-        for(let i=1; i<4; i++) {
-            newPaneIds[i] = others[i-1]?.id || activeTabId;
+        setLayoutMode('split-2x');
+        const newLayoutIds = [activeTabId];
+        if (tabs.length > 1) {
+            const other = tabs.find(t => t.id !== activeTabId);
+            if (other) newLayoutIds.push(other.id);
+        } else {
+            const newTab = createNewTab(undefined, 'Secondary Chart');
+            setTabs(prev => [...prev, newTab]);
+            newLayoutIds.push(newTab.id);
         }
-        setPaneTabIds(newPaneIds);
+        setLayoutTabIds(newLayoutIds);
+    } else if (action === 'split-4x') {
+        setLayoutMode('split-4x');
+        const newLayoutIds = [activeTabId];
+        const existingOtherIds = tabs.filter(t => t.id !== activeTabId).map(t => t.id);
+        
+        let toAdd = 3;
+        for (let i = 0; i < existingOtherIds.length && toAdd > 0; i++) {
+            newLayoutIds.push(existingOtherIds[i]);
+            toAdd--;
+        }
+        
+        if (toAdd > 0) {
+            const newTabsToAdd = [];
+            for(let i=0; i<toAdd; i++) {
+                const nt = createNewTab(undefined, `Chart ${4-toAdd+i+1}`);
+                newTabsToAdd.push(nt);
+                newLayoutIds.push(nt.id);
+            }
+            setTabs(prev => [...prev, ...newTabsToAdd]);
+        }
+        setLayoutTabIds(newLayoutIds);
+    } else if (action === 'sync-symbol') setIsSymbolSync(!isSymbolSync);
+    else if (action === 'sync-interval') setIsIntervalSync(!isIntervalSync);
+    else if (action === 'sync-crosshair') setIsCrosshairSync(!isCrosshairSync);
+    else if (action === 'sync-time') setIsTimeSync(!isTimeSync);
+    else if (action === 'save') {
+        const stateToSave = {
+            tabs: tabs.map(t => ({ ...t, fileState: undefined })),
+            activeTabId,
+            favoriteTools,
+            isFavoritesBarVisible,
+            isWatchlistOpen,
+            isStayInDrawingMode,
+            isMagnetMode,
+            layoutMode,
+            layoutTabIds,
+            isSymbolSync,
+            isIntervalSync,
+            isCrosshairSync,
+            isTimeSync
+        };
+        await saveAppState(stateToSave);
+        alert("Layout successfully saved to local storage.");
+    } else if (action === 'export-layout') {
+        // Prepare a clean state object for export (without massive data buffers if possible, 
+        // but drawings are essential). For simplicity, we export everything but the file handles.
+        const exportObj = {
+            version: '1.0',
+            timestamp: Date.now(),
+            layout: {
+                mode: layoutMode,
+                tabIds: layoutTabIds,
+                sync: { symbol: isSymbolSync, interval: isIntervalSync, crosshair: isCrosshairSync, time: isTimeSync }
+            },
+            tabs: tabs.map(t => ({
+                id: t.id,
+                title: t.title,
+                timeframe: t.timeframe,
+                config: t.config,
+                drawings: t.drawings,
+                trades: t.trades
+            })),
+            activeTabId,
+            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode }
+        };
+        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `RedPill_Layout_${new Date().toISOString().split('T')[0]}.json`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } else if (action === 'import-layout') {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                const imported = JSON.parse(text);
+                
+                // Very basic validation
+                if (!imported.tabs || !Array.isArray(imported.tabs)) throw new Error("Invalid format");
+
+                // Merge imported tabs with dummy data if needed, or just let them stay empty until reloaded
+                const newTabs = imported.tabs.map((it: any) => {
+                    const base = createNewTab(it.id, it.title);
+                    return {
+                        ...base,
+                        ...it,
+                        data: [], // Data must be reloaded from source files
+                        rawData: [],
+                        undoStack: [],
+                        redoStack: []
+                    };
+                });
+
+                setTabs(newTabs);
+                if (imported.activeTabId) setActiveTabId(imported.activeTabId);
+                if (imported.layout) {
+                    setLayoutMode(imported.layout.mode || 'single');
+                    setLayoutTabIds(imported.layout.tabIds || []);
+                    if (imported.layout.sync) {
+                        setIsSymbolSync(imported.layout.sync.symbol ?? false);
+                        setIsIntervalSync(imported.layout.sync.interval ?? false);
+                        setIsCrosshairSync(imported.layout.sync.crosshair ?? false);
+                        setIsTimeSync(imported.layout.sync.time ?? false);
+                    }
+                }
+                if (imported.settings) {
+                    setFavoriteTools(imported.settings.favorites || []);
+                    setIsFavoritesBarVisible(imported.settings.favoritesVisible ?? true);
+                    setIsMagnetMode(imported.settings.magnet ?? false);
+                    setIsStayInDrawingMode(imported.settings.stayInDrawing ?? false);
+                }
+
+                alert("Layout imported successfully. Please reload your data files if needed.");
+            } catch (err) {
+                alert("Failed to import layout file. Please ensure it is a valid Red Pill Layout JSON.");
+            }
+        };
+        input.click();
     }
   };
 
@@ -654,30 +980,24 @@ const App: React.FC = () => {
           return;
       }
       
-      if (window.confirm('Are you sure you want to remove all drawings from this chart?')) {
-          updateActiveTab({ 
-              undoStack: [...activeTab.undoStack.slice(-49), activeTab.drawings],
-              redoStack: [],
-              drawings: [] 
-          });
+      if (window.confirm('Are you sure you want to remove all drawings?')) {
+          handleSaveHistory();
+          updateActiveTab({ drawings: [] });
       }
-  }, [activeTab, updateActiveTab]);
+  }, [activeTab, handleSaveHistory, updateActiveTab]);
 
   const handleOrderSubmit = useCallback((order: any) => {
       if (!activeTab) return;
       
       const newTrade: Trade = {
-          id: (crypto as any).randomUUID(),
+          id: crypto.randomUUID(),
           timestamp: Date.now(),
           ...order
       };
       
       const newTrades = [...(activeTab.trades || []), newTrade];
       updateActiveTab({ trades: newTrades });
-      
-      console.log('Order Submitted:', newTrade);
   }, [activeTab, updateActiveTab]);
-
 
   const handleAddToWatchlist = async (symbol: string) => {
       await addToWatchlist(symbol);
@@ -695,6 +1015,7 @@ const App: React.FC = () => {
       const existingTab = tabs.find(t => t.title === symbol || getBaseSymbolName(t.title) === symbol);
       if (existingTab) {
           setActiveTabId(existingTab.id);
+          if (layoutMode === 'single') setLayoutTabIds([existingTab.id]);
           return;
       }
 
@@ -713,14 +1034,15 @@ const App: React.FC = () => {
       if (fileHandle) {
           setLoading(true);
           try {
-              const file = await (fileHandle as any).getFile();
+              const file = await fileHandle.getFile();
               if (activeTab.title === 'New Chart' && activeTab.data.length === 0) {
                    startFileStream(file, file.name);
               } else {
-                   const newTabId = (crypto as any).randomUUID();
+                   const newTabId = crypto.randomUUID();
                    const newTab = createNewTab(newTabId, 'Loading...');
                    setTabs(prev => [...prev, newTab]);
                    setActiveTabId(newTabId);
+                   if (layoutMode === 'single') setLayoutTabIds([newTabId]);
                    startFileStream(file, file.name, newTabId);
               }
           } catch (e) {
@@ -732,9 +1054,10 @@ const App: React.FC = () => {
       } else {
           if (confirm(`No file found for ${symbol}. Create mock chart?`)) {
                const mock = generateMockData(MOCK_DATA_COUNT);
-               const newTab = createNewTab((crypto as any).randomUUID(), symbol, mock);
+               const newTab = createNewTab(crypto.randomUUID(), symbol, mock);
                setTabs(prev => [...prev, newTab]);
                setActiveTabId(newTab.id);
+               if (layoutMode === 'single') setLayoutTabIds([newTab.id]);
           }
       }
   };
@@ -749,6 +1072,83 @@ const App: React.FC = () => {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const renderLayout = () => {
+    if (layoutMode === 'single') {
+        return (
+            <div className="flex-1 flex flex-col relative min-w-0">
+                {activeTab.isDetached ? (
+                    <div className="flex-1 flex flex-col items-center justify-center bg-[#0f172a] text-slate-500 gap-4">
+                        <ExternalLink size={48} className="opacity-20" />
+                        <div className="text-center">
+                            <h2 className="text-lg font-medium text-slate-300">Tab is detached</h2>
+                            <p className="text-sm mt-1">This chart is currently open in another window.</p>
+                        </div>
+                        <button 
+                            onClick={() => handleAttachTab(activeTab.id)}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors"
+                        >
+                            Bring back to main window
+                        </button>
+                    </div>
+                ) : (
+                    <ChartWorkspace 
+                        tab={activeTab} 
+                        updateTab={(updates) => updateActiveTab(updates)}
+                        onTimeframeChange={(tf) => handleTimeframeChange(activeTab.id, tf)}
+                        loading={loading}
+                        favoriteTools={favoriteTools}
+                        onSelectTool={setActiveToolId}
+                        activeToolId={activeToolId}
+                        isFavoritesBarVisible={isFavoritesBarVisible}
+                        onSaveHistory={handleSaveHistory}
+                        onRequestHistory={() => handleRequestHistory(activeTab.id)}
+                        areDrawingsLocked={areDrawingsLocked}
+                        isMagnetMode={isMagnetMode}
+                        isStayInDrawingMode={isStayInDrawingMode}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    const gridColsClass = layoutMode === 'split-2x' ? 'grid-cols-2' : 'grid-cols-2';
+    const gridRowsClass = layoutMode === 'split-2x' ? 'grid-rows-1' : 'grid-rows-2';
+
+    return (
+        <div className={`flex-1 grid ${gridColsClass} ${gridRowsClass} gap-1 p-1 bg-[#0f172a]`}>
+            {layoutTabIds.map((tabId, idx) => {
+                const tab = tabs.find(t => t.id === tabId);
+                if (!tab) return <div key={idx} className="bg-[#0f172a] border border-[#334155]" />;
+                
+                return (
+                    <div 
+                        key={`${tab.id}-${idx}`} 
+                        className={`relative flex flex-col border ${tab.id === activeTabId ? 'border-blue-600 ring-1 ring-blue-600/50 z-10' : 'border-[#334155] opacity-80 hover:opacity-100 transition-opacity'}`}
+                        onClick={() => setActiveTabId(tab.id)}
+                    >
+                        <ChartWorkspace 
+                            tab={tab} 
+                            updateTab={(updates) => updateTab(tab.id, updates)}
+                            onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
+                            loading={false} 
+                            favoriteTools={tab.id === activeTabId ? favoriteTools : []}
+                            onSelectTool={tab.id === activeTabId ? setActiveToolId : undefined}
+                            activeToolId={tab.id === activeTabId ? activeToolId : 'cross'}
+                            isFavoritesBarVisible={tab.id === activeTabId ? isFavoritesBarVisible : false}
+                            onSaveHistory={tab.id === activeTabId ? handleSaveHistory : undefined}
+                            onRequestHistory={() => handleRequestHistory(tab.id)}
+                            areDrawingsLocked={areDrawingsLocked}
+                            isMagnetMode={isMagnetMode}
+                            isStayInDrawingMode={isStayInDrawingMode}
+                            isSyncing={isCrosshairSync || isTimeSync}
+                        />
+                    </div>
+                );
+            })}
+        </div>
+    );
+  };
 
   if (!isAppReady) {
     return (
@@ -775,36 +1175,6 @@ const App: React.FC = () => {
 
   const currentSymbolName = getBaseSymbolName(activeTab.title);
 
-  // Helper for rendering multiple workspaces
-  const renderWorkspace = (paneIndex: number) => {
-      const tabId = paneTabIds[paneIndex];
-      const tab = tabs.find(t => t.id === tabId) || tabs[0];
-      if (!tab) return null;
-      
-      return (
-        <ChartWorkspace 
-            key={`${paneIndex}-${tab.id}`}
-            tab={tab} 
-            updateTab={(updates) => updateTab(tab.id, updates)}
-            onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
-            loading={paneIndex === 0 ? loading : false}
-            favoriteTools={favoriteTools}
-            onSelectTool={setActiveToolId}
-            activeToolId={activeToolId}
-            isFavoritesBarVisible={paneIndex === 0 ? isFavoritesBarVisible : false}
-            onSaveHistory={handleSaveHistory}
-            onRequestHistory={handleRequestHistory}
-            
-            areDrawingsLocked={areDrawingsLocked}
-            areDrawingsHidden={areDrawingsHidden}
-            isMagnetMode={isMagnetMode}
-            isStayInDrawingMode={isStayInDrawingMode}
-            onFocus={() => setActiveTabId(tab.id)}
-            isFocused={tab.id === activeTabId}
-        />
-      );
-  };
-
   return (
     <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
       
@@ -814,7 +1184,6 @@ const App: React.FC = () => {
         className="hidden" 
         // @ts-ignore
         webkitdirectory="true" 
-        // @ts-ignore
         directory="true" 
         multiple 
         onChange={handleDatabaseFallbackSelect}
@@ -827,6 +1196,18 @@ const App: React.FC = () => {
         onFileSelect={handleLibraryFileSelect}
         onConnectDatabase={handleConnectDatabase}
         isConnected={!!databaseHandle}
+      />
+
+      <DownloadDialog 
+        isOpen={isDownloadDialogOpen}
+        onClose={() => setIsDownloadDialogOpen(false)}
+        onDownload={handleDownloadData}
+        checkExistingFile={checkExistingFile}
+        isDownloading={isDownloading}
+        progress={downloadProgress}
+        onConnectDatabase={handleConnectDatabase}
+        isConnected={!!databaseHandle && !databaseHandle?.isFallback}
+        databaseName={databaseHandle?.name}
       />
 
       <TabBar 
@@ -857,13 +1238,16 @@ const App: React.FC = () => {
         onToggleAdvancedReplay={handleToggleAdvancedReplay}
         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
         onOpenLocalData={() => setIsLibraryOpen(true)}
-        onOpenOnlineData={() => alert('Online data coming soon')}
         onLayoutAction={handleLayoutAction}
+        isSymbolSync={isSymbolSync}
+        isIntervalSync={isIntervalSync}
+        isCrosshairSync={isCrosshairSync}
+        isTimeSync={isTimeSync}
         onToggleTradingPanel={() => setIsTradingPanelOpen(!isTradingPanelOpen)}
         isTradingPanelOpen={isTradingPanelOpen}
         isLibraryOpen={isLibraryOpen}
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
-        currentLayout={layout}
+        onOpenDownloadDialog={() => setIsDownloadDialogOpen(true)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -874,11 +1258,8 @@ const App: React.FC = () => {
           onToggleFavorite={toggleFavorite}
           isFavoritesBarVisible={isFavoritesBarVisible}
           onToggleFavoritesBar={() => setIsFavoritesBarVisible(!isFavoritesBarVisible)}
-          
           areDrawingsLocked={areDrawingsLocked}
           onToggleDrawingsLock={() => setAreDrawingsLocked(!areDrawingsLocked)}
-          areDrawingsHidden={areDrawingsHidden}
-          onToggleDrawingsHidden={() => setAreDrawingsHidden(!areDrawingsHidden)}
           isMagnetMode={isMagnetMode}
           onToggleMagnet={() => setIsMagnetMode(!isMagnetMode)}
           isStayInDrawingMode={isStayInDrawingMode}
@@ -894,40 +1275,7 @@ const App: React.FC = () => {
           onFolderNameChange={setExplorerFolderName}
         />
 
-        <div className="flex-1 flex flex-col relative min-w-0">
-            {activeTab.isDetached ? (
-                <div className="flex-1 flex flex-col items-center justify-center bg-[#0f172a] text-slate-500 gap-4">
-                    <ExternalLink size={48} className="opacity-20" />
-                    <div className="text-center">
-                        <h2 className="text-lg font-medium text-slate-300">Tab is detached</h2>
-                        <p className="text-sm mt-1">This chart is currently open in another window.</p>
-                    </div>
-                    <button 
-                        onClick={() => handleAttachTab(activeTab.id)}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors"
-                    >
-                        Bring back to main window
-                    </button>
-                </div>
-            ) : (
-                <div className={`flex-1 grid gap-1 overflow-hidden h-full ${
-                    layout === 'split-4' 
-                        ? 'grid-cols-2 grid-rows-2' 
-                        : layout === 'split-2' 
-                            ? 'grid-cols-2' 
-                            : 'grid-cols-1'
-                }`}>
-                    {renderWorkspace(0)}
-                    {layout !== 'single' && renderWorkspace(1)}
-                    {layout === 'split-4' && (
-                        <>
-                            {renderWorkspace(2)}
-                            {renderWorkspace(3)}
-                        </>
-                    )}
-                </div>
-            )}
-        </div>
+        {renderLayout()}
 
         <WatchlistPanel 
             isOpen={isWatchlistOpen}
@@ -968,7 +1316,6 @@ const App: React.FC = () => {
                         onSelectTool={() => {}}
                         activeToolId=""
                         areDrawingsLocked={false}
-                        areDrawingsHidden={false}
                         isMagnetMode={false}
                       />
                   </Popout>

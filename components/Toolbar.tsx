@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -33,7 +34,12 @@ import {
   Folder,
   Search,
   Trash2,
-  Layers
+  Layers,
+  CloudDownload,
+  Link,
+  Link2Off,
+  FileDown,
+  FileInput
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -61,9 +67,14 @@ interface ToolbarProps {
   isTradingPanelOpen?: boolean;
   isLibraryOpen?: boolean;
   onToggleLibrary?: () => void;
+  onClearAll?: () => void;
   onToggleLayers?: () => void;
   isLayersOpen?: boolean;
-  currentLayout?: 'single' | 'split-2' | 'split-4';
+  onOpenDownloadDialog?: () => void;
+  isSymbolSync?: boolean;
+  isIntervalSync?: boolean;
+  isCrosshairSync?: boolean;
+  isTimeSync?: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -91,9 +102,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isTradingPanelOpen,
   isLibraryOpen,
   onToggleLibrary,
+  onClearAll,
   onToggleLayers,
   isLayersOpen,
-  currentLayout = 'single'
+  onOpenDownloadDialog,
+  isSymbolSync,
+  isIntervalSync,
+  isCrosshairSync,
+  isTimeSync
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -104,47 +120,35 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) {
-        setIsToolsOpen(false);
-      }
-      if (layoutMenuRef.current && !layoutMenuRef.current.contains(target)) {
-        setIsLayoutMenuOpen(false);
-      }
-      if (settingsMenuRef.current && !settingsMenuRef.current.contains(target)) {
-        setIsSettingsOpen(false);
-      }
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) setIsToolsOpen(false);
+      if (layoutMenuRef.current && !layoutMenuRef.current.contains(target)) setIsLayoutMenuOpen(false);
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(target)) setIsSettingsOpen(false);
     };
 
     if (isToolsOpen || isLayoutMenuOpen || isSettingsOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isToolsOpen, isLayoutMenuOpen, isSettingsOpen]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      onFileUpload(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files[0]) onFileUpload(e.target.files[0]);
   };
 
   const handleLayoutClick = (action: string) => {
-    setIsLayoutMenuOpen(false);
     if (action === 'load-csv') {
       fileInputRef.current?.click();
     } else {
       onLayoutAction?.(action);
+      setIsLayoutMenuOpen(false);
     }
   };
 
   return (
     <div className="flex items-center justify-between h-14 bg-[#1e293b] border-b border-[#334155] px-4">
-      {/* Hidden Input for File Upload */}
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -153,9 +157,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         onChange={handleFileChange}
       />
 
-      {/* Left Group: History, Chart Type, Tools */}
       <div className="flex items-center gap-4">
-        
         <div className="flex items-center gap-1">
           <button 
             onClick={onSearch}
@@ -205,7 +207,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="h-6 w-px bg-slate-700"></div>
 
-        {/* Chart Type Selector */}
         <div className="flex items-center gap-1 bg-[#0f172a] p-1 rounded-lg">
           <button
             onClick={() => onChartTypeChange('candlestick')}
@@ -231,7 +232,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
         </div>
 
-        {/* Trading Tools Menu */}
         <div className="relative" ref={toolsMenuRef}>
           <button
              onClick={() => setIsToolsOpen(!isToolsOpen)}
@@ -246,7 +246,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {isToolsOpen && (
             <div className="absolute top-full left-0 mt-2 w-56 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                {/* Watchlist */}
                  <button
                     onClick={() => { setIsToolsOpen(false); onToggleWatchlist?.(); }}
                     className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
@@ -254,10 +253,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <List size={16} className="text-emerald-400" />
                     Watchlist
                 </button>
-                
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
-
-                {/* Indicators Submenu */}
+                 <button
+                    onClick={() => { setIsToolsOpen(false); onOpenDownloadDialog?.(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
+                >
+                    <CloudDownload size={16} className="text-sky-400" />
+                    Download Data
+                </button>
+                <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 <div className="relative group/indicators w-full">
                     <button
                         className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
@@ -268,9 +272,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         </div>
                         <ChevronRight size={14} />
                     </button>
-                    
-                    {/* Flyout */}
-                    <div className="absolute left-full top-0 ml-1 w-48 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 invisible opacity-0 transition-all duration-200 z-50 group-hover/indicators:visible group-hover/indicators:opacity-100 delay-300 group-hover/indicators:delay-0 before:content-[''] before:absolute before:-left-1 before:top-0 before:h-full before:w-1">
+                    <div className="absolute left-full top-0 ml-1 w-48 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 invisible opacity-0 transition-all duration-200 z-50 group-hover/indicators:visible group-hover/indicators:opacity-100 delay-300 group-hover/indicators:delay-0">
                         <button
                             onClick={() => onToggleIndicator('volume')}
                             className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
@@ -291,7 +293,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           )}
         </div>
 
-        {/* Data Explorer Button (Direct) */}
         <button
             onClick={onToggleLibrary}
             className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded transition-colors ${
@@ -302,7 +303,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span>Data Explorer</span>
         </button>
 
-        {/* Chart Layout Menu */}
         <div className="relative" ref={layoutMenuRef}>
           <button
              onClick={() => setIsLayoutMenuOpen(!isLayoutMenuOpen)}
@@ -316,112 +316,50 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </button>
 
           {isLayoutMenuOpen && (
-            <div className="absolute top-full left-0 mt-2 w-56 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                {/* Full Chart */}
-                <button 
-                  onClick={() => handleLayoutClick('full')}
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
-                >
-                    <div className="flex items-center gap-3">
-                        <Maximize size={16} className="text-slate-400" />
-                        <span>Full Chart</span>
-                    </div>
-                    {currentLayout === 'single' && <Check size={14} className="text-blue-400" />}
-                </button>
-                {/* Split 2x */}
-                 <button 
-                   onClick={() => handleLayoutClick('split-2x')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
-                 >
-                    <div className="flex items-center gap-3">
-                        <Columns2 size={16} className="text-slate-400" />
-                        <span>Split Chart 2x</span>
-                    </div>
-                    {currentLayout === 'split-2' && <Check size={14} className="text-blue-400" />}
-                </button>
-                {/* Split 4x */}
-                 <button 
-                   onClick={() => handleLayoutClick('split-4x')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
-                 >
-                    <div className="flex items-center gap-3">
-                        <Grid2x2 size={16} className="text-slate-400" />
-                        <span>Split Chart 4x</span>
-                    </div>
-                    {currentLayout === 'split-4' && <Check size={14} className="text-blue-400" />}
-                </button>
+            <div className="absolute top-full left-0 mt-2 w-64 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Grid Layouts</div>
+                <button onClick={() => handleLayoutClick('full')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Maximize size={16} /><span>Full Chart</span></button>
+                <button onClick={() => handleLayoutClick('split-2x')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Columns2 size={16} /><span>Split Chart 2x</span></button>
+                <button onClick={() => handleLayoutClick('split-4x')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Grid2x2 size={16} /><span>Split Chart 4x</span></button>
                 
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
-
-                 {/* Save Chart */}
-                 <button 
-                   onClick={() => handleLayoutClick('save')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                 >
-                    <Save size={16} className="text-emerald-400" />
-                    <span>Save Chart</span>
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Independence / Sync</div>
+                <button onClick={() => handleLayoutClick('sync-symbol')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
+                    <div className="flex items-center gap-3"><Link size={14} className={isSymbolSync ? 'text-blue-400' : 'text-slate-600'} /><span>Symbol Sync</span></div>
+                    {isSymbolSync && <Check size={12} className="text-blue-400" />}
                 </button>
-                {/* Save as CSV */}
-                 <button 
-                   onClick={() => handleLayoutClick('save-csv')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                 >
-                    <Download size={16} className="text-blue-400" />
-                    <span>Save as CSV</span>
+                <button onClick={() => handleLayoutClick('sync-interval')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
+                    <div className="flex items-center gap-3"><Link size={14} className={isIntervalSync ? 'text-blue-400' : 'text-slate-600'} /><span>Interval Sync</span></div>
+                    {isIntervalSync && <Check size={12} className="text-blue-400" />}
                 </button>
-                 {/* Load CSV */}
-                 <button 
-                   onClick={() => handleLayoutClick('load-csv')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                 >
-                    <Upload size={16} className="text-amber-400" />
-                    <span>Load CSV</span>
+                <button onClick={() => handleLayoutClick('sync-crosshair')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
+                    <div className="flex items-center gap-3"><Link size={14} className={isCrosshairSync ? 'text-blue-400' : 'text-slate-600'} /><span>Crosshair Sync</span></div>
+                    {isCrosshairSync && <Check size={12} className="text-blue-400" />}
                 </button>
-                
-                <div className="h-px bg-[#334155] my-1 mx-2"></div>
-                
-                {/* Create New Layout */}
-                 <button 
-                   onClick={() => handleLayoutClick('new')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                 >
-                    <Plus size={16} className="text-slate-400" />
-                    <span>Create new layout</span>
-                </button>
-                {/* Rename */}
-                 <button 
-                   onClick={() => handleLayoutClick('rename')}
-                   className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                 >
-                    <PenLine size={16} className="text-slate-400" />
-                    <span>Rename</span>
+                <button onClick={() => handleLayoutClick('sync-time')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
+                    <div className="flex items-center gap-3"><Link size={14} className={isTimeSync ? 'text-blue-400' : 'text-slate-600'} /><span>Time Sync</span></div>
+                    {isTimeSync && <Check size={12} className="text-blue-400" />}
                 </button>
 
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
-
-                {/* Recently Used */}
-                 <div className="relative group/recent w-full">
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors">
-                        <div className="flex items-center gap-3">
-                            <History size={16} className="text-purple-400" />
-                            <span>Recently used</span>
-                        </div>
-                        <ChevronRight size={14} />
-                    </button>
-                </div>
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Storage</div>
+                <button onClick={() => handleLayoutClick('save')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Save size={16} className="text-emerald-400" /><span>Save Layout to DB</span></button>
+                <button onClick={() => handleLayoutClick('export-layout')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><FileDown size={16} className="text-blue-400" /><span>Export Layout (.json)</span></button>
+                <button onClick={() => handleLayoutClick('import-layout')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><FileInput size={16} className="text-amber-400" /><span>Import Layout (.json)</span></button>
+                
+                <div className="h-px bg-[#334155] my-1 mx-2"></div>
+                <button onClick={() => handleLayoutClick('save-csv')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Download size={16} className="text-slate-400" /><span>Save Chart Data as CSV</span></button>
+                <button onClick={() => handleLayoutClick('load-csv')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Upload size={16} className="text-slate-400" /><span>Load CSV into Tab</span></button>
+                <button onClick={() => handleLayoutClick('new')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Plus size={16} className="text-slate-400" /><span>New Chart Tab</span></button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Right Group: Settings */}
       <div className="flex items-center gap-3">
-        {/* Layer Manager Toggle */}
         <button
           className={`p-2 rounded transition-colors ${
-              isLayersOpen 
-                ? 'bg-blue-600 text-white shadow-md' 
-                : 'text-slate-400 hover:text-white hover:bg-[#334155]'
+              isLayersOpen ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-[#334155]'
           }`}
           title="Object Tree / Layers"
           onClick={onToggleLayers}
@@ -429,12 +367,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <Layers size={18} />
         </button>
 
-        {/* Trade Icon */}
         <button
           className={`p-2 rounded transition-colors ${
-              isTradingPanelOpen 
-                ? 'bg-blue-600 text-white shadow-md' 
-                : 'text-slate-400 hover:text-white hover:bg-[#334155]'
+              isTradingPanelOpen ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-[#334155]'
           }`}
           title="Trade Panel"
           onClick={onToggleTradingPanel}
@@ -455,48 +390,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             
             {isSettingsOpen && (
                 <div className="absolute top-full right-0 mt-2 w-56 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                    <div className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-[#0f172a]/50 border-b border-[#334155]">
-                        Chart Settings
-                    </div>
-                    
-                    {/* Theme Toggle Button Inside Menu */}
-                    <button 
-                        onClick={() => { toggleTheme(); setIsSettingsOpen(false); }} 
-                        className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                    >
+                    <button onClick={() => { toggleTheme(); setIsSettingsOpen(false); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3">
                         {isDark ? <Sun size={16} className="text-amber-400" /> : <Moon size={16} className="text-purple-400" />}
                         <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
                     </button>
-
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors">
-                        <CandlestickChart size={16} className="text-blue-400" />
-                        <span>Candles</span>
-                    </button>
-
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors">
-                        <PaintBucket size={16} className="text-amber-400" />
-                        <span>Background</span>
-                    </button>
-
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors">
-                        <Sliders size={16} className="text-emerald-400" />
-                        <span>Chart Styles</span>
-                    </button>
-
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors">
-                        <Activity size={16} className="text-rose-400" />
-                        <span>Bid & Ask Line</span>
-                    </button>
-
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors">
-                        <Palette size={16} className="text-indigo-400" />
-                        <span>Skins</span>
-                    </button>
-
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors">
-                        <Clock size={16} className="text-teal-400" />
-                        <span>Date and Time</span>
-                    </button>
+                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><CandlestickChart size={16} className="text-blue-400" /><span>Candles</span></button>
+                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><PaintBucket size={16} className="text-amber-400" /><span>Background</span></button>
                 </div>
             )}
         </div>
