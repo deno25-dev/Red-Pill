@@ -345,7 +345,7 @@ const App: React.FC = () => {
       };
   };
 
-  const startFileStream = useCallback(async (file: File, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe) => {
+  const startFileStream = useCallback(async (file: File, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
       setLoading(true);
       try {
           const fileSize = file.size;
@@ -375,6 +375,13 @@ const App: React.FC = () => {
           const initialTf = forceTimeframe || Timeframe.M1;
           const displayData = forceTimeframe ? parsedData : resampleData(parsedData, initialTf);
 
+          // Calculate replay index if we have preserved state
+          let replayIndex = displayData.length - 1;
+          if (preservedReplay?.replayGlobalTime) {
+              const idx = displayData.findIndex(d => d.time >= preservedReplay.replayGlobalTime!);
+              if (idx !== -1) replayIndex = idx;
+          }
+
           const updates: Partial<TabSession> = {
               title: displayTitle,
               rawData: parsedData,
@@ -388,8 +395,11 @@ const App: React.FC = () => {
                   hasMore: start > 0,
                   fileSize
               },
-              replayIndex: displayData.length - 1,
-              isReplayPlaying: false
+              replayIndex: replayIndex,
+              isReplayPlaying: false,
+              isReplayMode: preservedReplay?.isReplayMode ?? false,
+              isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
+              replayGlobalTime: preservedReplay?.replayGlobalTime ?? null
           };
 
           const tabIdToUpdate = targetTabId || activeTabId;
@@ -699,6 +709,13 @@ const App: React.FC = () => {
         const targetTab = tabs.find(t => t.id === targetId);
         if (!targetTab) return;
 
+        // Preserve replay state for engagement
+        const preservedReplay = {
+            isReplayMode: targetTab.isReplayMode,
+            isAdvancedReplayMode: targetTab.isAdvancedReplayMode,
+            replayGlobalTime: targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null)
+        };
+
         let matchingFileHandle = findFileForTimeframe(databaseFiles, targetTab.title, tf);
         if (!matchingFileHandle) {
              matchingFileHandle = findFileForTimeframe(explorerFiles, targetTab.title, tf);
@@ -707,8 +724,7 @@ const App: React.FC = () => {
         if (matchingFileHandle) {
             try {
                 const file = await matchingFileHandle.getFile();
-                // Avoid using activeTabId inside forEach async
-                startFileStream(file, file.name, targetId, tf);
+                startFileStream(file, file.name, targetId, tf, preservedReplay);
             } catch (e) {
                 console.error("Error syncing file for timeframe:", e);
             }
@@ -718,11 +734,11 @@ const App: React.FC = () => {
         const resampled = resampleData(targetTab.rawData, tf);
         
         let newReplayIndex = resampled.length - 1;
-        let newGlobalTime = targetTab.replayGlobalTime;
+        let newGlobalTime = preservedReplay.replayGlobalTime;
 
-        if (targetTab.isReplayMode || targetTab.isAdvancedReplayMode) {
-            if (targetTab.replayGlobalTime) {
-                const idx = resampled.findIndex(d => d.time >= targetTab.replayGlobalTime!);
+        if (preservedReplay.isReplayMode || preservedReplay.isAdvancedReplayMode) {
+            if (newGlobalTime) {
+                const idx = resampled.findIndex(d => d.time >= newGlobalTime!);
                 if (idx !== -1) {
                     newReplayIndex = idx;
                 } else {
@@ -738,7 +754,9 @@ const App: React.FC = () => {
           data: resampled,
           replayIndex: newReplayIndex,
           replayGlobalTime: newGlobalTime, 
-          simulatedPrice: null 
+          simulatedPrice: null,
+          isReplayMode: preservedReplay.isReplayMode,
+          isAdvancedReplayMode: preservedReplay.isAdvancedReplayMode
         });
     });
   };
