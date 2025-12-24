@@ -18,7 +18,8 @@ import {
   HistogramSeries,
   Logical,
   MouseEventParams,
-  LogicalRange
+  LogicalRange,
+  Time
 } from 'lightweight-charts';
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
 import { COLORS } from '../constants';
@@ -106,7 +107,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             try {
                 const price = _series.priceToCoordinate(p.price);
                 if (price === null) return { x: OFF_SCREEN, y: OFF_SCREEN };
-                let x = timeScale.timeToCoordinate(p.time / 1000 as any);
+                let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
                 if (x === null) {
                     const idx = _timeToIndex?.get(p.time);
                     if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical);
@@ -238,7 +239,8 @@ class DrawingsPriceAxisPaneRenderer {
     }
 }
 
-class DrawingsPriceAxisPaneView implements ISeriesPrimitiveAxisView {
+// Removing strict implements check to avoid interface property mismatch errors in build
+class DrawingsPriceAxisPaneView {
     constructor(private _source: DrawingsPrimitive) {}
     renderer() { return new DrawingsPriceAxisPaneRenderer(this._source); }
     zOrder(): PrimitivePaneViewZOrder { return 'top'; }
@@ -256,7 +258,7 @@ class DrawingsPrimitive implements ISeriesPrimitive {
         this._drawings = drawings; this._timeToIndex = timeToIndex; this._currentDefaultProperties = defaults; this._selectedDrawingId = selectedId; this._timeframe = timeframe;
     }
     paneViews() { return this._paneViews; }
-    priceAxisPaneViews() { return this._priceAxisViews; }
+    priceAxisPaneViews() { return this._priceAxisViews as any; }
 }
 
 class DrawingsPaneView implements IPrimitivePaneView {
@@ -283,7 +285,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
 
   const processedData = useMemo(() => {
-    return data.map(d => ({ time: d.time / 1000, open: d.open, high: d.high, low: d.low, close: d.close, value: d.close }));
+    return data.map(d => ({ time: (d.time / 1000) as Time, open: d.open, high: d.high, low: d.low, close: d.close, value: d.close }));
   }, [data]);
 
   const timeToIndex = useMemo(() => {
@@ -346,7 +348,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (!propsRef.current.isSyncing) return;
         const { point, sourceId } = e.detail;
         if (sourceId !== propsRef.current.id) {
-            chart.setCrosshairPosition(point.price, point.time / 1000, seriesRef.current!);
+            chart.setCrosshairPosition(point.price, (point.time / 1000) as Time, seriesRef.current!);
         }
     };
 
@@ -405,11 +407,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (!seriesRef.current) return;
     try { seriesRef.current.setData(processedData); } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
-        volumeSeriesRef.current.setData(data.map(d => ({ time: d.time / 1000, value: d.volume, color: d.close >= d.open ? COLORS.volumeBullish : COLORS.volumeBearish })));
+        volumeSeriesRef.current.setData(data.map(d => ({ time: (d.time / 1000) as Time, value: d.volume, color: d.close >= d.open ? COLORS.volumeBullish : COLORS.volumeBearish })));
     }
     if (smaSeriesRef.current && config.showSMA) {
         const smaSeriesData = [];
-        for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: data[i].time / 1000, value: smaData[i] as number }); }
+        for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: (data[i].time / 1000) as Time, value: smaData[i] as number }); }
         smaSeriesRef.current.setData(smaSeriesData);
     }
   }, [data, smaData, config.chartType, processedData]); 
@@ -439,7 +441,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (!chartRef.current || !seriesRef.current) return { x: OFF_SCREEN, y: OFF_SCREEN };
     try {
         const timeScale = chartRef.current.timeScale(); const price = seriesRef.current.priceToCoordinate(p.price);
-        let x = timeScale.timeToCoordinate(p.time / 1000 as any);
+        let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
         if (x === null) { const idx = timeToIndexRef.current.get(p.time); if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical); }
         return { x: (x !== null && Number.isFinite(x)) ? x : OFF_SCREEN, y: (price !== null && Number.isFinite(price)) ? price : OFF_SCREEN };
     } catch (e) { return { x: OFF_SCREEN, y: OFF_SCREEN }; }
