@@ -350,18 +350,28 @@ export const findFileForTimeframe = (files: any[], currentTitle: string, targetT
 };
 
 // Helper: Scan Directory Recursively
+// Updated to be robust against permission errors and invalid handles
 export async function scanRecursive(dirHandle: any): Promise<any[]> {
     const files: any[] = [];
     async function traverse(handle: any) {
-        // @ts-ignore
-        for await (const entry of handle.values()) {
-            if (entry.kind === 'file') {
-                if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.txt')) {
-                   files.push(entry);
+        if (!handle || typeof handle.values !== 'function') return;
+        try {
+            // @ts-ignore
+            for await (const entry of handle.values()) {
+                try {
+                    if (entry.kind === 'file') {
+                        if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.txt')) {
+                           files.push(entry);
+                        }
+                    } else if (entry.kind === 'directory') {
+                        await traverse(entry);
+                    }
+                } catch (innerErr) {
+                    console.warn("Skipping entry due to error:", entry.name, innerErr);
                 }
-            } else if (entry.kind === 'directory') {
-                await traverse(entry);
             }
+        } catch (err) {
+            console.error("Error scanning directory:", handle.name, err);
         }
     }
     await traverse(dirHandle);

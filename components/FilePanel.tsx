@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { FolderOpen, FileText, X, Database, RefreshCw, AlertCircle, Trash2, Clock, History } from 'lucide-react';
 import { getExplorerHandle, saveExplorerHandle, getRecentFiles, addRecentFile } from '../utils/storage';
@@ -60,12 +61,17 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
         
         // Check if we already have permission
         try {
-            // @ts-ignore
-            const perm = await handle.queryPermission({ mode: 'read' });
-            if (perm === 'granted') {
-              await listFiles(handle);
+            if (handle.queryPermission) {
+                // @ts-ignore
+                const perm = await handle.queryPermission({ mode: 'read' });
+                if (perm === 'granted') {
+                    await listFiles(handle);
+                } else {
+                    setNeedsPermission(true);
+                }
             } else {
-              setNeedsPermission(true);
+                // If handle is stale or invalid structure, reset
+                setStoredHandle(null);
             }
         } catch (permErr) {
             // Handle permission query failure or non-standard behavior
@@ -94,6 +100,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       console.error("Error listing files:", e);
       setError("Failed to list files. Permission might be revoked or directory moved.");
       setNeedsPermission(true);
+      setFiles([]); // Clear potential stale state
     } finally {
       setLoading(false);
     }
@@ -132,6 +139,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
     
     // 2. Legacy Fallback
     if (legacyInputRef.current) {
+        legacyInputRef.current.value = ''; // Reset input to allow re-selection
         legacyInputRef.current.click();
     }
   };
