@@ -24,6 +24,7 @@ import {
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
 import { COLORS } from '../constants';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
+import { ChevronsRight } from 'lucide-react';
 
 interface ChartProps {
   id?: string;
@@ -292,6 +293,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const isResizingVolume = useRef(false); const [localVolumeTopMargin, setLocalVolumeTopMargin] = useState(config.volumeTopMargin || 0.8);
   const replayMouseX = useRef<number | null>(null); const ignoreRangeChange = useRef(false);
 
+  // New State for "Scroll to Recent" button
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
   const interactionState = useRef<{ isDragging: boolean; isCreating: boolean; isErasing: boolean; dragDrawingId: string | null; dragHandleIndex: number | null; startPoint: { x: number; y: number } | null; creatingPoints: DrawingPoint[]; creationStep: number; activeToolId: string; }>({ isDragging: false, isCreating: false, isErasing: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: activeToolId });
 
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
@@ -381,6 +385,18 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (range && propsRef.current.onRequestMoreData) {
             if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current);
             rangeChangeTimeout.current = setTimeout(() => { if (range.from < 50) propsRef.current.onRequestMoreData?.(); }, 100);
+        }
+
+        // Logic for "Scroll to Real-time" Button
+        if (range) {
+             const currentData = propsRef.current.data;
+             const lastIndex = currentData.length - 1;
+             // Check distance from the rightmost visible bar to the last actual data point
+             // Using logical indices, the last bar corresponds to `currentData.length - 1` roughly
+             const dist = lastIndex - range.to;
+             
+             // If we are more than 10 bars away from the latest data, show the button
+             setShowScrollButton(dist > 10);
         }
     });
 
@@ -664,6 +680,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     document.body.style.cursor = activeToolId === 'eraser' ? 'cell' : 'default'; 
     requestDraw();
   };
+  
+  const handleScrollToRealTime = () => {
+       chartRef.current?.timeScale().scrollToRealTime();
+  };
 
   if (data.length === 0) return <div className="flex items-center justify-center h-full text-slate-500">No data loaded.</div>;
 
@@ -673,6 +693,16 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
        <canvas ref={canvasRef} className="absolute inset-0 z-10" style={{ pointerEvents: 'none' }} onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp} />
        {config.showVolume && <div className="absolute left-0 right-0 z-30 h-1 cursor-ns-resize group/resize" style={{ top: `${localVolumeTopMargin * 100}%` }} onMouseDown={handleVolumeResizeMouseDown}><div className="w-full h-px bg-slate-600 opacity-0 group-hover/resize:opacity-100 transition-opacity" /></div>}
        <div ref={toolTipRef} className="absolute hidden pointer-events-none bg-[#1e293b]/95 border border-[#475569] p-2.5 rounded shadow-xl backdrop-blur-sm z-50 transition-opacity duration-75" />
+       
+       {showScrollButton && (
+           <button
+             onClick={handleScrollToRealTime}
+             className="absolute bottom-12 right-20 z-40 bg-[#1e293b]/80 hover:bg-blue-600 text-slate-300 hover:text-white p-2 rounded-full shadow-lg backdrop-blur-sm border border-[#334155] transition-all animate-in fade-in zoom-in duration-200"
+             title="Scroll to most recent"
+           >
+             <ChevronsRight size={20} />
+           </button>
+       )}
     </div>
   );
 };
