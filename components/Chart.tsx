@@ -24,7 +24,7 @@ import {
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
 import { COLORS } from '../constants';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
-import { ChevronsRight } from 'lucide-react';
+import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
 
 interface ChartProps {
   id?: string;
@@ -217,7 +217,11 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                  if (screenPoints.length >= 1 && screenPoints[0].x !== OFF_SCREEN) {
                      target.setLineDash([]); target.font = `${d.properties.fontSize || 14}px sans-serif`; target.fillStyle = d.properties.color;
                      target.textAlign = d.properties.textAlign || 'left'; target.textBaseline = 'top';
-                     target.fillText(d.properties.text || 'Text', screenPoints[0].x, screenPoints[0].y);
+                     const lines = (d.properties.text || 'Text').split('\n');
+                     const lineHeight = (d.properties.fontSize || 14) * 1.2;
+                     lines.forEach((line, i) => {
+                         target.fillText(line, screenPoints[0].x, screenPoints[0].y + (i * lineHeight));
+                     });
                  }
             }
             if (isSelected && !isDragging && !isCreating) {
@@ -255,6 +259,11 @@ class DrawingsPriceAxisPaneView {
     zOrder(): PrimitivePaneViewZOrder { return 'top'; }
 }
 
+class DrawingsPaneView {
+    constructor(private _source: DrawingsPrimitive) {}
+    renderer() { return new DrawingsPaneRenderer(this._source); }
+}
+
 class DrawingsPrimitive implements ISeriesPrimitive {
     _chart: IChartApi; _series: ISeriesApi<any>; _drawings: Drawing[] = []; _timeToIndex: Map<number, number> | null = null;
     _interactionStateRef: React.MutableRefObject<any>; _currentDefaultProperties: DrawingProperties; _selectedDrawingId: string | null = null;
@@ -274,13 +283,15 @@ class DrawingsPrimitive implements ISeriesPrimitive {
     priceAxisPaneViews() { return this._priceAxisViews as any; }
 }
 
-class DrawingsPaneView implements IPrimitivePaneView {
-    constructor(private _source: DrawingsPrimitive) {}
-    renderer() { return new DrawingsPaneRenderer(this._source); }
-    zOrder(): PrimitivePaneViewZOrder { return 'top'; }
-}
-
 const SINGLE_POINT_TOOLS = ['text', 'horizontal_line', 'vertical_line', 'horizontal_ray'];
+
+interface TextInputState {
+    visible: boolean;
+    x: number;
+    y: number;
+    text: string;
+    point: DrawingPoint | null;
+}
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
   const { data, smaData, config, timeframe, onConfigChange, drawings, onUpdateDrawings, activeToolId, onToolComplete, currentDefaultProperties, selectedDrawingId, onSelectDrawing, onActionStart, isReplaySelecting, onReplayPointSelect, onRequestMoreData, areDrawingsLocked = false, isMagnetMode = false, isSyncing = false } = props;
@@ -295,6 +306,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   // New State for "Scroll to Recent" button
   const [showScrollButton, setShowScrollButton] = useState(false);
+  
+  // State for Text Input Overlay
+  const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
 
   const interactionState = useRef<{ isDragging: boolean; isCreating: boolean; isErasing: boolean; dragDrawingId: string | null; dragHandleIndex: number | null; startPoint: { x: number; y: number } | null; creatingPoints: DrawingPoint[]; creationStep: number; activeToolId: string; }>({ isDragging: false, isCreating: false, isErasing: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: activeToolId });
 
@@ -662,12 +676,20 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (interactionState.current.isCreating) {
         if (activeToolId === 'brush') { onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: smoothPoints(interactionState.current.creatingPoints, currentDefaultProperties.smoothing || 0), properties: currentDefaultProperties }]); interactionState.current.isCreating = false; onToolComplete(); }
         else if (activeToolId === 'text') {
-             const points = [...interactionState.current.creatingPoints];
-             setTimeout(() => {
-                const text = prompt("Enter text:", "Label");
-                if (text !== null) onUpdateDrawings([...propsRef.current.drawings, { id: crypto.randomUUID(), type: 'text', points, properties: { ...currentDefaultProperties, text: text || "Label" } }]);
-                interactionState.current.isCreating = false; onToolComplete(); requestDraw();
-             }, 10); return;
+             // Instead of prompt, open custom text input
+             const point = interactionState.current.creatingPoints[0];
+             const screenP = pointToScreen(point);
+             if (screenP.x !== OFF_SCREEN && screenP.y !== OFF_SCREEN) {
+                 setTextInputState({
+                     visible: true,
+                     x: screenP.x,
+                     y: screenP.y,
+                     text: "Text",
+                     point: point
+                 });
+             }
+             interactionState.current.isCreating = false;
+             // Do not call onToolComplete yet, wait for text submission
         } else {
             const step = interactionState.current.creationStep;
             if (step < interactionState.current.creatingPoints.length - 1) { interactionState.current.creationStep = step + 1; interactionState.current.creatingPoints[step + 1] = interactionState.current.creatingPoints[step]; requestDraw(); return; }
@@ -683,6 +705,30 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   
   const handleScrollToRealTime = () => {
        chartRef.current?.timeScale().scrollToRealTime();
+  };
+
+  // Text Input Handlers
+  const handleTextSubmit = () => {
+      if (textInputState && textInputState.point) {
+          propsRef.current.onUpdateDrawings([
+            ...propsRef.current.drawings, 
+            { 
+                id: crypto.randomUUID(), 
+                type: 'text', 
+                points: [textInputState.point], 
+                properties: { ...propsRef.current.currentDefaultProperties, text: textInputState.text || "Label" } 
+            }
+          ]);
+          propsRef.current.onToolComplete();
+          setTextInputState(null);
+          requestDraw();
+      }
+  };
+
+  const handleTextCancel = () => {
+      setTextInputState(null);
+      // Optional: reset tool if cancelled
+      // propsRef.current.onToolComplete();
   };
 
   if (data.length === 0) return <div className="flex items-center justify-center h-full text-slate-500">No data loaded.</div>;
@@ -702,6 +748,51 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
            >
              <ChevronsRight size={20} />
            </button>
+       )}
+       
+       {/* Text Input Overlay */}
+       {textInputState && textInputState.visible && (
+           <div 
+             className="absolute z-50 flex flex-col gap-2 p-2 bg-[#1e293b] border border-[#334155] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-100"
+             style={{ 
+                 left: Math.min(textInputState.x, (chartContainerRef.current?.clientWidth || 0) - 220), 
+                 top: Math.min(textInputState.y, (chartContainerRef.current?.clientHeight || 0) - 100)
+             }}
+             onMouseDown={(e) => e.stopPropagation()}
+           >
+              <textarea
+                autoFocus
+                className="w-56 h-20 bg-[#0f172a] border border-[#334155] rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none font-sans"
+                value={textInputState.text}
+                onChange={(e) => setTextInputState({ ...textInputState, text: e.target.value })}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleTextSubmit();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        handleTextCancel();
+                    }
+                }}
+                onFocus={(e) => e.target.select()}
+              />
+              <div className="flex justify-end gap-2">
+                  <button 
+                    onClick={handleTextCancel}
+                    className="p-1 text-slate-400 hover:text-white hover:bg-[#334155] rounded"
+                    title="Cancel (Esc)"
+                  >
+                      <XIcon size={16} />
+                  </button>
+                  <button 
+                    onClick={handleTextSubmit}
+                    className="p-1 text-blue-400 hover:text-white hover:bg-blue-600 rounded"
+                    title="Save (Enter)"
+                  >
+                      <Check size={16} />
+                  </button>
+              </div>
+           </div>
        )}
     </div>
   );
