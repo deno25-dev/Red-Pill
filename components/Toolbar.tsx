@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -75,6 +74,7 @@ interface ToolbarProps {
   isIntervalSync?: boolean;
   isCrosshairSync?: boolean;
   isTimeSync?: boolean;
+  onOpenCandleSettings?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -109,7 +109,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isSymbolSync,
   isIntervalSync,
   isCrosshairSync,
-  isTimeSync
+  isTimeSync,
+  onOpenCandleSettings
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -394,7 +395,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         {isDark ? <Sun size={16} className="text-amber-400" /> : <Moon size={16} className="text-purple-400" />}
                         <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
                     </button>
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><CandlestickChart size={16} className="text-blue-400" /><span>Candles</span></button>
+                    <button 
+                        onClick={() => { onOpenCandleSettings?.(); setIsSettingsOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"
+                    >
+                        <CandlestickChart size={16} className="text-blue-400" />
+                        <span>Candles</span>
+                    </button>
                     <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><PaintBucket size={16} className="text-amber-400" /><span>Background</span></button>
                 </div>
             )}

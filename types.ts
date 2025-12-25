@@ -19,6 +19,13 @@ export interface ChartConfig {
   volumeTopMargin?: number; // 0.0 to 1.0, defines where volume section starts
   priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
   autoScale?: boolean;
+  // Color overrides
+  upColor?: string;
+  downColor?: string;
+  wickUpColor?: string;
+  wickDownColor?: string;
+  borderUpColor?: string;
+  borderDownColor?: string;
 }
 
 export interface ToolItem {

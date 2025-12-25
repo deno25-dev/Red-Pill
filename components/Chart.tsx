@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   createChart, 
@@ -477,26 +476,56 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     let newSeries;
     if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 });
     else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 });
-    else newSeries = chartRef.current.addSeries(CandlestickSeries, { upColor: COLORS.bullish, downColor: COLORS.bearish, borderVisible: false, wickUpColor: COLORS.bullish, wickDownColor: COLORS.bearish });
+    else {
+        // Apply custom colors from config or fallback to constants
+        const upColor = config.upColor || COLORS.bullish;
+        const downColor = config.downColor || COLORS.bearish;
+        const wickUpColor = config.wickUpColor || COLORS.bullish;
+        const wickDownColor = config.wickDownColor || COLORS.bearish;
+        const borderUpColor = config.borderUpColor || upColor;
+        const borderDownColor = config.borderDownColor || downColor;
+
+        newSeries = chartRef.current.addSeries(CandlestickSeries, { 
+            upColor, 
+            downColor, 
+            borderVisible: true,
+            // borderColor: borderUpColor, // REMOVED: Caused generic override preventing borderDownColor from applying
+            borderUpColor,
+            borderDownColor,
+            wickUpColor, 
+            wickDownColor 
+        });
+    }
     seriesRef.current = newSeries; newSeries.setData(processedData);
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;
     primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
     newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw();
-  }, [config.chartType]); 
+  }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor]); 
 
   useEffect(() => {
     if (!seriesRef.current) return;
     try { seriesRef.current.setData(processedData); } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
-        volumeSeriesRef.current.setData(data.map(d => ({ time: (d.time / 1000) as Time, value: d.volume, color: d.close >= d.open ? COLORS.volumeBullish : COLORS.volumeBearish })));
+        const upColor = config.upColor || COLORS.volumeBullish;
+        const downColor = config.downColor || COLORS.volumeBearish;
+        
+        // Use simpler logic for volume colors, just bullish/bearish, maybe faded
+        const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
+        const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
+
+        volumeSeriesRef.current.setData(data.map(d => ({ 
+            time: (d.time / 1000) as Time, 
+            value: d.volume, 
+            color: d.close >= d.open ? volUp : volDown 
+        })));
     }
     if (smaSeriesRef.current && config.showSMA) {
         const smaSeriesData = [];
         for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: (data[i].time / 1000) as Time, value: smaData[i] as number }); }
         smaSeriesRef.current.setData(smaSeriesData);
     }
-  }, [data, smaData, config.chartType, processedData]); 
+  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor]); 
 
   useEffect(() => {
     if (!chartRef.current) return;

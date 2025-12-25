@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -10,6 +9,7 @@ import { TradingPanel } from './components/TradingPanel';
 import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
 import { DownloadDialog } from './components/DownloadDialog';
+import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
@@ -49,6 +49,9 @@ const App: React.FC = () => {
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
+
+  // Candle Settings Dialog State
+  const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
 
   // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
@@ -1235,6 +1238,13 @@ const App: React.FC = () => {
         databaseName={databaseHandle?.name}
       />
 
+      <CandleSettingsDialog 
+        isOpen={isCandleSettingsOpen}
+        onClose={() => setIsCandleSettingsOpen(false)}
+        config={activeTab.config}
+        onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
+      />
+
       <TabBar 
         tabs={tabs} 
         activeTabId={activeTabId} 
@@ -1273,6 +1283,7 @@ const App: React.FC = () => {
         isLibraryOpen={isLibraryOpen}
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
         onOpenDownloadDialog={() => setIsDownloadDialogOpen(true)}
+        onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
