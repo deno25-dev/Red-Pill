@@ -112,6 +112,12 @@ export interface WatchlistItem {
   addedAt: number;
 }
 
+// Snapshot of state for Undo/Redo
+export interface HistorySnapshot {
+  drawings: Drawing[];
+  visibleRange: { from: number; to: number } | null;
+}
+
 export interface TabSession {
   id: string;
   title: string;
@@ -134,10 +140,14 @@ export interface TabSession {
   replaySpeed: number; // Speed multiplier (1 = real time, 10 = 10x speed)
   // Window state
   isDetached: boolean;
-  // Drawings
+  
+  // State
   drawings: Drawing[];
-  undoStack: Drawing[][];
-  redoStack: Drawing[][];
+  visibleRange: { from: number; to: number } | null; // Store current scroll position
+
+  // History Stacks
+  undoStack: HistorySnapshot[];
+  redoStack: HistorySnapshot[];
   
   // Trades
   trades: Trade[];

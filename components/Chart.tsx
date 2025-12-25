@@ -46,6 +46,10 @@ interface ChartProps {
   areDrawingsLocked?: boolean;
   isMagnetMode?: boolean;
   isSyncing?: boolean;
+  
+  // New props for range history
+  visibleRange: { from: number; to: number } | null;
+  onVisibleRangeChange: (range: { from: number; to: number }) => void;
 }
 
 const OFF_SCREEN = -10000;
@@ -302,7 +306,7 @@ interface TextInputState {
 }
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
-  const { data, smaData, config, timeframe, onConfigChange, drawings, onUpdateDrawings, activeToolId, onToolComplete, currentDefaultProperties, selectedDrawingId, onSelectDrawing, onActionStart, isReplaySelecting, onReplayPointSelect, onRequestMoreData, areDrawingsLocked = false, isMagnetMode = false, isSyncing = false } = props;
+  const { data, smaData, config, timeframe, onConfigChange, drawings, onUpdateDrawings, activeToolId, onToolComplete, currentDefaultProperties, selectedDrawingId, onSelectDrawing, onActionStart, isReplaySelecting, onReplayPointSelect, onRequestMoreData, areDrawingsLocked = false, isMagnetMode = false, isSyncing = false, visibleRange, onVisibleRangeChange } = props;
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
   const chartContainerRef = useRef<HTMLDivElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null); 
   const chartRef = useRef<IChartApi | null>(null); const seriesRef = useRef<ISeriesApi<"Candlestick" | "Line" | "Area"> | null>(null);
@@ -311,6 +315,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const rafId = useRef<number | null>(null); const toolTipRef = useRef<HTMLDivElement>(null);
   const isResizingVolume = useRef(false); const [localVolumeTopMargin, setLocalVolumeTopMargin] = useState(config.volumeTopMargin || 0.8);
   const replayMouseX = useRef<number | null>(null); const ignoreRangeChange = useRef(false);
+  
+  // Flag to ignore range changes that come from props update (Undo/Redo)
+  const isProgrammaticUpdate = useRef(false);
+  const rangeDebounceTimeout = useRef<any>(null);
 
   // New State for "Scroll to Recent" button
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -369,6 +377,28 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const requestDraw = () => { if (rafId.current) cancelAnimationFrame(rafId.current); rafId.current = requestAnimationFrame(renderOverlayAndSync); };
   const renderOverlayAndSync = () => { renderOverlay(); if (chartRef.current) { if ((chartRef.current as any)._renderer) (chartRef.current as any)._renderer._redrawVisible(); else chartRef.current.timeScale().applyOptions({}); } };
 
+  // Sync visibleRange from props (Undo/Redo action) to chart
+  useEffect(() => {
+    if (chartRef.current && visibleRange) {
+        // Check if current range is significantly different to avoid loops
+        const current = chartRef.current.timeScale().getVisibleLogicalRange();
+        if (current) {
+            const diffFrom = Math.abs(current.from - visibleRange.from);
+            const diffTo = Math.abs(current.to - visibleRange.to);
+            if (diffFrom > 0.1 || diffTo > 0.1) {
+                isProgrammaticUpdate.current = true;
+                chartRef.current.timeScale().setVisibleLogicalRange(visibleRange as LogicalRange);
+                // Reset flag after a short delay to allow events to fire and be ignored
+                setTimeout(() => { isProgrammaticUpdate.current = false; }, 100);
+            }
+        } else {
+             isProgrammaticUpdate.current = true;
+             chartRef.current.timeScale().setVisibleLogicalRange(visibleRange as LogicalRange);
+             setTimeout(() => { isProgrammaticUpdate.current = false; }, 100);
+        }
+    }
+  }, [visibleRange]);
+
   useEffect(() => {
     if (!chartContainerRef.current) return;
     const chart = createChart(chartContainerRef.current, {
@@ -407,8 +437,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         const { range, sourceId } = e.detail;
         if (sourceId !== propsRef.current.id) {
             ignoreRangeChange.current = true;
+            isProgrammaticUpdate.current = true;
             chart.timeScale().setVisibleLogicalRange(range);
-            setTimeout(() => { ignoreRangeChange.current = false; }, 50);
+            setTimeout(() => { 
+                ignoreRangeChange.current = false; 
+                isProgrammaticUpdate.current = false;
+            }, 50);
         }
     };
 
@@ -437,12 +471,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (range) {
              const currentData = propsRef.current.data;
              const lastIndex = currentData.length - 1;
-             // Check distance from the rightmost visible bar to the last actual data point
-             // Using logical indices, the last bar corresponds to `currentData.length - 1` roughly
              const dist = lastIndex - range.to;
-             
-             // If we are more than 10 bars away from the latest data, show the button
              setShowScrollButton(dist > 10);
+
+             // HISTORY SAVING LOGIC (Debounced)
+             if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) {
+                 if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
+                 rangeDebounceTimeout.current = setTimeout(() => {
+                     // Only fire if not programmatic
+                     if (!isProgrammaticUpdate.current) {
+                        propsRef.current.onVisibleRangeChange({ from: range.from, to: range.to });
+                     }
+                 }, 500); // 500ms debounce for history save
+             }
         }
     });
 
@@ -457,6 +498,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       window.removeEventListener('chart-sync-range', onSyncRange);
       window.removeEventListener('chart-sync-crosshair', onSyncCrosshair);
       if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current);
+      if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
       if (rafId.current) cancelAnimationFrame(rafId.current);
       try { chart.unsubscribeClick(handleChartClick); } catch(e) {}
       chart.remove(); chartRef.current = null;

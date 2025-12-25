@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -28,6 +27,9 @@ interface ChartWorkspaceProps {
   isLayersPanelOpen?: boolean;
   onToggleLayers?: () => void;
   isSyncing?: boolean;
+  
+  // New handler for range history
+  onVisibleRangeChange?: (range: { from: number; to: number }) => void;
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -46,7 +48,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   isStayInDrawingMode = false,
   isLayersPanelOpen = false,
   onToggleLayers,
-  isSyncing = false
+  isSyncing = false,
+  onVisibleRangeChange
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
@@ -532,7 +535,32 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <div className="w-8 h-8 bg-red-600 rounded flex items-center justify-center text-white font-bold text-lg shadow-md shadow-red-900/50">K</div>
             <span className="text-lg font-semibold tracking-tight text-slate-500">Красная таблетка</span>
         </div>
-        <FinancialChart key={tab.id} id={tab.id} data={displayedData} smaData={smaData} config={tab.config} timeframe={tab.timeframe} onConfigChange={(newConfig) => updateTab({ config: newConfig })} drawings={tab.drawings} onUpdateDrawings={(drawings) => updateTab({ drawings })} activeToolId={activeToolId || 'cross'} onToolComplete={handleToolComplete} currentDefaultProperties={defaultDrawingProperties} selectedDrawingId={selectedDrawingId} onSelectDrawing={setSelectedDrawingId} onActionStart={onSaveHistory} isReplaySelecting={tab.isReplaySelecting} onReplayPointSelect={handleReplayPointSelect} onRequestMoreData={onRequestHistory} areDrawingsLocked={areDrawingsLocked} isMagnetMode={isMagnetMode} isSyncing={isSyncing} />
+        <FinancialChart 
+          key={tab.id} 
+          id={tab.id} 
+          data={displayedData} 
+          smaData={smaData} 
+          config={tab.config} 
+          timeframe={tab.timeframe} 
+          onConfigChange={(newConfig) => updateTab({ config: newConfig })} 
+          drawings={tab.drawings} 
+          onUpdateDrawings={(drawings) => updateTab({ drawings })} 
+          activeToolId={activeToolId || 'cross'} 
+          onToolComplete={handleToolComplete} 
+          currentDefaultProperties={defaultDrawingProperties} 
+          selectedDrawingId={selectedDrawingId} 
+          onSelectDrawing={setSelectedDrawingId} 
+          onActionStart={onSaveHistory} 
+          isReplaySelecting={tab.isReplaySelecting} 
+          onReplayPointSelect={handleReplayPointSelect} 
+          onRequestMoreData={onRequestHistory} 
+          areDrawingsLocked={areDrawingsLocked} 
+          isMagnetMode={isMagnetMode} 
+          isSyncing={isSyncing}
+          // Pass range history props
+          visibleRange={tab.visibleRange}
+          onVisibleRangeChange={onVisibleRangeChange}
+        />
         </div>
         <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={tab.trades || []} />
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">

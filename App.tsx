@@ -11,7 +11,7 @@ import { WatchlistPanel } from './components/WatchlistPanel';
 import { DownloadDialog } from './components/DownloadDialog';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
-import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem } from './types';
+import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem, HistorySnapshot } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
 import { fetchBinanceKlines } from './utils/binance';
@@ -116,6 +116,7 @@ const App: React.FC = () => {
       replaySpeed: 1, 
       isDetached: false,
       drawings: [],
+      visibleRange: null, // Initialize with null, chart will set it
       undoStack: [],
       redoStack: [],
       trades: []
@@ -242,33 +243,87 @@ const App: React.FC = () => {
   // --- History Handlers (Undo/Redo) ---
   const handleSaveHistory = useCallback(() => {
     if (!activeTab) return;
-    const currentDrawings = activeTab.drawings;
+    
+    // Create a snapshot of the CURRENT state before the new action is applied
+    // Note: In typical apps, we save state *after* change or *before*? 
+    // Usually we save the *previous* state to the undo stack.
+    const currentSnapshot: HistorySnapshot = {
+        drawings: activeTab.drawings,
+        visibleRange: activeTab.visibleRange
+    };
+
     updateActiveTab({
-        undoStack: [...activeTab.undoStack.slice(-49), currentDrawings], 
+        undoStack: [...activeTab.undoStack.slice(-49), currentSnapshot], 
         redoStack: []
     });
   }, [activeTab, updateActiveTab]);
+  
+  // Special handler for Visible Range changes to capture history of scrolling
+  // We need to pass this down to the chart
+  const handleVisibleRangeChange = useCallback((newRange: { from: number; to: number }) => {
+      if (!activeTab) return;
+
+      // Don't save history if range hasn't changed meaningfully or is initial null
+      if (!activeTab.visibleRange) {
+          updateActiveTab({ visibleRange: newRange });
+          return;
+      }
+      
+      const prevRange = activeTab.visibleRange;
+      if (Math.abs(prevRange.from - newRange.from) < 0.01 && Math.abs(prevRange.to - newRange.to) < 0.01) {
+          return;
+      }
+
+      // Save previous state to undo stack
+      const snapshot: HistorySnapshot = {
+          drawings: activeTab.drawings,
+          visibleRange: prevRange
+      };
+
+      updateActiveTab({
+          visibleRange: newRange,
+          undoStack: [...activeTab.undoStack.slice(-49), snapshot],
+          redoStack: []
+      });
+  }, [activeTab, updateActiveTab]);
+
 
   const handleUndo = useCallback(() => {
      if (!activeTab || activeTab.undoStack.length === 0) return;
-     const previousDrawings = activeTab.undoStack[activeTab.undoStack.length - 1];
+     
+     const previousSnapshot = activeTab.undoStack[activeTab.undoStack.length - 1];
      const newUndoStack = activeTab.undoStack.slice(0, -1);
      
+     // Current state becomes a redo item
+     const currentSnapshot: HistorySnapshot = {
+         drawings: activeTab.drawings,
+         visibleRange: activeTab.visibleRange
+     };
+
      updateActiveTab({
-         drawings: previousDrawings,
+         drawings: previousSnapshot.drawings,
+         visibleRange: previousSnapshot.visibleRange, // Restore View
          undoStack: newUndoStack,
-         redoStack: [...activeTab.redoStack, activeTab.drawings]
+         redoStack: [...activeTab.redoStack, currentSnapshot]
      });
   }, [activeTab, updateActiveTab]);
 
   const handleRedo = useCallback(() => {
      if (!activeTab || activeTab.redoStack.length === 0) return;
-     const nextDrawings = activeTab.redoStack[activeTab.redoStack.length - 1];
+     
+     const nextSnapshot = activeTab.redoStack[activeTab.redoStack.length - 1];
      const newRedoStack = activeTab.redoStack.slice(0, -1);
 
+     // Current state pushed back to undo
+     const currentSnapshot: HistorySnapshot = {
+         drawings: activeTab.drawings,
+         visibleRange: activeTab.visibleRange
+     };
+
      updateActiveTab({
-         drawings: nextDrawings,
-         undoStack: [...activeTab.undoStack, activeTab.drawings],
+         drawings: nextSnapshot.drawings,
+         visibleRange: nextSnapshot.visibleRange, // Restore View
+         undoStack: [...activeTab.undoStack, currentSnapshot],
          redoStack: newRedoStack
      });
   }, [activeTab, updateActiveTab]);
@@ -1136,6 +1191,7 @@ const App: React.FC = () => {
                         areDrawingsLocked={areDrawingsLocked}
                         isMagnetMode={isMagnetMode}
                         isStayInDrawingMode={isStayInDrawingMode}
+                        onVisibleRangeChange={handleVisibleRangeChange}
                     />
                 )}
             </div>
@@ -1172,6 +1228,7 @@ const App: React.FC = () => {
                             isMagnetMode={isMagnetMode}
                             isStayInDrawingMode={isStayInDrawingMode}
                             isSyncing={isCrosshairSync || isTimeSync}
+                            onVisibleRangeChange={tab.id === activeTabId ? handleVisibleRangeChange : undefined}
                         />
                     </div>
                 );
