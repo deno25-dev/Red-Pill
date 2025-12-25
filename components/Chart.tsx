@@ -99,7 +99,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         if (!target || typeof target.beginPath !== 'function') return;
         const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _timeframe } = this._source;
         if (!_series || !_chart) return;
-        const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId } = _interactionStateRef.current;
+        const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId, draggedDrawingPoints } = _interactionStateRef.current;
         let drawingsToRender = [..._drawings];
         if (isCreating && creatingPoints.length > 0) {
              drawingsToRender.push({ id: 'temp-creation', type: activeToolId || 'line', points: creatingPoints, properties: _currentDefaultProperties });
@@ -127,7 +127,16 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         target.save();
         drawingsToRender.forEach(d => {
             if (d.properties.visible === false) return;
-            const screenPoints = d.points.map(pointToScreen);
+            
+            // OPTIMIZATION: If this drawing is being dragged, render the temporary points from ref instead of props
+            // This allows for 60fps dragging without react re-renders
+            let pointsToRender = d.points;
+            if (isDragging && dragDrawingId === d.id && draggedDrawingPoints) {
+                pointsToRender = draggedDrawingPoints;
+            }
+
+            const screenPoints = pointsToRender.map(pointToScreen);
+            
             if (screenPoints.every(p => p.x === OFF_SCREEN && p.y === OFF_SCREEN)) return;
             const isSelected = d.id === this._source._selectedDrawingId;
             const isBeingDragged = d.id === dragDrawingId;
@@ -180,16 +189,16 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                      target.fillStyle = d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)';
                      target.fillRect(x, 0, w, target.canvas.height / window.devicePixelRatio); 
                      target.beginPath(); target.moveTo(x, 0); target.lineTo(x, target.canvas.height / window.devicePixelRatio); target.moveTo(x+w, 0); target.lineTo(x+w, target.canvas.height / window.devicePixelRatio); target.stroke();
-                     const idx1 = _timeToIndex?.get(d.points[0].time) ?? 0; const idx2 = _timeToIndex?.get(d.points[1].time) ?? 0;
-                     drawMeasureLabel(target, x + w / 2, 30, [`${Math.abs(idx2 - idx1)} bars`, formatDuration(d.points[1].time - d.points[0].time)], d.properties.color);
+                     const idx1 = _timeToIndex?.get(pointsToRender[0].time) ?? 0; const idx2 = _timeToIndex?.get(pointsToRender[1].time) ?? 0;
+                     drawMeasureLabel(target, x + w / 2, 30, [`${Math.abs(idx2 - idx1)} bars`, formatDuration(pointsToRender[1].time - pointsToRender[0].time)], d.properties.color);
                 } else {
                     const y = Math.min(p1.y, p2.y); const h = Math.abs(p2.y - p1.y);
                     if (isFilled || d.type === 'measure') { target.fillStyle = d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)'; target.fillRect(x, y, w, h); }
                     target.strokeRect(x, y, w, h);
                     if (d.type === 'measure') {
-                        const priceDiff = d.points[1].price - d.points[0].price; const pricePct = (priceDiff / d.points[0].price) * 100;
-                        const idx1 = _timeToIndex?.get(d.points[0].time) ?? 0; const idx2 = _timeToIndex?.get(d.points[1].time) ?? 0;
-                        drawMeasureLabel(target, x + w / 2, y + h / 2, [`${priceDiff > 0 ? '+' : ''}${priceDiff.toFixed(2)} (${pricePct > 0 ? '+' : ''}${pricePct.toFixed(2)}%)`, `${Math.abs(idx2 - idx1)} bars, ${formatDuration(d.points[1].time - d.points[0].time)}`], d.properties.color);
+                        const priceDiff = pointsToRender[1].price - pointsToRender[0].price; const pricePct = (priceDiff / pointsToRender[0].price) * 100;
+                        const idx1 = _timeToIndex?.get(pointsToRender[0].time) ?? 0; const idx2 = _timeToIndex?.get(pointsToRender[1].time) ?? 0;
+                        drawMeasureLabel(target, x + w / 2, y + h / 2, [`${priceDiff > 0 ? '+' : ''}${priceDiff.toFixed(2)} (${pricePct > 0 ? '+' : ''}${pricePct.toFixed(2)}%)`, `${Math.abs(idx2 - idx1)} bars, ${formatDuration(pointsToRender[1].time - pointsToRender[0].time)}`], d.properties.color);
                     }
                 }
             }
@@ -310,7 +319,31 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   // State for Text Input Overlay
   const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
 
-  const interactionState = useRef<{ isDragging: boolean; isCreating: boolean; isErasing: boolean; dragDrawingId: string | null; dragHandleIndex: number | null; startPoint: { x: number; y: number } | null; creatingPoints: DrawingPoint[]; creationStep: number; activeToolId: string; }>({ isDragging: false, isCreating: false, isErasing: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: activeToolId });
+  const interactionState = useRef<{ 
+      isDragging: boolean; 
+      isCreating: boolean; 
+      isErasing: boolean; 
+      dragDrawingId: string | null; 
+      dragHandleIndex: number | null; 
+      startPoint: { x: number; y: number } | null; 
+      creatingPoints: DrawingPoint[]; 
+      creationStep: number; 
+      activeToolId: string;
+      initialDrawingPoints: DrawingPoint[] | null; // For smooth dragging delta calc
+      draggedDrawingPoints: DrawingPoint[] | null; // Temporary points during drag
+  }>({ 
+      isDragging: false, 
+      isCreating: false, 
+      isErasing: false, 
+      dragDrawingId: null, 
+      dragHandleIndex: null, 
+      startPoint: null, 
+      creatingPoints: [], 
+      creationStep: 0, 
+      activeToolId: activeToolId,
+      initialDrawingPoints: null,
+      draggedDrawingPoints: null
+  });
 
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
 
@@ -629,9 +662,22 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                 onActionStart?.();
                 onUpdateDrawings(drawings.filter(d => d.id !== hitDrawing!.id));
             }
-        } else if (hitHandle) { onActionStart?.(); onSelectDrawing(hitHandle.id); interactionState.current.isDragging = true; interactionState.current.dragDrawingId = hitHandle.id; interactionState.current.dragHandleIndex = hitHandle.index; }
+        } else if (hitHandle) { 
+            onActionStart?.(); 
+            onSelectDrawing(hitHandle.id); 
+            interactionState.current.isDragging = true; 
+            interactionState.current.dragDrawingId = hitHandle.id; 
+            interactionState.current.dragHandleIndex = hitHandle.index; 
+        }
         else if (hitDrawing) {
-            onSelectDrawing(hitDrawing.id); if (hitDrawing.properties.locked) return; onActionStart?.(); interactionState.current.isDragging = true; interactionState.current.dragDrawingId = hitDrawing.id; interactionState.current.dragHandleIndex = -1; interactionState.current.startPoint = { x, y };
+            onSelectDrawing(hitDrawing.id); 
+            if (hitDrawing.properties.locked) return; 
+            onActionStart?.(); 
+            interactionState.current.isDragging = true; 
+            interactionState.current.dragDrawingId = hitDrawing.id; 
+            interactionState.current.dragHandleIndex = -1; 
+            interactionState.current.startPoint = { x, y };
+            interactionState.current.initialDrawingPoints = [...hitDrawing.points];
         } else onSelectDrawing(null);
     }
     requestDraw();
@@ -657,14 +703,36 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     } else if (interactionState.current.isDragging && interactionState.current.dragDrawingId) {
         const d = drawings.find(d => d.id === interactionState.current.dragDrawingId);
         if (d && !d.properties.locked) {
-            const newPoints = [...d.points]; const p = screenToPoint(x, y, interactionState.current.dragHandleIndex !== -1);
+            const p = screenToPoint(x, y, interactionState.current.dragHandleIndex !== -1);
             if (p) {
-                if (interactionState.current.dragHandleIndex !== -1) newPoints[interactionState.current.dragHandleIndex!] = p;
-                else if (interactionState.current.startPoint) {
-                     const dx = x - interactionState.current.startPoint.x, dy = y - interactionState.current.startPoint.y; interactionState.current.startPoint = { x, y };
-                     for(let i=0; i<newPoints.length; i++) { const sp = pointToScreen(newPoints[i]); if (sp.x !== OFF_SCREEN) { const np = screenToPoint(sp.x + dx, sp.y + dy); if (np) newPoints[i] = np; } }
+                // Handle Dragging via Handle (Still updates React state for immediate feedback on reshape)
+                if (interactionState.current.dragHandleIndex !== -1) {
+                    const newPoints = [...d.points];
+                    newPoints[interactionState.current.dragHandleIndex!] = p;
+                    onUpdateDrawings(drawings.map(dr => dr.id === d.id ? { ...dr, points: newPoints } : dr)); 
+                    redraw = true;
                 }
-                onUpdateDrawings(drawings.map(dr => dr.id === d.id ? { ...dr, points: newPoints } : dr)); redraw = true;
+                // Handle Moving Whole Object (Optimized via ref)
+                else if (interactionState.current.startPoint && interactionState.current.initialDrawingPoints) {
+                     const dx = x - interactionState.current.startPoint.x;
+                     const dy = y - interactionState.current.startPoint.y; 
+                     
+                     const newPoints: DrawingPoint[] = [];
+                     const originalPoints = interactionState.current.initialDrawingPoints;
+
+                     for(const op of originalPoints) {
+                         const sp = pointToScreen(op);
+                         if (sp.x !== OFF_SCREEN) {
+                             const np = screenToPoint(sp.x + dx, sp.y + dy);
+                             if (np) newPoints.push(np);
+                         }
+                     }
+
+                     if (newPoints.length === originalPoints.length) {
+                         interactionState.current.draggedDrawingPoints = newPoints;
+                         redraw = true; // Just request draw, don't update React state
+                     }
+                }
             }
         }
     }
@@ -696,6 +764,16 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: interactionState.current.creatingPoints, properties: currentDefaultProperties }]); interactionState.current.isCreating = false; onToolComplete(); 
         }
     }
+    
+    // Commit the drag if we were moving an object via ref
+    if (interactionState.current.isDragging && interactionState.current.dragHandleIndex === -1 && interactionState.current.draggedDrawingPoints && interactionState.current.dragDrawingId) {
+         const newPoints = interactionState.current.draggedDrawingPoints;
+         const id = interactionState.current.dragDrawingId;
+         onUpdateDrawings(drawings.map(dr => dr.id === id ? { ...dr, points: newPoints } : dr));
+         interactionState.current.draggedDrawingPoints = null;
+         interactionState.current.initialDrawingPoints = null;
+    }
+
     interactionState.current.isDragging = false; 
     interactionState.current.isErasing = false;
     interactionState.current.dragDrawingId = null; 
