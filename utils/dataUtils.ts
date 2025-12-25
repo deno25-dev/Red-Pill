@@ -65,7 +65,9 @@ export const getTimeframeDuration = (timeframe: Timeframe): number => {
         [Timeframe.M3]: 3 * 60 * 1000,
         [Timeframe.M5]: 5 * 60 * 1000,
         [Timeframe.M15]: 15 * 60 * 1000,
+        [Timeframe.M30]: 30 * 60 * 1000,
         [Timeframe.H1]: 60 * 60 * 1000,
+        [Timeframe.H2]: 2 * 60 * 60 * 1000,
         [Timeframe.H4]: 4 * 60 * 60 * 1000,
         [Timeframe.H12]: 12 * 60 * 60 * 1000,
         [Timeframe.D1]: 24 * 60 * 60 * 1000,
@@ -90,6 +92,69 @@ export const formatDuration = (ms: number): string => {
         return `${hours}h ${mins % 60}m`;
     }
     return `${mins}m`;
+};
+
+// Automatically detect timeframe from data intervals
+export const detectTimeframe = (data: OHLCV[]): Timeframe => {
+    if (!data || data.length < 2) return Timeframe.M1;
+
+    // Calculate time differences between consecutive candles
+    const diffs: number[] = [];
+    const limit = Math.min(data.length - 1, 200); // Check first 200 candles to save time
+    
+    for(let i = 0; i < limit; i++) {
+        const diff = data[i+1].time - data[i].time;
+        // Ignore zero or negative diffs (duplicate/unsorted)
+        if (diff > 0) diffs.push(diff);
+    }
+    
+    if (diffs.length === 0) return Timeframe.M1;
+
+    // Find Mode of differences (most common interval)
+    const counts: Record<number, number> = {};
+    let maxCount = 0;
+    let mode = diffs[0];
+
+    for(const d of diffs) {
+        counts[d] = (counts[d] || 0) + 1;
+        if(counts[d] > maxCount) {
+            maxCount = counts[d];
+            mode = d;
+        }
+    }
+
+    // Convert ms to minutes
+    const minutes = Math.round(mode / (60 * 1000));
+    
+    // Strict matching first
+    if (minutes === 1) return Timeframe.M1;
+    if (minutes === 3) return Timeframe.M3;
+    if (minutes === 5) return Timeframe.M5;
+    if (minutes === 15) return Timeframe.M15;
+    if (minutes === 30) return Timeframe.M30;
+    if (minutes === 60) return Timeframe.H1;
+    if (minutes === 120) return Timeframe.H2;
+    if (minutes === 240) return Timeframe.H4;
+    if (minutes === 720) return Timeframe.H12;
+    if (minutes === 1440) return Timeframe.D1;
+    if (minutes === 10080) return Timeframe.W1; // 7 * 1440
+    
+    // Approximate monthly (30 days = 43200 mins)
+    if (minutes >= 40000 && minutes <= 45000) return Timeframe.MN1; 
+    if (minutes >= 500000) return Timeframe.MN12;
+
+    // Fallbacks for nearest bucket
+    if (minutes < 3) return Timeframe.M1;
+    if (minutes < 5) return Timeframe.M3;
+    if (minutes < 15) return Timeframe.M5;
+    if (minutes < 30) return Timeframe.M15;
+    if (minutes < 60) return Timeframe.M30;
+    if (minutes < 120) return Timeframe.H1;
+    if (minutes < 240) return Timeframe.H2;
+    if (minutes < 720) return Timeframe.H4;
+    if (minutes < 1440) return Timeframe.H12;
+    
+    return Timeframe.D1;
 };
 
 // Resample data to a specific timeframe (Optimized Linear Scan)
@@ -276,12 +341,14 @@ const TF_PATTERNS: Record<string, RegExp[]> = {
   [Timeframe.M3]: [/(?:^|[\W_])3m(?:in)?(?:[\W_]|$)/i, /m3$/i, /_3$/],
   [Timeframe.M5]: [/(?:^|[\W_])5m(?:in)?(?:[\W_]|$)/i, /m5$/i, /_5$/],
   [Timeframe.M15]: [/(?:^|[\W_])15m(?:in)?(?:[\W_]|$)/i, /m15$/i, /_15$/],
+  [Timeframe.M30]: [/(?:^|[\W_])30m(?:in)?(?:[\W_]|$)/i, /m30$/i, /_30$/],
   [Timeframe.H1]: [
     /(?:^|[\W_])1h(?:r)?(?:[\W_]|$)/i, 
     /(?:^|[\W_])60m(?:in)?(?:[\W_]|$)/i,
     /h1$/i, 
     /_60$/
   ],
+  [Timeframe.H2]: [/(?:^|[\W_])2h(?:r)?(?:[\W_]|$)/i, /h2$/i, /_120$/],
   [Timeframe.H4]: [
     /(?:^|[\W_])4h(?:r)?(?:[\W_]|$)/i, 
     /(?:^|[\W_])240m(?:in)?(?:[\W_]|$)/i,

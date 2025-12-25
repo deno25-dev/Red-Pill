@@ -11,7 +11,7 @@ import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
 import { DownloadDialog } from './components/DownloadDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem } from './types';
-import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive } from './utils/dataUtils';
+import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
 import { fetchBinanceKlines } from './utils/binance';
 import { MOCK_DATA_COUNT } from './constants';
@@ -82,12 +82,15 @@ const App: React.FC = () => {
 
   // Helper to create a new tab object
   const createNewTab = useCallback((id: string = crypto.randomUUID(), title: string = 'New Chart', raw: OHLCV[] = []): TabSession => {
+    // Detect timeframe for new mock data if any
+    const detectedTf = raw.length > 0 ? detectTimeframe(raw) : Timeframe.M15;
+    
     return {
       id,
       title,
       rawData: raw,
-      data: raw.length > 0 ? resampleData(raw, Timeframe.M15) : [],
-      timeframe: Timeframe.M15,
+      data: raw.length > 0 ? resampleData(raw, detectedTf) : [],
+      timeframe: detectedTf,
       config: {
         showVolume: false,
         showSMA: false,
@@ -372,8 +375,14 @@ const App: React.FC = () => {
               displayTitle = fileName.replace(/\.(csv|txt)$/i, '');
           }
 
-          const initialTf = forceTimeframe || Timeframe.M1;
-          const displayData = forceTimeframe ? parsedData : resampleData(parsedData, initialTf);
+          // Automatically detect timeframe if not forced (usually initial load)
+          let initialTf = forceTimeframe;
+          if (!initialTf) {
+              initialTf = detectTimeframe(parsedData);
+          }
+          
+          // Use detected/forced timeframe to resample/aggregate data for display
+          const displayData = resampleData(parsedData, initialTf);
 
           // Calculate replay index if we have preserved state
           let replayIndex = displayData.length - 1;
@@ -446,9 +455,7 @@ const App: React.FC = () => {
                   }
               }
               
-              const displayData = tab.timeframe === Timeframe.M1 
-                  ? uniqueData 
-                  : resampleData(uniqueData, tab.timeframe);
+              const displayData = resampleData(uniqueData, tab.timeframe);
               
               updateTab(tabId, {
                   rawData: uniqueData,

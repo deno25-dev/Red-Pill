@@ -1,3 +1,4 @@
+
 import { Timeframe } from '../types';
 
 export const BINANCE_INTERVALS = [
@@ -98,7 +99,9 @@ export const mapTimeframeToBinance = (tf: Timeframe): string => {
         case Timeframe.M3: return '3m';
         case Timeframe.M5: return '5m';
         case Timeframe.M15: return '15m';
+        case Timeframe.M30: return '30m';
         case Timeframe.H1: return '1h';
+        case Timeframe.H2: return '2h';
         case Timeframe.H4: return '4h';
         case Timeframe.H12: return '12h';
         case Timeframe.D1: return '1d';
