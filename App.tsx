@@ -10,6 +10,7 @@ import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
 import { DownloadDialog } from './components/DownloadDialog';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
+import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
@@ -50,8 +51,9 @@ const App: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
 
-  // Candle Settings Dialog State
+  // Settings Dialogs State
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
+  const [isBackgroundSettingsOpen, setIsBackgroundSettingsOpen] = useState(false);
 
   // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
@@ -1245,6 +1247,13 @@ const App: React.FC = () => {
         onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
       />
 
+      <BackgroundSettingsDialog 
+        isOpen={isBackgroundSettingsOpen}
+        onClose={() => setIsBackgroundSettingsOpen(false)}
+        config={activeTab.config}
+        onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
+      />
+
       <TabBar 
         tabs={tabs} 
         activeTabId={activeTabId} 
@@ -1284,6 +1293,7 @@ const App: React.FC = () => {
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
         onOpenDownloadDialog={() => setIsDownloadDialogOpen(true)}
         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
+        onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">

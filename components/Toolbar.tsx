@@ -75,6 +75,7 @@ interface ToolbarProps {
   isCrosshairSync?: boolean;
   isTimeSync?: boolean;
   onOpenCandleSettings?: () => void;
+  onOpenBackgroundSettings?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -110,7 +111,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isIntervalSync,
   isCrosshairSync,
   isTimeSync,
-  onOpenCandleSettings
+  onOpenCandleSettings,
+  onOpenBackgroundSettings
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -402,7 +404,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         <CandlestickChart size={16} className="text-blue-400" />
                         <span>Candles</span>
                     </button>
-                    <button className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><PaintBucket size={16} className="text-amber-400" /><span>Background</span></button>
+                    <button 
+                        onClick={() => { onOpenBackgroundSettings?.(); setIsSettingsOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"
+                    >
+                        <PaintBucket size={16} className="text-amber-400" />
+                        <span>Background</span>
+                    </button>
                 </div>
             )}
         </div>

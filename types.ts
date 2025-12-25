@@ -26,6 +26,12 @@ export interface ChartConfig {
   wickDownColor?: string;
   borderUpColor?: string;
   borderDownColor?: string;
+
+  // Background overrides
+  backgroundColor?: string; // Used for solid
+  backgroundType?: 'solid' | 'gradient'; // gradient maps to VerticalGradient
+  backgroundTopColor?: string;
+  backgroundBottomColor?: string;
 }
 
 export interface ToolItem {

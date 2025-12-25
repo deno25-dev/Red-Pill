@@ -465,10 +465,41 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (!chartRef.current) return;
-    chartRef.current.applyOptions({ layout: { background: { type: ColorType.Solid, color: config.theme === 'light' ? '#ffffff' : '#0f172a' }, textColor: config.theme === 'light' ? '#333' : COLORS.text } });
+    
+    // Determine background config
+    let background: any;
+    
+    if (config.backgroundType === 'gradient') {
+        background = {
+            type: ColorType.VerticalGradient,
+            topColor: config.backgroundTopColor || '#0f172a',
+            bottomColor: config.backgroundBottomColor || '#0f172a',
+        };
+    } else if (config.backgroundColor) {
+         background = {
+            type: ColorType.Solid,
+            color: config.backgroundColor,
+        };
+    } else {
+        // Fallback to theme defaults
+        background = {
+            type: ColorType.Solid,
+            color: config.theme === 'light' ? '#ffffff' : '#0f172a'
+        };
+    }
+
+    const textColor = config.theme === 'light' ? '#333' : COLORS.text;
+
+    chartRef.current.applyOptions({ 
+        layout: { 
+            background, 
+            textColor 
+        } 
+    });
+
     const mode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal;
     chartRef.current.priceScale('right').applyOptions({ mode, autoScale: config.autoScale !== false });
-  }, [config.theme, config.priceScaleMode, config.autoScale]);
+  }, [config.theme, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor]);
 
   useEffect(() => {
     if (!chartRef.current) return;
