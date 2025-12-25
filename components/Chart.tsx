@@ -30,6 +30,7 @@ interface ChartProps {
   data: OHLCV[];
   smaData: (number | null)[];
   config: ChartConfig;
+  timeframe: string;
   onConfigChange?: (newConfig: ChartConfig) => void;
   drawings: Drawing[];
   onUpdateDrawings: (drawings: Drawing[]) => void;
@@ -111,6 +112,13 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 if (x === null) {
                     const idx = _timeToIndex?.get(p.time);
                     if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical);
+                    else if (this._source._lastTime !== null) {
+                         const tfMs = getTimeframeDuration(this._source._timeframe as any);
+                         const diff = p.time - this._source._lastTime;
+                         const bars = diff / tfMs;
+                         const targetLogical = this._source._lastIndex + bars;
+                         x = timeScale.logicalToCoordinate(targetLogical as Logical);
+                    }
                 }
                 return { x: (x !== null) ? x : OFF_SCREEN, y: price };
             } catch { return { x: OFF_SCREEN, y: OFF_SCREEN }; }
@@ -249,13 +257,17 @@ class DrawingsPriceAxisPaneView {
 class DrawingsPrimitive implements ISeriesPrimitive {
     _chart: IChartApi; _series: ISeriesApi<any>; _drawings: Drawing[] = []; _timeToIndex: Map<number, number> | null = null;
     _interactionStateRef: React.MutableRefObject<any>; _currentDefaultProperties: DrawingProperties; _selectedDrawingId: string | null = null;
-    _timeframe: string = '1h'; _paneViews: DrawingsPaneView[]; _priceAxisViews: DrawingsPriceAxisPaneView[];
+    _timeframe: string = '1h'; 
+    _lastTime: number | null = null;
+    _lastIndex: number = 0;
+    _paneViews: DrawingsPaneView[]; _priceAxisViews: DrawingsPriceAxisPaneView[];
     constructor(chart: IChartApi, series: ISeriesApi<any>, interactionStateRef: React.MutableRefObject<any>, defaults: DrawingProperties, timeframe: string) {
         this._chart = chart; this._series = series; this._interactionStateRef = interactionStateRef; this._currentDefaultProperties = defaults;
         this._timeframe = timeframe; this._paneViews = [new DrawingsPaneView(this)]; this._priceAxisViews = [new DrawingsPriceAxisPaneView(this)];
     }
-    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, timeframe: string) {
+    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, timeframe: string, lastTime: number | null, lastIndex: number) {
         this._drawings = drawings; this._timeToIndex = timeToIndex; this._currentDefaultProperties = defaults; this._selectedDrawingId = selectedId; this._timeframe = timeframe;
+        this._lastTime = lastTime; this._lastIndex = lastIndex;
     }
     paneViews() { return this._paneViews; }
     priceAxisPaneViews() { return this._priceAxisViews as any; }
@@ -270,7 +282,7 @@ class DrawingsPaneView implements IPrimitivePaneView {
 const SINGLE_POINT_TOOLS = ['text', 'horizontal_line', 'vertical_line', 'horizontal_ray'];
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
-  const { data, smaData, config, onConfigChange, drawings, onUpdateDrawings, activeToolId, onToolComplete, currentDefaultProperties, selectedDrawingId, onSelectDrawing, onActionStart, isReplaySelecting, onReplayPointSelect, onRequestMoreData, areDrawingsLocked = false, isMagnetMode = false, isSyncing = false } = props;
+  const { data, smaData, config, timeframe, onConfigChange, drawings, onUpdateDrawings, activeToolId, onToolComplete, currentDefaultProperties, selectedDrawingId, onSelectDrawing, onActionStart, isReplaySelecting, onReplayPointSelect, onRequestMoreData, areDrawingsLocked = false, isMagnetMode = false, isSyncing = false } = props;
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
   const chartContainerRef = useRef<HTMLDivElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null); 
   const chartRef = useRef<IChartApi | null>(null); const seriesRef = useRef<ISeriesApi<"Candlestick" | "Line" | "Area"> | null>(null);
@@ -296,7 +308,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   
   const timeToIndexRef = useRef(timeToIndex); useEffect(() => { timeToIndexRef.current = timeToIndex; }, [timeToIndex]);
 
-  useEffect(() => { if (drawingsPrimitiveRef.current) drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, propsRef.current.config.theme); requestDraw(); }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId]);
+  useEffect(() => { 
+      if (drawingsPrimitiveRef.current) {
+          const lastCandle = data.length > 0 ? data[data.length - 1] : null;
+          drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
+          requestDraw(); 
+      }
+  }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
 
   const requestDraw = () => { if (rafId.current) cancelAnimationFrame(rafId.current); rafId.current = requestAnimationFrame(renderOverlayAndSync); };
   const renderOverlayAndSync = () => { renderOverlay(); if (chartRef.current) { if ((chartRef.current as any)._renderer) (chartRef.current as any)._renderer._redrawVisible(); else chartRef.current.timeScale().applyOptions({}); } };
@@ -398,8 +416,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 });
     else newSeries = chartRef.current.addSeries(CandlestickSeries, { upColor: COLORS.bullish, downColor: COLORS.bearish, borderVisible: false, wickUpColor: COLORS.bullish, wickDownColor: COLORS.bearish });
     seriesRef.current = newSeries; newSeries.setData(processedData);
-    const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, '1h');
-    primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, '1h');
+    const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
+    const lastCandle = data.length > 0 ? data[data.length - 1] : null;
+    primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
     newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw();
   }, [config.chartType]); 
 
@@ -442,7 +461,20 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     try {
         const timeScale = chartRef.current.timeScale(); const price = seriesRef.current.priceToCoordinate(p.price);
         let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
-        if (x === null) { const idx = timeToIndexRef.current.get(p.time); if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical); }
+        
+        if (x === null) { 
+            const idx = timeToIndexRef.current.get(p.time); 
+            if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical);
+            else if (propsRef.current.data.length > 0) {
+                 const currentData = propsRef.current.data;
+                 const lastCandle = currentData[currentData.length - 1];
+                 const tfMs = getTimeframeDuration(propsRef.current.timeframe as any);
+                 const diff = p.time - lastCandle.time;
+                 const bars = diff / tfMs;
+                 const targetLogical = (currentData.length - 1) + bars;
+                 x = timeScale.logicalToCoordinate(targetLogical as Logical);
+            }
+        }
         return { x: (x !== null && Number.isFinite(x)) ? x : OFF_SCREEN, y: (price !== null && Number.isFinite(price)) ? price : OFF_SCREEN };
     } catch (e) { return { x: OFF_SCREEN, y: OFF_SCREEN }; }
   };
@@ -468,7 +500,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (timeSeconds === null || price === null || !Number.isFinite(timeSeconds) || !Number.isFinite(price)) {
             const logical = timeScale.coordinateToLogical(x);
             if (logical !== null) {
-                 const lastIdx = data.length - 1; const diff = logical - lastIdx; const tfMs = getTimeframeDuration(propsRef.current.config.theme as any);
+                 const lastIdx = data.length - 1; 
+                 const diff = logical - lastIdx; 
+                 const tfMs = getTimeframeDuration(propsRef.current.timeframe as any);
                  return { time: data[lastIdx].time + (diff * tfMs), price: price || 0 };
             }
             return null;
