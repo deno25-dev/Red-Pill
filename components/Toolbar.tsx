@@ -34,7 +34,6 @@ import {
   Search,
   Trash2,
   Layers,
-  CloudDownload,
   Link,
   Link2Off,
   FileDown,
@@ -69,7 +68,6 @@ interface ToolbarProps {
   onClearAll?: () => void;
   onToggleLayers?: () => void;
   isLayersOpen?: boolean;
-  onOpenDownloadDialog?: () => void;
   isSymbolSync?: boolean;
   isIntervalSync?: boolean;
   isCrosshairSync?: boolean;
@@ -106,7 +104,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onClearAll,
   onToggleLayers,
   isLayersOpen,
-  onOpenDownloadDialog,
   isSymbolSync,
   isIntervalSync,
   isCrosshairSync,
@@ -255,14 +252,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 >
                     <List size={16} className="text-emerald-400" />
                     Watchlist
-                </button>
-                <div className="h-px bg-[#334155] my-1 mx-2"></div>
-                 <button
-                    onClick={() => { setIsToolsOpen(false); onOpenDownloadDialog?.(); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                >
-                    <CloudDownload size={16} className="text-sky-400" />
-                    Download Data
                 </button>
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 <div className="relative group/indicators w-full">

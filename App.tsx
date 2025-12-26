@@ -8,13 +8,11 @@ import { Popout } from './components/Popout';
 import { TradingPanel } from './components/TradingPanel';
 import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
-import { DownloadDialog } from './components/DownloadDialog';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem, HistorySnapshot } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
-import { fetchBinanceKlines } from './utils/binance';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 
@@ -45,11 +43,6 @@ const App: React.FC = () => {
   // Watchlist State
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
-
-  // Download Dialog State
-  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState('');
 
   // Settings Dialogs State
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
@@ -605,167 +598,6 @@ const App: React.FC = () => {
       }
   };
 
-  const checkExistingFile = async (symbol: string, interval: string) => {
-      if (!databaseHandle) return null;
-      if (databaseHandle.isFallback) {
-          const filename = `${symbol}_${interval}.csv`;
-          const existing = databaseFiles.find(f => f.name === filename);
-          if (existing) {
-              try {
-                  const file = await existing.getFile();
-                  const size = file.size;
-                  const start = Math.max(0, size - 500);
-                  const text = await readChunk(file, start, size);
-                  const lines = text.trim().split('\n');
-                  if (lines.length > 0) {
-                      const lastLine = lines[lines.length - 1];
-                      const dateStr = lastLine.split(',')[0];
-                      const time = new Date(dateStr).getTime();
-                      if (!isNaN(time)) return time;
-                  }
-              } catch(e) {}
-          }
-          return null;
-      }
-
-      const filename = `${symbol}_${interval}.csv`;
-      try {
-          // @ts-ignore
-          const fileHandle = await databaseHandle.getFileHandle(filename);
-          const file = await fileHandle.getFile();
-          
-          const size = file.size;
-          const start = Math.max(0, size - 500);
-          const text = await readChunk(file, start, size);
-          
-          const lines = text.trim().split('\n');
-          if (lines.length > 0) {
-              const lastLine = lines[lines.length - 1];
-              const dateStr = lastLine.split(',')[0];
-              const time = new Date(dateStr).getTime();
-              if (!isNaN(time)) return time;
-          }
-      } catch (e) {
-      }
-      return null;
-  };
-
-  const handleDownloadData = async (symbol: string, interval: string, startTime: number, endTime: number, mode: 'new' | 'update') => {
-      const useFileSystem = databaseHandle && !databaseHandle.isFallback;
-      
-      if (mode === 'update' && !useFileSystem) {
-          if (!confirm("Cannot append to file in Read-Only mode. Download new data as a separate file?")) return;
-      }
-
-      setIsDownloading(true);
-      setDownloadProgress('Starting...');
-      
-      let writable = null;
-      let accumulatedCSV = '';
-      
-      try {
-          const filename = `${symbol}_${interval}.csv`;
-          
-          if (useFileSystem) {
-              try {
-                  // @ts-ignore
-                  const perm = await databaseHandle.queryPermission({ mode: 'readwrite' });
-                  if (perm !== 'granted') {
-                      // @ts-ignore
-                      const req = await databaseHandle.requestPermission({ mode: 'readwrite' });
-                      if (req !== 'granted') throw new Error("Permission denied");
-                  }
-                  
-                  // @ts-ignore
-                  const fileHandle = await databaseHandle.getFileHandle(filename, { create: true });
-                  
-                  if (mode === 'update') {
-                      // @ts-ignore
-                      writable = await fileHandle.createWritable({ keepExistingData: true });
-                      const file = await fileHandle.getFile();
-                      writable.seek(file.size);
-                  } else {
-                      // @ts-ignore
-                      writable = await fileHandle.createWritable();
-                  }
-              } catch (e) {
-                  console.error("FileSystem Error:", e);
-                  alert("Failed to write to database folder. Attempting browser download instead.");
-              }
-          }
-
-          let currentStartTime = startTime;
-          const now = Date.now();
-          let totalDownloaded = 0;
-
-          while (currentStartTime < endTime) {
-              if (currentStartTime > now + 60000) break;
-
-              const candles = await fetchBinanceKlines(symbol, interval, currentStartTime, 1000);
-              
-              if (candles.length === 0) break;
-              
-              const validCandles = candles.filter(c => c.openTime <= endTime);
-              
-              if (validCandles.length === 0) break;
-
-              const lines = validCandles.map(c => {
-                  const date = new Date(c.openTime).toISOString();
-                  return `${date},${c.open},${c.high},${c.low},${c.close},${c.volume}`;
-              }).join('\n');
-              
-              if (writable) {
-                  const prefix = (mode === 'update' || totalDownloaded > 0) ? '\n' : '';
-                  await writable.write(prefix + lines);
-              } else {
-                  const prefix = (accumulatedCSV.length > 0) ? '\n' : '';
-                  accumulatedCSV += prefix + lines;
-              }
-              
-              totalDownloaded += validCandles.length;
-              setDownloadProgress(`Downloaded ${totalDownloaded} candles...`);
-              
-              const lastCandle = validCandles[validCandles.length - 1];
-              if (validCandles.length < candles.length) break;
-
-              currentStartTime = lastCandle.closeTime + 1;
-              await new Promise(r => setTimeout(r, 100));
-          }
-          
-          if (writable) {
-              await writable.close();
-              const files = await scanRecursive(databaseHandle);
-              setDatabaseFiles(files);
-          } else {
-              if (accumulatedCSV.length > 0) {
-                  const blob = new Blob([accumulatedCSV], { type: 'text/csv;charset=utf-8;' });
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement("a");
-                  link.setAttribute("href", url);
-                  link.setAttribute("download", filename);
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-              } else {
-                  alert("No data found for the selected range.");
-              }
-          }
-          
-          setDownloadProgress('Done!');
-          if (totalDownloaded > 0) {
-              alert(`Successfully downloaded ${totalDownloaded} candles for ${symbol}.`);
-              setIsDownloadDialogOpen(false);
-          }
-
-      } catch (e: any) {
-          console.error("Download failed:", e);
-          alert(`Download failed: ${e.message}`);
-      } finally {
-          setIsDownloading(false);
-          setDownloadProgress('');
-      }
-  };
-
   const handleTimeframeChange = async (id: string, tf: Timeframe) => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
@@ -1285,18 +1117,6 @@ const App: React.FC = () => {
         isConnected={!!databaseHandle}
       />
 
-      <DownloadDialog 
-        isOpen={isDownloadDialogOpen}
-        onClose={() => setIsDownloadDialogOpen(false)}
-        onDownload={handleDownloadData}
-        checkExistingFile={checkExistingFile}
-        isDownloading={isDownloading}
-        progress={downloadProgress}
-        onConnectDatabase={handleConnectDatabase}
-        isConnected={!!databaseHandle && !databaseHandle?.isFallback}
-        databaseName={databaseHandle?.name}
-      />
-
       <CandleSettingsDialog 
         isOpen={isCandleSettingsOpen}
         onClose={() => setIsCandleSettingsOpen(false)}
@@ -1348,7 +1168,6 @@ const App: React.FC = () => {
         isTradingPanelOpen={isTradingPanelOpen}
         isLibraryOpen={isLibraryOpen}
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
-        onOpenDownloadDialog={() => setIsDownloadDialogOpen(true)}
         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
         onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
       />
