@@ -7,13 +7,6 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: {
-      '/binance': {
-        target: 'https://api.binance.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/binance/, ''),
-      }
-    }
   },
   build: {
     outDir: 'dist',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, List, Plus, Trash2, TrendingUp, TrendingDown, RefreshCw, AlertCircle } from 'lucide-react';
+import { X, List, Plus, Trash2, RefreshCw } from 'lucide-react';
 import { WatchlistItem } from '../types';
 
 interface WatchlistPanelProps {
@@ -40,80 +40,45 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
       }
   };
 
-  // --- Data Fetching Logic ---
+  // --- Mock Data Logic (Offline) ---
   useEffect(() => {
     let isMounted = true;
     
-    const fetchMarketData = async () => {
+    const generateMockMarketData = () => {
       if (items.length === 0) return;
       
       setIsLoading(true);
 
-      // 1. Map user symbols to probable Binance symbols
-      const symbolMap = new Map<string, string>();
-      items.forEach(item => {
-          let s = item.symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-          // Heuristics for common pairs
-          if (s.endsWith('USD')) s = s.replace('USD', 'USDT');
-          else if (!s.endsWith('USDT') && !s.endsWith('BTC') && !s.endsWith('ETH') && !s.endsWith('BNB') && !s.endsWith('USDC')) {
-              // Assume USDT pair for bare symbols like "BTC", "ETH", "SOL"
-              s = s + 'USDT';
-          }
-          symbolMap.set(item.symbol, s);
-      });
-
-      const uniqueTargets = Array.from(new Set(symbolMap.values()));
+      const newData: Record<string, MarketData> = {};
       
-      try {
-          // Binance API allows batch requests: symbols=["BTCUSDT","ETHUSDT"]
-          // Note: URL encoding is required for the JSON string
-          const query = encodeURIComponent(JSON.stringify(uniqueTargets));
-          const response = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${query}`);
+      items.forEach(item => {
+          // Generate a deterministic but slightly fluctuating mock price
+          const hash = item.symbol.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+          const basePrice = 1000 + (hash % 50000);
+          const variance = (Math.random() - 0.5) * (basePrice * 0.02); // 2% fluctuation
           
-          if (!response.ok) {
-              // Fallback: If batch fails (e.g. invalid symbol in list causes error?), 
-              // we might silently fail or try individual. 
-              // Binance API usually returns error for the whole request if malformed, 
-              // but often handles mixed valid/invalid by just returning valid ones? 
-              // Actually Binance API strictness varies. If strict, we skip.
-              // Let's assume best effort.
-              throw new Error('API request failed');
+          newData[item.symbol] = {
+              price: basePrice + variance,
+              change: (Math.random() - 0.5) * 5, // Random % change
+              volume: 1000000 + Math.random() * 5000000
+          };
+      });
+      
+      // Simulate network delay slightly
+      setTimeout(() => {
+          if (isMounted) {
+            setMarketData(prev => ({...prev, ...newData}));
+            setLastUpdated(new Date());
+            setIsLoading(false);
           }
-          
-          const data = await response.json();
-          // data is array of objects or an error object
-          if (Array.isArray(data)) {
-             const newData: Record<string, MarketData> = {};
-             
-             items.forEach(item => {
-                 const target = symbolMap.get(item.symbol);
-                 const ticker = data.find((d: any) => d.symbol === target);
-                 if (ticker) {
-                     newData[item.symbol] = {
-                         price: parseFloat(ticker.lastPrice),
-                         change: parseFloat(ticker.priceChangePercent),
-                         volume: parseFloat(ticker.quoteVolume)
-                     };
-                 }
-             });
-             
-             if (isMounted) {
-                 setMarketData(prev => ({...prev, ...newData}));
-                 setLastUpdated(new Date());
-             }
-          }
-      } catch (e) {
-          console.warn("Watchlist fetch error:", e);
-      } finally {
-          if (isMounted) setIsLoading(false);
-      }
+      }, 500);
     };
 
-    // Initial Fetch
-    fetchMarketData();
+    // Initial Load
+    generateMockMarketData();
 
     // Poll every 5 seconds
-    const interval = setInterval(fetchMarketData, 5000);
+    const interval = setInterval(generateMockMarketData, 5000);
     
     return () => {
         isMounted = false;
@@ -251,7 +216,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
           </div>
           
           <div className="p-2 border-t border-[#334155] bg-[#0f172a] text-[9px] text-slate-600 text-center">
-             Market Data provided by Binance API
+             Offline Mode - Mock Data
           </div>
       </div>
     </div>

@@ -531,10 +531,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
         <div className="flex-1 w-full relative overflow-hidden">
         {loading && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">Processing Data...</div></div></div>}
-        <div className="absolute bottom-10 left-4 z-10 flex items-center gap-2 opacity-75 pointer-events-none select-none">
-            <div className="w-8 h-8 bg-red-600 rounded flex items-center justify-center text-white font-bold text-lg shadow-md shadow-red-900/50">K</div>
-            <span className="text-lg font-semibold tracking-tight text-slate-500">Красная таблетка</span>
-        </div>
         <FinancialChart 
           key={tab.id} 
           id={tab.id} 

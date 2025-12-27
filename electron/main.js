@@ -30,7 +30,8 @@ const createWindow = () => {
     win.loadURL('http://localhost:5173');
     // win.webContents.openDevTools();
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    // Correctly resolve the path to index.html in the built Electron app
+    win.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
   }
 };
 
