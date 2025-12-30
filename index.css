@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Financial Dark Mode System */
+  --app-bg: #0b0e11;       /* Deepest trading dark background */
+  --panel-bg: #131722;     /* Standard panel background (TradingView style) */
+  --accent-color: #2962ff; /* Professional Financial Blue */
+  --border-color: #2a2e39; /* Low-contrast dividers */
+  --text-primary: #e0e3eb; /* High readability text */
+  --text-secondary: #787b86; /* Muted/Secondary text */
+  
+  --success: #089981;
+  --danger: #f23645;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -9,25 +22,25 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #0f172a;
-  color: #e2e8f0;
+  background-color: var(--app-bg);
+  color: var(--text-primary);
   overflow: hidden;
 }
 
-/* Custom scrollbar for data tables */
+/* Custom scrollbar for data tables - Updated to match Financial Dark Mode */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: var(--app-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 4px;
+  background: var(--border-color);
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #363a45; /* Slightly lighter than border */
 }
 
 /* Window Dragging */
