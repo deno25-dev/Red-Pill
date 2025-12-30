@@ -11,7 +11,7 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, HistorySnapshot } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe, getLocalChartData, readChunk } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle } from './utils/storage';
+import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, deleteChartMeta } from './utils/storage';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
@@ -166,6 +166,42 @@ const App: React.FC = () => {
       const interval = setInterval(validateActiveFiles, 2000);
       return () => clearInterval(interval);
   }, [tabs, isBridgeAvailable, checkFileExists]);
+
+  // --- Nuclear Clear Listener ---
+  useEffect(() => {
+      const handleNuclearClear = async () => {
+          if (!activeTabId) return;
+          const tab = tabs.find(t => t.id === activeTabId);
+          if (!tab) return;
+
+          const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
+          if (!sourceId) return;
+
+          debugLog('Data', `Executing NUCLEAR CLEAR for ${sourceId}`);
+
+          try {
+              // 1. Clear IndexedDB Entry
+              await deleteChartMeta(sourceId);
+              
+              // 2. Clear Electron Sidecar (if applicable)
+              const electron = (window as any).electronAPI;
+              if (electron && tab.filePath) {
+                  await electron.deleteMeta(tab.filePath); // Assume this command exists or fails gracefully
+              }
+
+              // 3. Clear Active Tab State
+              updateTab(activeTabId, { drawings: [] });
+              
+              alert("Chart metadata completely purged.");
+          } catch (e: any) {
+              console.error("Nuclear clear failed:", e);
+              debugLog('Data', "Nuclear clear failed", e.message);
+          }
+      };
+
+      window.addEventListener('redpill-nuclear-clear', handleNuclearClear);
+      return () => window.removeEventListener('redpill-nuclear-clear', handleNuclearClear);
+  }, [activeTabId, tabs]);
 
   // --- Persistence Logic ---
 
@@ -1092,9 +1128,9 @@ const App: React.FC = () => {
         tabs={tabs} 
         activeTabId={activeTabId} 
         onSwitch={handleSwitchTab} 
-        onClose={handleCloseTab}
-        onDetach={handleDetachTab}
-        onAdd={handleAddTab}
+        onClose={handleCloseTab} 
+        onDetach={handleDetachTab} 
+        onAdd={handleAddTab} 
       />
 
       <Toolbar 

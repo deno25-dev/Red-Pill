@@ -5,7 +5,8 @@ const DB_HANDLE_KEY = 'databaseRoot'; // Key for the specific Database folder
 const STATE_STORE = 'appState';
 const RECENTS_STORE = 'recentFiles';
 const WATCHLIST_STORE = 'watchlist';
-const DB_VERSION = 4; // Incremented version
+const CHART_META_STORE = 'chartMeta'; // NEW: Scoped chart state
+const DB_VERSION = 5; // Incremented version
 
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,11 @@ export const initDB = (): Promise<IDBDatabase> => {
       // Store for Watchlist
       if (!db.objectStoreNames.contains(WATCHLIST_STORE)) {
         db.createObjectStore(WATCHLIST_STORE, { keyPath: 'symbol' });
+      }
+
+      // Store for Chart Metadata (Drawings, Config)
+      if (!db.objectStoreNames.contains(CHART_META_STORE)) {
+        db.createObjectStore(CHART_META_STORE, { keyPath: 'sourceId' });
       }
     };
   });
@@ -211,4 +217,39 @@ export const getWatchlist = async () => {
         };
         req.onerror = () => reject(req.error);
     });
+};
+
+// --- Scoped Chart Metadata Persistence ---
+
+export const saveChartMeta = async (data: any) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(CHART_META_STORE, 'readwrite');
+    const store = tx.objectStore(CHART_META_STORE);
+    const req = store.put(data); // data must have sourceId
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const loadChartMeta = async (sourceId: string) => {
+  const db = await initDB();
+  return new Promise<any>((resolve, reject) => {
+    const tx = db.transaction(CHART_META_STORE, 'readonly');
+    const store = tx.objectStore(CHART_META_STORE);
+    const req = store.get(sourceId);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const deleteChartMeta = async (sourceId: string) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(CHART_META_STORE, 'readwrite');
+    const store = tx.objectStore(CHART_META_STORE);
+    const req = store.delete(sourceId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
 };

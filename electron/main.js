@@ -1,3 +1,4 @@
+
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -45,7 +46,7 @@ const createWindow = () => {
 // 1. Validation Guard
 const validatePath = (filePath) => {
   if (!filePath || typeof filePath !== 'string') throw new Error("Invalid path");
-  if (!fs.existsSync(filePath)) throw new Error("File not found");
+  // Don't throw if missing for writes, only specific reads
   return true;
 };
 
@@ -104,8 +105,6 @@ ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
         if (err) return reject(err);
         
         // Return string data (React will parse CSV)
-        // Optimization: In a full Rust setup, we would parse to Structs here.
-        // For Node, sending the string chunk is efficient enough for the existing parser.
         resolve(buffer.toString('utf8', 0, bytesRead)); 
       });
     });
@@ -119,6 +118,48 @@ ipcMain.handle('file:stat', async (event, filePath) => {
     } catch (e) {
         return { exists: false, size: 0 };
     }
+});
+
+// --- METADATA PERSISTENCE (Sidecar Files) ---
+// Saves chart state to [filename].meta.json
+
+ipcMain.handle('meta:save', async (event, sourcePath, data) => {
+  try {
+    validatePath(sourcePath);
+    const metaPath = sourcePath + '.meta.json';
+    fs.writeFileSync(metaPath, JSON.stringify(data, null, 2));
+    return { success: true };
+  } catch (e) {
+    console.error("Meta save failed:", e);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('meta:load', async (event, sourcePath) => {
+  try {
+    validatePath(sourcePath);
+    const metaPath = sourcePath + '.meta.json';
+    if (fs.existsSync(metaPath)) {
+      const raw = fs.readFileSync(metaPath, 'utf8');
+      return { success: true, data: JSON.parse(raw) };
+    }
+    return { success: false, error: 'No metadata file' };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('meta:delete', async (event, sourcePath) => {
+  try {
+    validatePath(sourcePath);
+    const metaPath = sourcePath + '.meta.json';
+    if (fs.existsSync(metaPath)) {
+        fs.unlinkSync(metaPath);
+    }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });
 
 // Dialog Handler

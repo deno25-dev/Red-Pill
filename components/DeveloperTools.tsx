@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs, getLogHistory } from '../utils/logger';
 
@@ -74,6 +74,13 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
     alert('Report copied to clipboard! Paste this into the chat.');
   };
 
+  const handleNuclearClear = () => {
+      if (confirm('NUCLEAR OPTION: This will permanently delete all drawings/metadata for the CURRENT chart from the database. Are you sure?')) {
+          window.dispatchEvent(new CustomEvent('redpill-nuclear-clear'));
+          debugLog('Data', 'Nuclear Clear Triggered by user');
+      }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -101,9 +108,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
           <span className="text-[10px] text-emerald-700 uppercase">Connection</span>
           <div className="flex items-center gap-2">
             <Activity size={14} className={isOnline ? "text-emerald-400" : "text-red-500"} />
-            <span className={isOnline ? "text-emerald-100" : "text-red-400"}>
-              {isOnline ? 'ONLINE' : 'OFFLINE'}
-            </span>
+            <span className="text-emerald-100">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
           </div>
         </div>
         <div className="bg-black/80 p-3 flex flex-col gap-1">
@@ -158,17 +163,25 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       </div>
 
       {/* Actions */}
-      <div className="p-3 border-t border-emerald-900/50 bg-black">
+      <div className="p-3 border-t border-emerald-900/50 bg-black flex gap-2">
         <button 
           onClick={generateFeedbackReport}
-          className="w-full flex items-center justify-center gap-2 bg-emerald-900/30 hover:bg-emerald-800/50 text-emerald-400 py-2 px-4 rounded border border-emerald-800 transition-colors uppercase text-xs font-bold tracking-wider"
+          className="flex-1 flex items-center justify-center gap-2 bg-emerald-900/30 hover:bg-emerald-800/50 text-emerald-400 py-2 px-2 rounded border border-emerald-800 transition-colors uppercase text-xs font-bold tracking-wider"
         >
           <Copy size={14} />
-          Generate LLM Feedback Report
+          Report
         </button>
-        <div className="text-center text-[10px] text-emerald-800 mt-2">
+        <button 
+          onClick={handleNuclearClear}
+          className="flex-1 flex items-center justify-center gap-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 py-2 px-2 rounded border border-red-900/50 transition-colors uppercase text-xs font-bold tracking-wider"
+          title="Delete current chart metadata from DB"
+        >
+          <ShieldAlert size={14} />
+          Nuclear Clear
+        </button>
+      </div>
+      <div className="bg-black text-center text-[10px] text-emerald-800 py-1">
           Press Ctrl + D to toggle this panel
-        </div>
       </div>
     </div>
   );

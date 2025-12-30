@@ -26,10 +26,11 @@ import { COLORS } from '../constants';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
 import { debugLog } from '../utils/logger';
 import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
+import { useChartReplay } from '../hooks/useChartReplay';
 
 interface ChartProps {
   id?: string;
-  data: OHLCV[];
+  data: OHLCV[]; // Currently displayed data (slice)
   smaData: (number | null)[];
   config: ChartConfig;
   timeframe: string;
@@ -52,6 +53,14 @@ interface ChartProps {
   // New props for range history
   visibleRange: { from: number; to: number } | null;
   onVisibleRangeChange: (range: { from: number; to: number }) => void;
+
+  // Replay Props
+  fullData?: OHLCV[]; // The complete dataset for lookahead
+  replayIndex?: number;
+  isPlaying?: boolean;
+  replaySpeed?: number;
+  onReplaySync?: (index: number, time: number, price: number) => void;
+  onReplayComplete?: () => void;
 }
 
 const OFF_SCREEN = -10000;
@@ -308,10 +317,42 @@ interface TextInputState {
 }
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
-  const { data, smaData, config, timeframe, onConfigChange, drawings, onUpdateDrawings, activeToolId, onToolComplete, currentDefaultProperties, selectedDrawingId, onSelectDrawing, onActionStart, isReplaySelecting, onReplayPointSelect, onRequestMoreData, areDrawingsLocked = false, isMagnetMode = false, isSyncing = false, visibleRange, onVisibleRangeChange } = props;
+  const { 
+    data, 
+    smaData, 
+    config, 
+    timeframe, 
+    onConfigChange, 
+    drawings, 
+    onUpdateDrawings, 
+    activeToolId, 
+    onToolComplete, 
+    currentDefaultProperties, 
+    selectedDrawingId, 
+    onSelectDrawing, 
+    onActionStart, 
+    isReplaySelecting, 
+    onReplayPointSelect, 
+    onRequestMoreData, 
+    areDrawingsLocked = false, 
+    isMagnetMode = false, 
+    isSyncing = false, 
+    visibleRange, 
+    onVisibleRangeChange,
+    // Replay Props
+    fullData,
+    replayIndex,
+    isPlaying = false,
+    replaySpeed = 1,
+    onReplaySync,
+    onReplayComplete
+  } = props;
+
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
   const chartContainerRef = useRef<HTMLDivElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null); 
-  const chartRef = useRef<IChartApi | null>(null); const seriesRef = useRef<ISeriesApi<"Candlestick" | "Line" | "Area"> | null>(null);
+  const chartRef = useRef<IChartApi | null>(null); 
+  // IMPORTANT: We cast to specific series type for the hook, assuming Candle/Line/Area use same base
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null); const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawingsPrimitiveRef = useRef<DrawingsPrimitive | null>(null); const rangeChangeTimeout = useRef<any>(null);
   const rafId = useRef<number | null>(null); const toolTipRef = useRef<HTMLDivElement>(null);
@@ -327,6 +368,17 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   
   // State for Text Input Overlay
   const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
+
+  // --- REPLAY ENGINE HOOK ---
+  useChartReplay({
+    seriesRef,
+    fullData,
+    startIndex: replayIndex || 0,
+    isPlaying,
+    speed: replaySpeed,
+    onSyncState: onReplaySync,
+    onComplete: onReplayComplete
+  });
 
   const interactionState = useRef<{ 
       isDragging: boolean; 
@@ -481,7 +533,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (!propsRef.current.isSyncing) return;
         const { point, sourceId } = e.detail;
         if (sourceId !== propsRef.current.id) {
-            chart.setCrosshairPosition(point.price, (point.time / 1000) as Time, seriesRef.current!);
+            chart.setCrosshairPosition(point.price, (point.time / 1000) as Time, seriesRef.current! as any);
         }
     };
 
@@ -591,7 +643,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (!chartRef.current) return;
-    if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current); seriesRef.current = null; }
+    // Cast to any to handle type overlap issues, we know the series types
+    if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current as any); seriesRef.current = null; }
     let newSeries;
     if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 });
     else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 });
@@ -614,6 +667,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             wickDownColor 
         });
     }
+    // @ts-ignore
     seriesRef.current = newSeries; newSeries.setData(processedData);
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;

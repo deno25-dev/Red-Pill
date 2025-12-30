@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -8,8 +9,9 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Activity } from 'lucide-react';
+import { GripVertical, Settings, Check, Activity, Loader2 } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
+import { useChartPersistence } from '../hooks/useChartPersistence';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -57,6 +59,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onVisibleRangeChange,
   favoriteTimeframes
 }) => {
+  // Scoped Persistence Hook
+  const { isHydrating } = useChartPersistence({ tab, updateTab });
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
@@ -77,8 +82,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     locked: false,
     smoothing: 0 
   });
-
-  const replayAccumulator = useRef(0);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
@@ -113,139 +116,16 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeToolId, selectedDrawingId, onSelectTool]);
   
-  useEffect(() => {
-    let interval: any;
-    const isPlaying = tab.isReplayPlaying;
-    
-    if (tab.data.length === 0) return;
-
-    if (isPlaying) {
-        const TICK_RATE_MS = 50; 
-
-        if (tab.isReplayMode) {
-             interval = setInterval(() => {
-                 if (tab.replayIndex >= tab.data.length - 1) {
-                     updateTab({ isReplayPlaying: false });
-                     return;
-                 }
-                 const barsPerSecond = tab.replaySpeed;
-                 const barsPerTick = barsPerSecond * (TICK_RATE_MS / 1000);
-                 replayAccumulator.current += barsPerTick;
-
-                 if (replayAccumulator.current >= 1) {
-                     const advanceCount = Math.floor(replayAccumulator.current);
-                     const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + advanceCount);
-                     replayAccumulator.current -= advanceCount;
-                     
-                     updateTab({
-                         replayIndex: nextIndex,
-                         replayGlobalTime: tab.data[nextIndex].time,
-                         simulatedPrice: tab.data[nextIndex].close
-                     });
-                 }
-             }, TICK_RATE_MS);
-        } 
-        else if (tab.isAdvancedReplayMode && tab.replayGlobalTime) {
-            interval = setInterval(() => {
-                const timeStep = TICK_RATE_MS * tab.replaySpeed;
-                const nextGlobalTime = tab.replayGlobalTime! + timeStep;
-                
-                let nextIndex = tab.data.findIndex(d => d.time > nextGlobalTime);
-                
-                if (nextIndex === -1) {
-                    const lastCandle = tab.data[tab.data.length - 1];
-                    const tfDuration = getTimeframeDuration(tab.timeframe);
-                    if (nextGlobalTime >= lastCandle.time + tfDuration) {
-                        updateTab({ isReplayPlaying: false, replayIndex: tab.data.length - 1 });
-                        return;
-                    }
-                    nextIndex = tab.data.length - 1;
-                } else {
-                    nextIndex = Math.max(0, nextIndex - 1);
-                }
-
-                const currentCandle = tab.data[nextIndex];
-                const tfDuration = getTimeframeDuration(tab.timeframe);
-
-                if (nextGlobalTime >= currentCandle.time + tfDuration) {
-                    const futureIdx = nextIndex + 1;
-                    if (futureIdx < tab.data.length) {
-                        updateTab({
-                            replayGlobalTime: tab.data[futureIdx].time,
-                            replayIndex: futureIdx,
-                            simulatedPrice: tab.data[futureIdx].open
-                        });
-                    } else {
-                        updateTab({ isReplayPlaying: false, replayIndex: tab.data.length - 1 });
-                    }
-                    return;
-                }
-
-                let simPrice = currentCandle.close;
-                const elapsed = nextGlobalTime - currentCandle.time;
-                const progress = Math.min(1, Math.max(0, elapsed / tfDuration));
-                const { open, high, low, close } = currentCandle;
-
-                if (progress < 0.33) {
-                    const subP = progress / 0.33;
-                    simPrice = open + (high - open) * subP;
-                } else if (progress < 0.66) {
-                    const subP = (progress - 0.33) / 0.33;
-                    simPrice = high + (low - high) * subP;
-                } else {
-                    const subP = (progress - 0.66) / 0.34;
-                    simPrice = low + (close - low) * subP;
-                }
-
-                updateTab({
-                    replayGlobalTime: nextGlobalTime,
-                    replayIndex: nextIndex,
-                    simulatedPrice: simPrice
-                });
-            }, TICK_RATE_MS);
-        }
-    } else {
-        replayAccumulator.current = 0;
-    }
-
-    return () => clearInterval(interval);
-  }, [tab.isReplayMode, tab.isAdvancedReplayMode, tab.isReplayPlaying, tab.replaySpeed, tab.data, tab.replayIndex, tab.replayGlobalTime, tab.timeframe, updateTab]);
-
-
+  // Replay Data Slice Logic
   const displayedData = useMemo(() => {
     if (tab.isReplaySelecting) return tab.data;
-    if (!tab.isReplayMode && !tab.isAdvancedReplayMode) return tab.data;
-    if (tab.data.length === 0) return [];
-
-    const sliced = tab.data.slice(0, tab.replayIndex + 1);
-    
-    if (tab.isAdvancedReplayMode && sliced.length > 0 && tab.replayGlobalTime) {
-        const lastIdx = sliced.length - 1;
-        const realCandle = sliced[lastIdx];
-        const formingCandle = { ...realCandle };
-        
-        const tfDuration = getTimeframeDuration(tab.timeframe);
-        const elapsed = tab.replayGlobalTime - realCandle.time;
-        const progress = Math.min(1, Math.max(0, elapsed / tfDuration));
-        
-        formingCandle.close = tab.simulatedPrice || realCandle.open;
-
-        if (progress < 0.33) {
-            formingCandle.high = Math.max(realCandle.open, formingCandle.close);
-            formingCandle.low = Math.min(realCandle.open, formingCandle.close);
-        } else if (progress < 0.66) {
-            formingCandle.high = realCandle.high;
-            formingCandle.low = Math.min(realCandle.high, formingCandle.close);
-        } else {
-            formingCandle.high = realCandle.high;
-            formingCandle.low = realCandle.low;
-        }
-        
-        sliced[lastIdx] = formingCandle;
+    if (tab.isReplayMode || tab.isAdvancedReplayMode) {
+        // Robustness: ensure we don't slice with negative index, which would return empty or wrap
+        const safeIndex = Math.max(0, tab.replayIndex);
+        return tab.data.slice(0, safeIndex + 1);
     }
-    
-    return sliced;
-  }, [tab.data, tab.isReplayMode, tab.isAdvancedReplayMode, tab.isReplaySelecting, tab.replayIndex, tab.replayGlobalTime, tab.simulatedPrice, tab.timeframe]);
+    return tab.data;
+  }, [tab.data, tab.isReplayMode, tab.isAdvancedReplayMode, tab.replayIndex, tab.isReplaySelecting]);
 
   const smaData = useMemo(() => {
     if (!tab.config.showSMA) return [];
@@ -253,6 +133,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
 
   const currentPrice = useMemo(() => {
+      // If actively replaying, we might use simulated price, but displayedData only updates on pause
+      // so we use the last displayed candle's close
       if (displayedData.length === 0) return 0;
       return displayedData[displayedData.length - 1].close;
   }, [displayedData]);
@@ -452,6 +334,15 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           isReplayPlaying: false
       });
   };
+  
+  // Callback when ReplayEngine updates state (Paused or Finished)
+  const handleReplaySync = (index: number, time: number, price: number) => {
+      updateTab({
+          replayIndex: index,
+          replayGlobalTime: time,
+          simulatedPrice: price
+      });
+  };
 
   const handleToolComplete = () => {
       if (!isStayInDrawingMode) onSelectTool?.('cross');
@@ -469,6 +360,13 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       if (selectedDrawingId) return tab.drawings.find(d => d.id === selectedDrawingId)?.type;
       return activeToolId; 
   }, [selectedDrawingId, tab.drawings, activeToolId]);
+
+  // Construct a unique key for the chart component to force remount on file change
+  // This ensures the lightweight-chart instance is fully destroyed and recreated
+  // preventing ghost drawings from previous files.
+  const chartComponentKey = useMemo(() => {
+      return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`;
+  }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
 
   return (
     <div className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
@@ -524,7 +422,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <LayersPanel drawings={tab.drawings} onUpdateDrawings={(drawings) => { onSaveHistory?.(); updateTab({ drawings }); }} selectedDrawingId={selectedDrawingId} onSelectDrawing={setSelectedDrawingId} onClose={onToggleLayers || (() => {})} position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} onHeaderMouseDown={handleLayersMouseDown} />
         )}
         {(tab.isReplayMode || tab.isAdvancedReplayMode) && (
-            <ReplayControls isPlaying={tab.isReplayPlaying} onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} onStepForward={() => {
+            <ReplayControls 
+              isPlaying={tab.isReplayPlaying} 
+              onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} 
+              onStepForward={() => {
                 if (tab.isReplayMode) {
                    const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1);
                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
@@ -534,17 +435,24 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                     if (nextIndex === -1) nextIndex = tab.data.length - 1;
                     updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
                 }
-            }} onReset={() => {
+              }} 
+              onReset={() => {
                 const newIdx = Math.max(0, tab.data.length - 100);
-                replayAccumulator.current = 0;
                 updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open })
-            }} onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} speed={tab.replaySpeed} onSpeedChange={(speed) => updateTab({ replaySpeed: speed })} progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} position={replayPos.x !== 0 ? replayPos : undefined} onHeaderMouseDown={handleReplayMouseDown} />
+              }} 
+              onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} 
+              speed={tab.replaySpeed} 
+              onSpeedChange={(speed) => updateTab({ replaySpeed: speed })} 
+              progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} 
+              position={replayPos.x !== 0 ? replayPos : undefined} 
+              onHeaderMouseDown={handleReplayMouseDown} 
+            />
         )}
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
         <div className="flex-1 w-full relative overflow-hidden">
-        {loading && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">Processing Data...</div></div></div>}
+        {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">Processing Data...</div></div></div>}
         <FinancialChart 
-          key={tab.id} 
+          key={chartComponentKey} 
           id={tab.id} 
           data={displayedData} 
           smaData={smaData} 
@@ -568,6 +476,13 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           // Pass range history props
           visibleRange={tab.visibleRange}
           onVisibleRangeChange={onVisibleRangeChange}
+          // Pass Replay Props to drive the new engine
+          fullData={tab.data}
+          replayIndex={tab.replayIndex}
+          isPlaying={tab.isReplayPlaying}
+          replaySpeed={tab.replaySpeed}
+          onReplaySync={handleReplaySync}
+          onReplayComplete={() => updateTab({ isReplayPlaying: false })}
         />
         </div>
         

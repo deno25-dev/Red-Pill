@@ -119,6 +119,15 @@ export interface HistorySnapshot {
   visibleRange: { from: number; to: number } | null;
 }
 
+// Scoped Persistence State
+export interface ChartState {
+  sourceId: string;
+  timestamp: number;
+  drawings: Drawing[];
+  config: Partial<ChartConfig>;
+  visibleRange: { from: number; to: number } | null;
+}
+
 export interface TabSession {
   id: string;
   title: string;
