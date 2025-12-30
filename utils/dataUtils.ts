@@ -1,6 +1,53 @@
 
 import { OHLCV, Timeframe, DrawingPoint } from '../types';
 
+// --- DATA COMMANDS ---
+
+// Command: get_local_chart_data
+// Orchestrates reading a file chunk and parsing it into usable chart data
+export const getLocalChartData = async (file: File, chunkSize: number): Promise<{
+    rawData: OHLCV[];
+    cursor: number;
+    leftover: string;
+    fileSize: number;
+}> => {
+    const fileSize = file.size;
+    const start = Math.max(0, fileSize - chunkSize);
+    const text = await readChunk(file, start, fileSize);
+    
+    const lines = text.split('\n');
+    let leftover = '';
+    let linesToParse = lines;
+    
+    if (start > 0) {
+        leftover = lines[0];
+        linesToParse = lines.slice(1);
+    }
+
+    const parsedData = parseCSVChunk(linesToParse);
+    parsedData.sort((a, b) => a.time - b.time);
+    
+    return {
+        rawData: parsedData,
+        cursor: start,
+        leftover,
+        fileSize
+    };
+};
+
+// Utility to read a specific chunk of a local file
+export const readChunk = (file: File, start: number, end: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        const slice = file.slice(start, end);
+        reader.onload = (e) => resolve(e.target?.result as string || '');
+        reader.onerror = (e) => reject(e);
+        reader.readAsText(slice);
+    });
+};
+
+// --- EXISTING UTILS ---
+
 // Simple Random Walk Generator for "Mock" Data
 export const generateMockData = (count: number): OHLCV[] => {
   const data: OHLCV[] = [];
