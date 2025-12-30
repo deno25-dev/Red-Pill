@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveMeta: (path, data) => ipcRenderer.invoke('meta:save', path, data),
   loadMeta: (path) => ipcRenderer.invoke('meta:load', path),
   deleteMeta: (path) => ipcRenderer.invoke('meta:delete', path),
+  // Trade Persistence
+  saveTrade: (trade) => ipcRenderer.invoke('trade:save', trade),
+  getTradesBySource: (sourceId) => ipcRenderer.invoke('trade:get-by-source', sourceId),
   onFolderChange: (callback) => {
     const subscription = (_event, files) => callback(files);
     ipcRenderer.on('folder-changed', subscription);

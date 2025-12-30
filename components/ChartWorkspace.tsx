@@ -12,6 +12,7 @@ import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Activity, Loader2 } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useChartPersistence } from '../hooks/useChartPersistence';
+import { useTradePersistence } from '../hooks/useTradePersistence';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -59,8 +60,23 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onVisibleRangeChange,
   favoriteTimeframes
 }) => {
-  // Scoped Persistence Hook
+  // Scoped Persistence Hook (Drawings/Config)
   const { isHydrating } = useChartPersistence({ tab, updateTab });
+  
+  // Trade Persistence Hook
+  // Uses filePath if available (Bridge mode), otherwise fallback to title/timeframe ID
+  const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
+  const { trades, saveTrade, refetchTrades } = useTradePersistence(tradeSourceId);
+
+  // Sync loaded trades to Tab state so BottomPanel can see them
+  useEffect(() => {
+      if (trades && trades.length > 0) {
+          // Avoid infinite loops by checking length or content
+          if (trades.length !== (tab.trades || []).length) {
+             updateTab({ trades });
+          }
+      }
+  }, [trades]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
@@ -483,6 +499,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           replaySpeed={tab.replaySpeed}
           onReplaySync={handleReplaySync}
           onReplayComplete={() => updateTab({ isReplayPlaying: false })}
+          trades={trades}
         />
         </div>
         
@@ -505,7 +522,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             </GlobalErrorBoundary>
         </div>
 
-        <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={tab.trades || []} />
+        <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={trades} />
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
             <div className="flex gap-4">
             <span>O: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].open.toFixed(2) : '-'}</span></span>

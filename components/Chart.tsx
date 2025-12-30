@@ -1,4 +1,5 @@
 
+// ... (imports remain the same, just keeping context)
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   createChart, 
@@ -19,9 +20,12 @@ import {
   Logical,
   MouseEventParams,
   LogicalRange,
-  Time
+  Time,
+  SeriesMarker,
+  SeriesMarkerPosition,
+  SeriesMarkerShape
 } from 'lightweight-charts';
-import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
+import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Trade } from '../types';
 import { COLORS } from '../constants';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
 import { debugLog } from '../utils/logger';
@@ -61,6 +65,9 @@ interface ChartProps {
   replaySpeed?: number;
   onReplaySync?: (index: number, time: number, price: number) => void;
   onReplayComplete?: () => void;
+  
+  // Trades
+  trades?: Trade[];
 }
 
 const OFF_SCREEN = -10000;
@@ -345,7 +352,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     isPlaying = false,
     replaySpeed = 1,
     onReplaySync,
-    onReplayComplete
+    onReplayComplete,
+    trades = []
   } = props;
 
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
@@ -427,6 +435,29 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           requestDraw(); 
       }
   }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
+
+  // Trade Markers Sync
+  useEffect(() => {
+      if (seriesRef.current && trades && Array.isArray(trades)) {
+          // Safety guard: ensure seriesRef.current exists AND has setMarkers
+          // This prevents race conditions where series is being swapped out
+          if (typeof seriesRef.current.setMarkers !== 'function') return;
+
+          const markers: SeriesMarker<Time>[] = trades.map(t => ({
+              time: (t.timestamp / 1000) as Time,
+              position: t.side === 'buy' ? 'belowBar' : 'aboveBar',
+              color: t.side === 'buy' ? COLORS.bullish : COLORS.bearish,
+              shape: t.side === 'buy' ? 'arrowUp' : 'arrowDown',
+              text: `${t.side.toUpperCase()} @ ${t.price.toFixed(2)}`
+          }));
+          
+          try {
+            seriesRef.current.setMarkers(markers);
+          } catch (e) {
+            // Ignore marker errors if series is unstable
+          }
+      }
+  }, [trades, processedData]); // Trigger on trade updates
 
   const requestDraw = () => { if (rafId.current) cancelAnimationFrame(rafId.current); rafId.current = requestAnimationFrame(renderOverlayAndSync); };
   const renderOverlayAndSync = () => { renderOverlay(); if (chartRef.current) { if ((chartRef.current as any)._renderer) (chartRef.current as any)._renderer._redrawVisible(); else chartRef.current.timeScale().applyOptions({}); } };

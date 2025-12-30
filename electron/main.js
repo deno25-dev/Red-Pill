@@ -162,6 +162,46 @@ ipcMain.handle('meta:delete', async (event, sourcePath) => {
   }
 });
 
+// --- TRADE PERSISTENCE (Global Store) ---
+// Stores trades in appData/trades.json
+
+const getTradesPath = () => path.join(app.getPath('userData'), 'trades.json');
+
+ipcMain.handle('trade:save', async (event, trade) => {
+    try {
+        const dbPath = getTradesPath();
+        let trades = [];
+        
+        if (fs.existsSync(dbPath)) {
+            const raw = fs.readFileSync(dbPath, 'utf8');
+            try { trades = JSON.parse(raw); } catch (e) {}
+        }
+        
+        trades.push(trade);
+        fs.writeFileSync(dbPath, JSON.stringify(trades, null, 2));
+        return { success: true, trade };
+    } catch (e) {
+        console.error("Trade save failed:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('trade:get-by-source', async (event, sourceId) => {
+    try {
+        const dbPath = getTradesPath();
+        if (!fs.existsSync(dbPath)) return [];
+        
+        const raw = fs.readFileSync(dbPath, 'utf8');
+        const trades = JSON.parse(raw);
+        
+        // Filter by the specific data file source
+        return trades.filter(t => t.sourceId === sourceId);
+    } catch (e) {
+        console.error("Trade fetch failed:", e);
+        return [];
+    }
+});
+
 // Dialog Handler
 ipcMain.handle('dialog:openDirectory', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

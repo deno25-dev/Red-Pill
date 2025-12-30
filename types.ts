@@ -98,14 +98,17 @@ export interface FileStreamState {
 
 export interface Trade {
   id: string;
+  sourceId: string; // Links trade to specific CSV/Data source
   symbol: string;
   side: 'buy' | 'sell';
   type: 'market' | 'limit' | 'stop';
-  price: number;
+  price: number; // Entry Price
   qty: number;
   value: number;
   timestamp: number;
   status: 'filled' | 'open' | 'cancelled';
+  pnl?: number;
+  exitPrice?: number;
 }
 
 export interface WatchlistItem {

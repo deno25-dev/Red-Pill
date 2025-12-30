@@ -17,6 +17,7 @@ import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
 import { debugLog } from './utils/logger';
 import { useFileSystem } from './hooks/useFileSystem';
+import { useTradePersistence } from './hooks/useTradePersistence';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -138,6 +139,14 @@ const App: React.FC = () => {
       trades: []
     };
   }, []);
+  
+  const activeTab = useMemo(() => 
+    tabs.find(t => t.id === activeTabId) || tabs[0] || createNewTab(), 
+  [tabs, activeTabId, createNewTab]);
+
+  // Trade Persistence for Active Tab
+  const tradeSourceId = activeTab.filePath || `${activeTab.title}_${activeTab.timeframe}`;
+  const { saveTrade } = useTradePersistence(tradeSourceId);
 
   // --- Watcher Validation Effect (Auto-Clear Deleted Files) ---
   useEffect(() => {
@@ -304,10 +313,6 @@ const App: React.FC = () => {
     return () => clearTimeout(saveTimeout);
   }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isMagnetMode, isAppReady, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
 
-
-  const activeTab = useMemo(() => 
-    tabs.find(t => t.id === activeTabId) || tabs[0] || createNewTab(), 
-  [tabs, activeTabId, createNewTab]);
 
   const updateTab = useCallback((id: string, updates: Partial<TabSession>) => {
     setTabs(prev => prev.map(tab => {
@@ -969,18 +974,20 @@ const App: React.FC = () => {
       }
   }, [activeTab, handleSaveHistory, updateActiveTab]);
 
-  const handleOrderSubmit = useCallback((order: any) => {
+  const handleOrderSubmit = useCallback(async (order: any) => {
       if (!activeTab) return;
       
       const newTrade: Trade = {
           id: crypto.randomUUID(),
+          // Use file path as source ID if available, else a generated key
+          sourceId: tradeSourceId || 'unknown_source',
           timestamp: Date.now(),
           ...order
       };
       
-      const newTrades = [...(activeTab.trades || []), newTrade];
-      updateActiveTab({ trades: newTrades });
-  }, [activeTab, updateActiveTab]);
+      await saveTrade(newTrade);
+      // Hook updates trades automatically, effect syncs to tab
+  }, [activeTab, tradeSourceId, saveTrade]);
 
   const { currentPrice, prevPrice } = useMemo(() => {
     if (!activeTab || activeTab.data.length === 0) return { currentPrice: 0, prevPrice: 0 };
