@@ -31,6 +31,7 @@ import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dat
 import { debugLog } from '../utils/logger';
 import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
 import { useChartReplay } from '../hooks/useChartReplay';
+import { useAdvancedReplay } from '../hooks/useAdvancedReplay';
 
 interface ChartProps {
   id?: string;
@@ -65,6 +66,7 @@ interface ChartProps {
   replaySpeed?: number;
   onReplaySync?: (index: number, time: number, price: number) => void;
   onReplayComplete?: () => void;
+  isAdvancedReplay?: boolean; // NEW: Toggle between engines
   
   // Trades
   trades?: Trade[];
@@ -353,6 +355,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     replaySpeed = 1,
     onReplaySync,
     onReplayComplete,
+    isAdvancedReplay = false,
     trades = []
   } = props;
 
@@ -377,15 +380,31 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   // State for Text Input Overlay
   const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
 
-  // --- REPLAY ENGINE HOOK ---
+  // --- REPLAY ENGINES ---
+  
+  // 1. Standard Bar Replay (Simulates time skips)
+  // Only active if NOT in Advanced Mode
   useChartReplay({
     seriesRef,
     fullData,
     startIndex: replayIndex || 0,
-    isPlaying,
+    isPlaying: isPlaying && !isAdvancedReplay, 
     speed: replaySpeed,
     onSyncState: onReplaySync,
     onComplete: onReplayComplete
+  });
+
+  // 2. Advanced Real-Time Replay (Delta-Time Architecture)
+  // Only active if IN Advanced Mode
+  useAdvancedReplay({
+    seriesRef,
+    fullData,
+    startIndex: replayIndex || 0,
+    isPlaying,
+    speed: replaySpeed || 1,
+    onSyncState: onReplaySync,
+    onComplete: onReplayComplete,
+    isActive: isAdvancedReplay
   });
 
   const interactionState = useRef<{ 

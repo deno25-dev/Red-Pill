@@ -499,6 +499,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           replaySpeed={tab.replaySpeed}
           onReplaySync={handleReplaySync}
           onReplayComplete={() => updateTab({ isReplayPlaying: false })}
+          isAdvancedReplay={tab.isAdvancedReplayMode} // NEW PROP
           trades={trades}
         />
         </div>
