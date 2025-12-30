@@ -926,7 +926,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   };
   
   const handleScrollToRealTime = () => {
-       chartRef.current?.timeScale().scrollToRealTime();
+       // Use scrollToPosition to force a consistent right margin (3 bars)
+       // This ensures the latest candle is clearly visible and not stuck to the edge
+       chartRef.current?.timeScale().scrollToPosition(3, true);
   };
 
   // Text Input Handlers
