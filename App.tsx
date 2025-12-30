@@ -236,8 +236,6 @@ const App: React.FC = () => {
     if (!activeTab) return;
     
     // Create a snapshot of the CURRENT state before the new action is applied
-    // Note: In typical apps, we save state *after* change or *before*? 
-    // Usually we save the *previous* state to the undo stack.
     const currentSnapshot: HistorySnapshot = {
         drawings: activeTab.drawings,
         visibleRange: activeTab.visibleRange
@@ -977,6 +975,32 @@ const App: React.FC = () => {
       }
   };
 
+  const { currentPrice, prevPrice } = useMemo(() => {
+    if (!activeTab || activeTab.data.length === 0) return { currentPrice: 0, prevPrice: 0 };
+    
+    if (activeTab.isReplayMode || activeTab.isAdvancedReplayMode) {
+        if (activeTab.simulatedPrice !== null) {
+            // Intra-bar simulation: use current price and find a reference for prev
+            const idx = Math.min(activeTab.replayIndex, activeTab.data.length - 1);
+            const currentCandleOpen = activeTab.data[idx].open;
+            const prevClose = idx > 0 ? activeTab.data[idx-1].close : currentCandleOpen;
+            return { currentPrice: activeTab.simulatedPrice, prevPrice: prevClose };
+        } else {
+           const idx = Math.min(activeTab.replayIndex, activeTab.data.length - 1);
+           const price = activeTab.data[idx].close;
+           const prev = idx > 0 ? activeTab.data[idx-1].close : price;
+           return { currentPrice: price, prevPrice: prev };
+        }
+    }
+    
+    const lastIdx = activeTab.data.length - 1;
+    const price = activeTab.data[lastIdx].close;
+    const prev = lastIdx > 0 ? activeTab.data[lastIdx - 1].close : price;
+    return { currentPrice: price, prevPrice: prev };
+  }, [activeTab.data, activeTab.isReplayMode, activeTab.isAdvancedReplayMode, activeTab.replayIndex, activeTab.simulatedPrice]);
+
+  const currentSymbolName = getBaseSymbolName(activeTab.title);
+
   const renderLayout = () => {
     if (layoutMode === 'single') {
         return (
@@ -1065,22 +1089,6 @@ const App: React.FC = () => {
     );
   }
 
-  const currentPrice = (() => {
-      if (!activeTab || activeTab.data.length === 0) return 0;
-      
-      if (activeTab.isReplayMode || activeTab.isAdvancedReplayMode) {
-          if (activeTab.simulatedPrice !== null) {
-              return activeTab.simulatedPrice;
-          }
-          const idx = Math.min(activeTab.replayIndex, activeTab.data.length - 1);
-          return activeTab.data[idx].close;
-      }
-      
-      return activeTab.data[activeTab.data.length - 1].close;
-  })();
-
-  const currentSymbolName = getBaseSymbolName(activeTab.title);
-
   return (
     <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
       
@@ -1147,6 +1155,9 @@ const App: React.FC = () => {
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
         onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
+        tickerSymbol={currentSymbolName}
+        tickerPrice={currentPrice}
+        tickerPrevPrice={prevPrice}
       />
 
       <div className="flex flex-1 overflow-hidden relative">

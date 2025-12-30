@@ -36,7 +36,10 @@ import {
   Link,
   Link2Off,
   FileDown,
-  FileInput
+  FileInput,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown
 } from 'lucide-react';
 
 interface ToolbarProps {
@@ -72,6 +75,9 @@ interface ToolbarProps {
   isTimeSync?: boolean;
   onOpenCandleSettings?: () => void;
   onOpenBackgroundSettings?: () => void;
+  tickerSymbol?: string;
+  tickerPrice?: number;
+  tickerPrevPrice?: number;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -106,7 +112,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isCrosshairSync,
   isTimeSync,
   onOpenCandleSettings,
-  onOpenBackgroundSettings
+  onOpenBackgroundSettings,
+  tickerSymbol,
+  tickerPrice,
+  tickerPrevPrice
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -144,6 +153,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   };
 
+  const isTickerUp = (tickerPrice || 0) >= (tickerPrevPrice || tickerPrice || 0);
+
   return (
     <div className="flex items-center justify-between h-14 bg-[#1e293b] border-b border-[#334155] px-4">
       <input 
@@ -155,6 +166,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       />
 
       <div className="flex items-center gap-4">
+        
+        {tickerSymbol && tickerPrice !== undefined && (
+          <div className="hidden md:flex flex-col justify-center px-3 py-1.5 bg-[#172554]/40 border border-[#1e40af]/50 rounded-lg min-w-[140px] backdrop-blur-sm shadow-sm transition-colors hover:bg-[#172554]/60 group">
+            <div className="flex items-baseline justify-between gap-3">
+                <span className="text-xs font-bold text-blue-200/90 group-hover:text-blue-100">{tickerSymbol}</span>
+                <span className={`text-sm font-mono font-medium ${isTickerUp ? 'text-emerald-400' : 'text-red-400'}`}>
+                    ${tickerPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+            </div>
+            <div className={`flex items-center mt-0.5 ${isTickerUp ? 'text-emerald-500' : 'text-red-500'}`}>
+                 {isTickerUp ? <TrendingUp size={12} strokeWidth={3} /> : <TrendingDown size={12} strokeWidth={3} />}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-1">
           <button 
             onClick={onUndo}
@@ -356,6 +382,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onToggleTradingPanel}
         >
           <ArrowRightLeft size={18} />
+        </button>
+
+        <button
+          onClick={() => window.location.reload()}
+          className="p-2 rounded transition-colors text-slate-400 hover:text-white hover:bg-[#334155]"
+          title="Reload Application"
+        >
+          <RefreshCw size={18} />
         </button>
 
         <div className="relative" ref={settingsMenuRef}>
