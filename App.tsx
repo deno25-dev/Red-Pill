@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -11,7 +12,7 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem, HistorySnapshot } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
+import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 
@@ -570,6 +571,9 @@ const App: React.FC = () => {
               // @ts-ignore
               const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
               
+              // Clear previous handle before saving new one to avoid conflicts
+              await clearDatabaseHandle();
+              
               setDatabaseHandle(handle);
               await saveDatabaseHandle(handle);
               
@@ -602,6 +606,9 @@ const App: React.FC = () => {
                   name: f.name,
                   getFile: async () => f
               })));
+              
+              // Clear previous persistence
+              clearDatabaseHandle();
               
               setDatabaseHandle({ name: 'Local Folder (Read Only)', kind: 'directory', isFallback: true });
               

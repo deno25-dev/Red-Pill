@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { FolderOpen, FileText, X, Database, RefreshCw, AlertCircle, Trash2, Clock, History } from 'lucide-react';
-import { getExplorerHandle, saveExplorerHandle, getRecentFiles, addRecentFile } from '../utils/storage';
+import { getExplorerHandle, saveExplorerHandle, clearExplorerHandle, getRecentFiles, addRecentFile } from '../utils/storage';
 import { scanRecursive } from '../utils/dataUtils';
 
 interface FilePanelProps {
@@ -71,12 +71,15 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
                 }
             } else {
                 // If handle is stale or invalid structure, reset
+                await clearExplorerHandle();
                 setStoredHandle(null);
             }
         } catch (permErr) {
-            // Handle permission query failure or non-standard behavior
-            console.warn("Permission query failed", permErr);
-            setNeedsPermission(true);
+            // Handle permission query failure or non-standard behavior (e.g., folder moved)
+            console.warn("Permission query failed, invalidating handle:", permErr);
+            await clearExplorerHandle();
+            setStoredHandle(null);
+            setDirectoryName('');
         }
       }
     } catch (e) {
@@ -86,6 +89,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
 
   const listFiles = async (handle: any) => {
     setLoading(true);
+    setError(null);
     try {
       // Use recursive scan to find all files in subfolders
       const fileList = await scanRecursive(handle);
@@ -95,12 +99,11 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       
       setFiles(fileList);
       setNeedsPermission(false);
-      setError(null);
     } catch (e) {
       console.error("Error listing files:", e);
-      setError("Failed to list files. Permission might be revoked or directory moved.");
+      setError("Failed to access folder. It may have been moved or deleted.");
       setNeedsPermission(true);
-      setFiles([]); // Clear potential stale state
+      setFiles([]); // Clear stale state
     } finally {
       setLoading(false);
     }
@@ -115,12 +118,21 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
                 mode: 'read'
             });
 
+            // Clean state before applying new one
+            setFiles([]);
+            setError(null);
+            setLoading(true);
+            
+            // Wipe old persistence first to avoid race conditions
+            await clearExplorerHandle();
+
             // Update UI immediately (Optimistic)
             setStoredHandle(handle);
             setDirectoryName(handle.name);
+            
             await listFiles(handle);
 
-            // Save to persistence in background
+            // Save new handle to persistence
             try {
                 await saveExplorerHandle(handle);
             } catch (dbErr) {
@@ -129,10 +141,10 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
             return;
 
         } catch (err: any) {
+            setLoading(false);
             if (err.name === 'AbortError') {
                 return; // User cancelled
             }
-            // If SecurityError or other (e.g. Cross-origin), fall through to legacy
             console.warn('File System API failed, using fallback:', err);
         }
     }
@@ -180,6 +192,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
           setDirectoryName(dirName);
           
           // Clear persistence state as legacy doesn't support it
+          clearExplorerHandle();
           setStoredHandle(null);
           setNeedsPermission(false);
           setError(null);
@@ -205,13 +218,16 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
   };
 
   const handleClearDatabase = async () => {
+      // Clear Memory State
       setStoredHandle(null);
       setFiles([]);
       setDirectoryName('');
       setNeedsPermission(false);
       setError(null);
       if (legacyInputRef.current) legacyInputRef.current.value = '';
-      // We don't delete from DB in this simplified view, just clear state
+      
+      // Clear Persistence
+      await clearExplorerHandle();
   };
 
   const handleFileClick = async (fileHandle: any) => {
@@ -257,7 +273,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       />
       
       <div className="p-4 border-b border-[#334155]/50 flex flex-col gap-3">
-        {storedHandle || (files.length > 0 && !needsPermission) ? (
+        {storedHandle || (files.length > 0 && !needsPermission && !error) ? (
             <div className="space-y-3">
                 <div className="flex items-center justify-between bg-[#1e293b] p-2 rounded border border-[#334155]">
                     <div className="flex flex-col overflow-hidden">

@@ -63,6 +63,17 @@ export const getExplorerHandle = async () => {
   });
 };
 
+export const clearExplorerHandle = async () => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE, 'readwrite');
+    const store = tx.objectStore(HANDLE_STORE);
+    const req = store.delete('explorerRoot');
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+};
+
 // --- Database Persistence (Symbol Search Root) ---
 
 export const saveDatabaseHandle = async (handle: any) => {
@@ -83,6 +94,17 @@ export const getDatabaseHandle = async () => {
     const store = tx.objectStore(HANDLE_STORE);
     const req = store.get(DB_HANDLE_KEY);
     req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+};
+
+export const clearDatabaseHandle = async () => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(HANDLE_STORE, 'readwrite');
+    const store = tx.objectStore(HANDLE_STORE);
+    const req = store.delete(DB_HANDLE_KEY);
+    req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
 };
