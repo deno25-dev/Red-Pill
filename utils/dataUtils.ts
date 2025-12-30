@@ -5,15 +5,32 @@ import { OHLCV, Timeframe, DrawingPoint } from '../types';
 
 // Command: get_local_chart_data
 // Orchestrates reading a file chunk and parsing it into usable chart data
-export const getLocalChartData = async (file: File, chunkSize: number): Promise<{
+// supports both Web File API and Electron Bridge
+export const getLocalChartData = async (fileSource: File | string, chunkSize: number): Promise<{
     rawData: OHLCV[];
     cursor: number;
     leftover: string;
     fileSize: number;
 }> => {
-    const fileSize = file.size;
+    let fileSize = 0;
+    
+    // Determine size based on environment
+    if (typeof fileSource === 'string') {
+        // Electron Bridge Mode
+        const electron = (window as any).electronAPI;
+        if (electron) {
+            const stats = await electron.getFileDetails(fileSource);
+            fileSize = stats.size;
+        }
+    } else {
+        // Web Mode
+        fileSize = fileSource.size;
+    }
+
     const start = Math.max(0, fileSize - chunkSize);
-    const text = await readChunk(file, start, fileSize);
+    
+    // Read via appropriate bridge
+    const text = await readChunk(fileSource, start, fileSize);
     
     const lines = text.split('\n');
     let leftover = '';
@@ -36,14 +53,28 @@ export const getLocalChartData = async (file: File, chunkSize: number): Promise<
 };
 
 // Utility to read a specific chunk of a local file
-export const readChunk = (file: File, start: number, end: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        const slice = file.slice(start, end);
-        reader.onload = (e) => resolve(e.target?.result as string || '');
-        reader.onerror = (e) => reject(e);
-        reader.readAsText(slice);
-    });
+// Supports both File object (Web) and Path string (Electron)
+export const readChunk = async (fileSource: File | string, start: number, end: number): Promise<string> => {
+    const electron = (window as any).electronAPI;
+
+    // Electron Bridge Path
+    if (electron && typeof fileSource === 'string') {
+        const length = end - start;
+        return await electron.readChunk(fileSource, start, length);
+    }
+
+    // Web Fallback
+    if (fileSource instanceof File) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            const slice = fileSource.slice(start, end);
+            reader.onload = (e) => resolve(e.target?.result as string || '');
+            reader.onerror = (e) => reject(e);
+            reader.readAsText(slice);
+        });
+    }
+
+    throw new Error("Invalid file source for current environment");
 };
 
 // --- EXISTING UTILS ---

@@ -87,7 +87,8 @@ export interface Drawing {
 }
 
 export interface FileStreamState {
-  file: File;
+  file: File | null; // Nullable for Electron mode
+  path?: string;     // Robust Bridge path
   cursor: number;
   leftover: string;
   isLoading: boolean;
@@ -128,6 +129,7 @@ export interface TabSession {
   
   // File Streaming
   fileState?: FileStreamState;
+  filePath?: string; // Bridge: Absolute path to the source file
 
   // Replay state
   isReplayMode: boolean;

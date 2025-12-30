@@ -1,8 +1,13 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const readline = require('readline');
+
+let mainWindow;
+let watcher = null;
 
 const createWindow = () => {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 800,
@@ -18,8 +23,9 @@ const createWindow = () => {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // Disable sandbox to allow webSecurity configuration
-      webSecurity: false // Disable CORS policy for local data fetching
+      sandbox: false, // Disable sandbox to allow file system access
+      webSecurity: false, // Disable CORS policy for local data fetching
+      preload: path.join(__dirname, 'preload.js')
     },
     autoHideMenuBar: true
   });
@@ -27,13 +33,105 @@ const createWindow = () => {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    win.loadURL('http://localhost:5173');
-    // win.webContents.openDevTools();
+    mainWindow.loadURL('http://localhost:5173');
+    // mainWindow.webContents.openDevTools();
   } else {
-    // Correctly resolve the path to index.html in the built Electron app
-    win.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
+    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
   }
 };
+
+// --- ROBUST FILE SYSTEM BRIDGE ---
+
+// 1. Validation Guard
+const validatePath = (filePath) => {
+  if (!filePath || typeof filePath !== 'string') throw new Error("Invalid path");
+  if (!fs.existsSync(filePath)) throw new Error("File not found");
+  return true;
+};
+
+// 2. The 'Watcher' Command
+ipcMain.handle('file:watch-folder', async (event, folderPath) => {
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+  }
+
+  try {
+    if (!fs.existsSync(folderPath)) throw new Error("Folder does not exist");
+
+    // Initial Scan
+    const getFiles = () => {
+      return fs.readdirSync(folderPath)
+        .filter(f => f.endsWith('.csv') || f.endsWith('.txt'))
+        .map(f => ({ name: f, path: path.join(folderPath, f), kind: 'file' }));
+    };
+
+    // Watch for changes
+    watcher = fs.watch(folderPath, (eventType, filename) => {
+      if (filename && (filename.endsWith('.csv') || filename.endsWith('.txt'))) {
+        // Debounce slightly to avoid rapid-fire updates during writes
+        if (mainWindow) {
+           mainWindow.webContents.send('folder-changed', getFiles());
+        }
+      }
+    });
+
+    return getFiles();
+  } catch (e) {
+    console.error("Watcher error:", e);
+    throw e;
+  }
+});
+
+ipcMain.handle('file:unwatch', () => {
+  if (watcher) {
+    watcher.close();
+    watcher = null;
+  }
+});
+
+// 3. Efficient Streamer (Chunk Reader)
+ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
+  validatePath(filePath);
+
+  return new Promise((resolve, reject) => {
+    fs.open(filePath, 'r', (err, fd) => {
+      if (err) return reject(err);
+
+      const buffer = Buffer.alloc(length);
+      fs.read(fd, buffer, 0, length, start, (err, bytesRead, buffer) => {
+        fs.close(fd, () => {}); // Close regardless
+        if (err) return reject(err);
+        
+        // Return string data (React will parse CSV)
+        // Optimization: In a full Rust setup, we would parse to Structs here.
+        // For Node, sending the string chunk is efficient enough for the existing parser.
+        resolve(buffer.toString('utf8', 0, bytesRead)); 
+      });
+    });
+  });
+});
+
+ipcMain.handle('file:stat', async (event, filePath) => {
+    try {
+        const stats = fs.statSync(filePath);
+        return { size: stats.size, mtime: stats.mtimeMs, exists: true };
+    } catch (e) {
+        return { exists: false, size: 0 };
+    }
+});
+
+// Dialog Handler
+ipcMain.handle('dialog:openDirectory', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  if (canceled) {
+    return null;
+  } else {
+    return { path: filePaths[0], name: path.basename(filePaths[0]) };
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();

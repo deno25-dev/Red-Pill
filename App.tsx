@@ -16,6 +16,7 @@ import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
 import { debugLog } from './utils/logger';
+import { useFileSystem } from './hooks/useFileSystem';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -71,6 +72,9 @@ const App: React.FC = () => {
   // Dev Diagnostic States
   const [lastError, setLastError] = useState<string | null>(null);
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
+
+  // Electron File System Hook
+  const { checkFileExists, isBridgeAvailable } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -134,6 +138,34 @@ const App: React.FC = () => {
       trades: []
     };
   }, []);
+
+  // --- Watcher Validation Effect (Auto-Clear Deleted Files) ---
+  useEffect(() => {
+      if (!isBridgeAvailable) return;
+
+      const validateActiveFiles = async () => {
+          for (const tab of tabs) {
+              if (tab.filePath) {
+                  const exists = await checkFileExists(tab.filePath);
+                  if (!exists && tab.data.length > 0) {
+                      debugLog('Data', `File deleted: ${tab.filePath}. Clearing tab.`);
+                      updateTab(tab.id, {
+                          data: [],
+                          rawData: [],
+                          filePath: undefined,
+                          fileState: undefined,
+                          title: `${tab.title} (File Missing)`
+                      });
+                      alert(`The file for ${tab.title} was deleted or moved. Chart cleared.`);
+                  }
+              }
+          }
+      };
+
+      // Poll check every 2 seconds if in Bridge mode
+      const interval = setInterval(validateActiveFiles, 2000);
+      return () => clearInterval(interval);
+  }, [tabs, isBridgeAvailable, checkFileExists]);
 
   // --- Persistence Logic ---
 
@@ -382,15 +414,19 @@ const App: React.FC = () => {
   const loadPreviousChunk = async (tab: TabSession, fileState: any) => {
       if (!fileState.hasMore || fileState.isLoading) return null;
 
-      const { file, cursor, leftover } = fileState;
+      // Logic handles both Web (File object) and Electron (Path string)
+      const fileSource = isBridgeAvailable ? tab.filePath : fileState.file;
+      if (!fileSource) return null;
+
+      const cursor = fileState.cursor;
       const end = cursor;
       const start = Math.max(0, end - CHUNK_SIZE);
       const isFirstChunkOfFile = start === 0;
 
       // Use explicit readChunk utility
-      const text = await readChunk(file, start, end);
+      const text = await readChunk(fileSource, start, end);
       
-      const combined = text + leftover;
+      const combined = text + fileState.leftover;
       const lines = combined.split('\n');
       
       let newLeftover = '';
@@ -411,13 +447,22 @@ const App: React.FC = () => {
       };
   };
 
-  const startFileStream = useCallback(async (file: File, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
+  const startFileStream = useCallback(async (fileSource: File | any, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
       setLoading(true);
       debugLog('Data', `Starting file stream for ${fileName}`);
       try {
+          // Robust Bridge: If in bridge mode, fileSource might be a handle with .path
+          // or just the File object from legacy input
+          let actualSource = fileSource;
+          let filePath = undefined;
+          
+          if (isBridgeAvailable && fileSource.path) {
+              actualSource = fileSource.path;
+              filePath = fileSource.path;
+          }
+
           // Command: get_local_chart_data
-          // Executed via this utility to fetch and parse the file
-          const result = await getLocalChartData(file, CHUNK_SIZE);
+          const result = await getLocalChartData(actualSource, CHUNK_SIZE);
           
           const { rawData, cursor, leftover, fileSize } = result;
           
@@ -447,8 +492,10 @@ const App: React.FC = () => {
               rawData: rawData,
               data: displayData,
               timeframe: initialTf,
+              filePath: filePath, // Store bridge path
               fileState: {
-                  file,
+                  file: (actualSource instanceof File) ? actualSource : null,
+                  path: (typeof actualSource === 'string') ? actualSource : undefined,
                   cursor: cursor,
                   leftover: leftover,
                   isLoading: false,
@@ -481,7 +528,7 @@ const App: React.FC = () => {
       } finally {
           setLoading(false);
       }
-  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, updateTab]);
+  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, updateTab, isBridgeAvailable]);
 
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
@@ -536,18 +583,31 @@ const App: React.FC = () => {
              fileState: { ...tab.fileState, isLoading: false } 
           });
       }
-  }, [tabs, updateTab]);
+  }, [tabs, updateTab, isBridgeAvailable]);
 
 
   const handleFileUpload = useCallback((file: File) => {
     startFileStream(file, file.name);
   }, [startFileStream]);
 
+  // Updated to handle both WebHandle and Bridge Object
   const handleLibraryFileSelect = async (fileHandle: any) => {
     setLoading(true);
     try {
-      const file = await fileHandle.getFile();
-      startFileStream(file, file.name);
+      let file, name;
+      
+      // Check if this is a bridge file (plain object) or web handle
+      if (fileHandle.path) {
+          // Bridge mode: We don't have a File object, we use the handle which contains the path
+          file = fileHandle; // Pass the whole object to startFileStream
+          name = fileHandle.name;
+      } else {
+          // Web API
+          file = await fileHandle.getFile();
+          name = file.name;
+      }
+      
+      startFileStream(file, name);
     } catch (e: any) {
       console.error("Error reading file from library:", e);
       debugLog('Data', 'Error reading library file', e.message);
@@ -581,9 +641,18 @@ const App: React.FC = () => {
 
         if (matchingFileHandle) {
             try {
-                const file = await matchingFileHandle.getFile();
-                debugLog('Data', `Found matching file for timeframe ${tf}: ${file.name}`);
-                startFileStream(file, file.name, targetId, tf, preservedReplay);
+                // Determine source type
+                let file, name;
+                if (matchingFileHandle.path) {
+                    file = matchingFileHandle;
+                    name = matchingFileHandle.name;
+                } else {
+                    file = await matchingFileHandle.getFile();
+                    name = file.name;
+                }
+                
+                debugLog('Data', `Found matching file for timeframe ${tf}: ${name}`);
+                startFileStream(file, name, targetId, tf, preservedReplay);
             } catch (e) {
                 console.error("Error syncing file for timeframe:", e);
             }
@@ -903,7 +972,7 @@ const App: React.FC = () => {
   const currentSymbolName = getBaseSymbolName(activeTab.title);
 
   // Derive active data source string for dev tools
-  const activeDataSource = activeTab.fileState ? activeTab.fileState.file.name : (activeTab.data.length > 0 ? 'Mock Data' : 'None');
+  const activeDataSource = activeTab.fileState ? (activeTab.fileState.file?.name || activeTab.fileState.path || 'Unknown Source') : (activeTab.data.length > 0 ? 'Mock Data' : 'None');
 
   const renderLayout = () => {
     if (layoutMode === 'single') {
