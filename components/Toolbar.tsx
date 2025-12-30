@@ -40,7 +40,8 @@ import {
   RefreshCw,
   TrendingUp,
   TrendingDown,
-  Star
+  Star,
+  CloudDownload
 } from 'lucide-react';
 import { Timeframe } from '../types';
 
@@ -58,6 +59,7 @@ interface ToolbarProps {
   onToggleReplay: () => void;
   isReplayMode: boolean;
   onOpenIndicators?: () => void;
+  onToggleWatchlist?: () => void;
   onToggleAdvancedReplay?: () => void;
   isAdvancedReplayMode?: boolean;
   onOpenLocalData?: () => void;
@@ -97,6 +99,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleReplay,
   isReplayMode,
   onOpenIndicators,
+  onToggleWatchlist,
   onToggleAdvancedReplay,
   isAdvancedReplayMode,
   onOpenLocalData,
@@ -303,6 +306,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {isToolsOpen && (
             <div className="absolute top-full left-0 mt-2 w-56 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+                 <button
+                    onClick={() => { setIsToolsOpen(false); onToggleWatchlist?.(); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
+                >
+                    <List size={16} className="text-emerald-400" />
+                    Watchlist
+                </button>
+                <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 <div className="relative group/indicators w-full">
                     <button
                         className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
@@ -334,15 +345,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           )}
         </div>
 
-        <button
-            onClick={onToggleLibrary}
-            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded transition-colors ${
-            isLibraryOpen ? 'bg-[#334155] text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'
-            }`}
-        >
-            <Database size={16} />
-            <span>Data Explorer</span>
-        </button>
+        <div className="flex items-center gap-1">
+            <button
+                onClick={onToggleLibrary}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded transition-colors ${
+                isLibraryOpen ? 'bg-[#334155] text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'
+                }`}
+                title="Local Data Explorer"
+            >
+                <Database size={16} />
+                <span className="hidden lg:inline">Explorer</span>
+            </button>
+            
+            <button
+                onClick={onOpenOnlineData}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded transition-colors text-slate-400 hover:text-white hover:bg-[#334155]"
+                title="Download Online Data"
+            >
+                <CloudDownload size={16} />
+            </button>
+        </div>
 
         <div className="relative" ref={layoutMenuRef}>
           <button
@@ -352,7 +374,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
              }`}
           >
             <LayoutTemplate size={16} />
-            <span>Layout</span>
+            <span className="hidden lg:inline">Layout</span>
             <ChevronDown size={14} className={`transition-transform duration-200 ${isLayoutMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
@@ -419,7 +441,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
 
         <button
-          onClick={() => window.location.reload()}
+          onClick={(e) => {
+              e.preventDefault();
+              window.location.reload();
+          }}
           className="p-2 rounded transition-colors text-slate-400 hover:text-white hover:bg-[#334155]"
           title="Reload Application"
         >

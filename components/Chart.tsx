@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   createChart, 
@@ -415,23 +416,29 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     });
     chartRef.current = chart;
 
-    const handleResize = () => {
-        if (chartContainerRef.current && chartRef.current && canvasRef.current) {
-            const w = chartContainerRef.current.clientWidth, h = chartContainerRef.current.clientHeight, dpr = window.devicePixelRatio || 1;
-            chartRef.current.applyOptions({ width: w, height: h });
-            canvasRef.current.width = w * dpr; canvasRef.current.height = h * dpr;
-            canvasRef.current.style.width = `${w}px`; canvasRef.current.style.height = `${h}px`;
-            const ctx = canvasRef.current.getContext('2d'); if (ctx) ctx.scale(dpr, dpr);
-            requestDraw();
+    const handleResize = (width: number, height: number) => {
+        if (chartRef.current && canvasRef.current) {
+             const dpr = window.devicePixelRatio || 1;
+             chartRef.current.applyOptions({ width, height });
+             canvasRef.current.width = width * dpr; 
+             canvasRef.current.height = height * dpr;
+             canvasRef.current.style.width = `${width}px`; 
+             canvasRef.current.style.height = `${height}px`;
+             const ctx = canvasRef.current.getContext('2d'); 
+             if (ctx) ctx.scale(dpr, dpr);
+             requestDraw();
         }
     };
-    
-    // Use ResizeObserver for robust container resizing detection
-    const resizeObserver = new ResizeObserver(() => handleResize());
+
+    const resizeObserver = new ResizeObserver((entries) => {
+        if (entries.length === 0 || !entries[0].contentRect) return;
+        const { width, height } = entries[0].contentRect;
+        if (width > 0 && height > 0) {
+            handleResize(width, height);
+        }
+    });
+
     resizeObserver.observe(chartContainerRef.current);
-    
-    // Initial resize
-    handleResize();
 
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
@@ -504,9 +511,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     });
 
     return () => {
-      resizeObserver.disconnect();
       window.removeEventListener('chart-sync-range', onSyncRange);
       window.removeEventListener('chart-sync-crosshair', onSyncCrosshair);
+      resizeObserver.disconnect();
       if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current);
       if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
       if (rafId.current) cancelAnimationFrame(rafId.current);

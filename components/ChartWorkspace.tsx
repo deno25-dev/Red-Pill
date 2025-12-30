@@ -573,6 +573,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         {/* NEW: Statistics Panels */}
         <div className="flex flex-col overflow-y-auto max-h-[40vh] custom-scrollbar">
             <RecentMarketDataPanel 
+                currentSymbol={tab.title}
                 data={displayedData} 
                 isOpen={showRecentData} 
                 onToggle={() => setShowRecentData(!showRecentData)} 

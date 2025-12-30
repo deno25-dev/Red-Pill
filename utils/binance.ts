@@ -28,16 +28,40 @@ export interface BinanceKline {
   closeTime: number;
 }
 
-// Deprecated API fetcher - Now disabled for Offline Mode
+// Active API fetcher with Offline Guard
 export const fetchBinanceKlines = async (
   symbol: string,
   interval: string,
   startTime: number,
   limit: number = 1000
 ): Promise<BinanceKline[]> => {
-    // Return empty array or mock data as needed, but do not fetch
-    console.warn("Online fetching is disabled in this build.");
-    return [];
+    if (!navigator.onLine) {
+        throw new Error("App is offline. Connect to the internet to download data.");
+    }
+
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&limit=${limit}`;
+    
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Binance API Error: ${response.statusText}`);
+        }
+        const data = await response.json();
+        
+        // Map array to object
+        return data.map((d: any) => ({
+            openTime: d[0],
+            open: d[1],
+            high: d[2],
+            low: d[3],
+            close: d[4],
+            volume: d[5],
+            closeTime: d[6]
+        }));
+    } catch (e) {
+        console.error("Fetch failed:", e);
+        throw e;
+    }
 };
 
 export const mapTimeframeToBinance = (tf: Timeframe): string => {
