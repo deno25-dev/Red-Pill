@@ -33,6 +33,7 @@ export const useMarketPrices = (userSymbol?: string) => {
 
   const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
   const [error, setError] = useState<string | null>(null);
+  const [refreshCounter, setRefreshCounter] = useState(0);
   
   // Manage custom list with persistence
   const [watchedSymbols, setWatchedSymbols] = useState<string[]>(() => {
@@ -71,13 +72,18 @@ export const useMarketPrices = (userSymbol?: string) => {
       });
   }, []);
   
+  const refetch = useCallback(() => {
+    setRefreshCounter(prev => prev + 1);
+  }, []);
+  
   // Track previous prices to determine tick direction for UI animation if needed
   const prevPrices = useRef<Record<string, number>>({});
 
   useEffect(() => {
     // STRICT OFFLINE GUARD
-    // If we are offline, do not attempt to fetch.
+    // If we are offline, set tickers to null to trigger offline UI, and do not fetch.
     if (!isConnected) {
+        setTickers(null);
         return;
     }
 
@@ -133,6 +139,7 @@ export const useMarketPrices = (userSymbol?: string) => {
         } else {
              // CRASH PREVENTION: Handle other errors silently.
              console.warn("Live data fetch skipped or failed:", err);
+             setTickers(null);
         }
       }
     };
@@ -144,7 +151,7 @@ export const useMarketPrices = (userSymbol?: string) => {
     const interval = setInterval(fetchMarketPrices, 5000);
 
     return () => clearInterval(interval);
-  }, [isConnected, userSymbol, watchedSymbols]);
+  }, [isConnected, userSymbol, watchedSymbols, refreshCounter]);
 
   return {
     tickers,
@@ -153,6 +160,7 @@ export const useMarketPrices = (userSymbol?: string) => {
     error,
     addSymbol,
     removeSymbol,
-    watchedSymbols
+    watchedSymbols,
+    refetch
   };
 };

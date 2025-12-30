@@ -1,0 +1,81 @@
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+
+interface Props {
+  children?: ReactNode;
+  fallback?: ReactNode;
+  errorMessage?: string; // Optional custom message
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class GlobalErrorBoundary extends Component<Props, State> {
+  public state: State = {
+    hasError: false,
+    error: null
+  };
+
+  static getDerivedStateFromError(error: Error): State {
+    // Update state so the next render will show the fallback UI.
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Log the error to an error reporting service or console
+    console.error("Uncaught error in component:", error, errorInfo);
+  }
+
+  handleRetry = () => {
+    // Resetting the state will re-render the children
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      if (this.props.fallback) {
+        // If a custom fallback is provided, we can wrap it or render it directly.
+        // For robustness, we render the custom fallback but ensure the retry mechanism is accessible
+        // if the fallback accepts it, or just wrap it to add the button.
+        return (
+            <div className="w-full h-full min-h-[120px] flex flex-col items-center justify-center p-4 bg-[#1e293b] border border-[#334155] rounded-lg text-slate-300">
+                {this.props.fallback}
+                <button
+                    onClick={this.handleRetry}
+                    className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors"
+                >
+                    <RefreshCw size={14} />
+                    <span>Try Again</span>
+                </button>
+            </div>
+        );
+      }
+
+      // Default Professional UI
+      return (
+        <div className="w-full h-full min-h-[120px] flex flex-col items-center justify-center p-6 bg-[#1e293b] border border-[#334155] rounded-lg shadow-sm">
+          <div className="bg-red-500/10 p-3 rounded-full mb-3">
+            <AlertTriangle className="text-red-500" size={24} />
+          </div>
+          <h3 className="text-sm font-bold text-slate-200 mb-1">
+            {this.props.errorMessage || 'Component Unavailable'}
+          </h3>
+          <p className="text-xs text-slate-500 text-center mb-4 max-w-[200px]">
+            {this.state.error?.message || 'An unexpected error occurred while rendering this section.'}
+          </p>
+          <button
+            onClick={this.handleRetry}
+            className="flex items-center gap-2 px-4 py-2 bg-[#334155] hover:bg-[#475569] text-white rounded text-xs font-medium transition-all border border-slate-600 hover:border-slate-500"
+          >
+            <RefreshCw size={14} />
+            <span>Reload Component</span>
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}

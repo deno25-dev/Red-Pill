@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X } from 'lucide-react';
 import { useMarketPrices } from '../hooks/useLiveData';
+import { MarketOfflineFallback } from './MarketOfflineFallback';
 
 interface StatsPanelProps {
   currentSymbol: string;
@@ -11,17 +12,14 @@ interface StatsPanelProps {
 export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol, isOpen, onToggle }) => {
   // Use the isolated command hook for data. 
   // This satisfies the requirement: Market Overview only calls fetch_market_prices (via this hook)
-  const { tickers, isConnected, lastUpdated, addSymbol, removeSymbol, watchedSymbols } = useMarketPrices(currentSymbol);
+  const { tickers, isConnected, lastUpdated, addSymbol, removeSymbol, watchedSymbols, refetch } = useMarketPrices(currentSymbol);
   
   const [isAdding, setIsAdding] = useState(false);
   const [newSymbolInput, setNewSymbolInput] = useState('');
 
-  // Handle ConnectionError: If tickers is null, return null to UI
-  if (tickers === null) {
-      return null;
-  }
-
   const displayTickers = useMemo(() => {
+    if (!tickers) return [];
+    
     // Transform API data to display format
     return tickers.map(t => {
       // Normalize symbol for display (BTCUSDT -> BTC/USDT)
@@ -77,6 +75,9 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
       }
   };
 
+  // Determine if we should show fallback
+  const showFallback = tickers === null || !isConnected;
+
   return (
     <div className="border-t border-[#334155] bg-[#0f172a] shrink-0">
       <div 
@@ -84,23 +85,24 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
         onClick={onToggle}
       >
         <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
-            <Activity size={16} className={isConnected ? "text-emerald-500" : "text-slate-500"} />
+            <Activity size={16} className={!showFallback ? "text-emerald-500" : "text-slate-500"} />
             <span>Market Overview</span>
-            <span className="text-[10px] font-normal text-slate-500 bg-[#0f172a] px-1.5 rounded border border-[#334155] ml-2">
-                {isConnected ? 'LIVE' : 'OFFLINE'}
+            <span className={`text-[10px] font-normal px-1.5 rounded border ml-2 ${!showFallback ? 'bg-emerald-900/20 text-emerald-400 border-emerald-900/50' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+                {!showFallback ? 'LIVE' : 'OFFLINE'}
             </span>
         </div>
         <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                {isConnected ? <Wifi size={10} /> : <WifiOff size={10} />}
-                {isConnected && <span>{new Date(lastUpdated).toLocaleTimeString()}</span>}
+                {!showFallback ? <Wifi size={10} /> : <WifiOff size={10} />}
+                {!showFallback && <span>{new Date(lastUpdated).toLocaleTimeString()}</span>}
             </div>
             
-            {/* Add Symbol Button */}
+            {/* Add Symbol Button - Disabled if offline */}
             <button 
-                onClick={(e) => { e.stopPropagation(); setIsAdding(!isAdding); if(!isOpen) onToggle(); }}
-                className={`flex items-center justify-center p-1 rounded transition-colors ${isAdding ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`}
+                onClick={(e) => { e.stopPropagation(); if (!showFallback) { setIsAdding(!isAdding); if(!isOpen) onToggle(); }}}
+                className={`flex items-center justify-center p-1 rounded transition-colors ${isAdding ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'} ${showFallback ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title="Add Symbol"
+                disabled={showFallback}
             >
                 <Plus size={14} />
             </button>
@@ -114,95 +116,101 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
       {isOpen && (
         <div className="flex flex-col animate-in slide-in-from-top-2 duration-200">
              
-             {/* Add Symbol Form */}
-             {isAdding && (
-                 <form onSubmit={handleAddSubmit} className="flex gap-2 p-2 bg-[#1e293b] border-b border-[#334155]">
-                     <input 
-                        type="text" 
-                        value={newSymbolInput} 
-                        onChange={(e) => setNewSymbolInput(e.target.value)}
-                        placeholder="Symbol (e.g. SOL)"
-                        className="flex-1 bg-[#0f172a] border border-[#334155] rounded px-3 py-1 text-xs text-white focus:outline-none focus:border-blue-500 uppercase placeholder-slate-600"
-                        autoFocus
-                     />
-                     <button 
-                        type="submit" 
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold"
-                     >
-                        Add
-                     </button>
-                     <button 
-                        type="button" 
-                        onClick={() => setIsAdding(false)}
-                        className="px-2 py-1 text-slate-400 hover:text-white hover:bg-[#334155] rounded"
-                     >
-                        <X size={14} />
-                     </button>
-                 </form>
-             )}
+             {showFallback ? (
+                 <MarketOfflineFallback onRetry={refetch} />
+             ) : (
+                 <>
+                    {/* Add Symbol Form */}
+                    {isAdding && (
+                        <form onSubmit={handleAddSubmit} className="flex gap-2 p-2 bg-[#1e293b] border-b border-[#334155]">
+                            <input 
+                                type="text" 
+                                value={newSymbolInput} 
+                                onChange={(e) => setNewSymbolInput(e.target.value)}
+                                placeholder="Symbol (e.g. SOL)"
+                                className="flex-1 bg-[#0f172a] border border-[#334155] rounded px-3 py-1 text-xs text-white focus:outline-none focus:border-blue-500 uppercase placeholder-slate-600"
+                                autoFocus
+                            />
+                            <button 
+                                type="submit" 
+                                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold"
+                            >
+                                Add
+                            </button>
+                            <button 
+                                type="button" 
+                                onClick={() => setIsAdding(false)}
+                                className="px-2 py-1 text-slate-400 hover:text-white hover:bg-[#334155] rounded"
+                            >
+                                <X size={14} />
+                            </button>
+                        </form>
+                    )}
 
-             <div className="p-0 overflow-x-auto">
-                 <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-[#1e293b]/50 text-slate-400 font-medium whitespace-nowrap">
-                        <tr>
-                            <th className="px-4 py-2 border-b border-[#334155]">Symbol</th>
-                            <th className="px-4 py-2 border-b border-[#334155] text-right">Price</th>
-                            <th className="px-4 py-2 border-b border-[#334155] text-right">24h Change</th>
-                            <th className="px-4 py-2 border-b border-[#334155] text-right">24h High</th>
-                            <th className="px-4 py-2 border-b border-[#334155] text-right">24h Low</th>
-                            <th className="px-4 py-2 border-b border-[#334155] text-right">Vol (Quote)</th>
-                            <th className="w-8 border-b border-[#334155]"></th>
-                        </tr>
-                    </thead>
-                    <tbody className="text-slate-300 divide-y divide-[#334155]/30 whitespace-nowrap">
-                        {displayTickers.length === 0 ? (
-                            <tr>
-                                <td colSpan={7} className="px-4 py-8 text-center text-slate-500 italic">
-                                    {isConnected ? "Loading market data..." : "No internet connection available."}
-                                </td>
-                            </tr>
-                        ) : (
-                            displayTickers.map((t) => {
-                                const isUp = t.change >= 0;
-                                const isCurrent = isMatch(t.originalSymbol);
-                                const isDeletable = watchedSymbols.includes(t.originalSymbol);
-                                
-                                return (
-                                    <tr key={t.symbol} className={`group hover:bg-[#1e293b]/30 transition-colors ${isCurrent ? 'bg-[#1e293b]/40 border-l-2 border-blue-500' : ''}`}>
-                                        <td className="px-4 py-2 font-bold flex items-center gap-2">
-                                            <span className={isCurrent ? 'text-blue-300' : 'text-slate-200'}>{t.symbol}</span>
-                                            {isCurrent && <span className="text-[9px] bg-blue-900/40 text-blue-400 px-1 rounded">Active</span>}
-                                        </td>
-                                        <td className="px-4 py-2 text-right font-mono text-slate-200">{formatCurrency(t.price, t.symbol)}</td>
-                                        <td className="px-4 py-2 text-right">
-                                            <div className={`flex items-center justify-end gap-1 ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                                <span className="font-bold">{t.changePct.toFixed(2)}%</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.high, t.symbol)}</td>
-                                        <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.low, t.symbol)}</td>
-                                        <td className="px-4 py-2 text-right font-mono text-slate-500">
-                                            {formatVolume(t.quoteVolume)}
-                                        </td>
-                                        <td className="px-2 text-center">
-                                            {isDeletable && (
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); removeSymbol(t.originalSymbol); }}
-                                                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
-                                                    title="Remove symbol"
-                                                >
-                                                    <Trash2 size={12} />
-                                                </button>
-                                            )}
+                    <div className="p-0 overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                            <thead className="bg-[#1e293b]/50 text-slate-400 font-medium whitespace-nowrap">
+                                <tr>
+                                    <th className="px-4 py-2 border-b border-[#334155]">Symbol</th>
+                                    <th className="px-4 py-2 border-b border-[#334155] text-right">Price</th>
+                                    <th className="px-4 py-2 border-b border-[#334155] text-right">24h Change</th>
+                                    <th className="px-4 py-2 border-b border-[#334155] text-right">24h High</th>
+                                    <th className="px-4 py-2 border-b border-[#334155] text-right">24h Low</th>
+                                    <th className="px-4 py-2 border-b border-[#334155] text-right">Vol (Quote)</th>
+                                    <th className="w-8 border-b border-[#334155]"></th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-slate-300 divide-y divide-[#334155]/30 whitespace-nowrap">
+                                {displayTickers.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500 italic">
+                                            Loading market data...
                                         </td>
                                     </tr>
-                                );
-                            })
-                        )}
-                    </tbody>
-                 </table>
-             </div>
+                                ) : (
+                                    displayTickers.map((t) => {
+                                        const isUp = t.change >= 0;
+                                        const isCurrent = isMatch(t.originalSymbol);
+                                        const isDeletable = watchedSymbols.includes(t.originalSymbol);
+                                        
+                                        return (
+                                            <tr key={t.symbol} className={`group hover:bg-[#1e293b]/30 transition-colors ${isCurrent ? 'bg-[#1e293b]/40 border-l-2 border-blue-500' : ''}`}>
+                                                <td className="px-4 py-2 font-bold flex items-center gap-2">
+                                                    <span className={isCurrent ? 'text-blue-300' : 'text-slate-200'}>{t.symbol}</span>
+                                                    {isCurrent && <span className="text-[9px] bg-blue-900/40 text-blue-400 px-1 rounded">Active</span>}
+                                                </td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-200">{formatCurrency(t.price, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right">
+                                                    <div className={`flex items-center justify-end gap-1 ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                        {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                                        <span className="font-bold">{t.changePct.toFixed(2)}%</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.high, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.low, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-500">
+                                                    {formatVolume(t.quoteVolume)}
+                                                </td>
+                                                <td className="px-2 text-center">
+                                                    {isDeletable && (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); removeSymbol(t.originalSymbol); }}
+                                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
+                                                            title="Remove symbol"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                 </>
+             )}
         </div>
       )}
     </div>

@@ -8,7 +8,8 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check } from 'lucide-react';
+import { GripVertical, Settings, Check, Activity } from 'lucide-react';
+import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -572,11 +573,21 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         
         {/* Statistics Panels - Decoupled Data Source */}
         <div className="flex flex-col overflow-y-auto max-h-[40vh] custom-scrollbar">
-            <RecentMarketDataPanel 
-                currentSymbol={tab.title}
-                isOpen={showRecentData} 
-                onToggle={() => setShowRecentData(!showRecentData)} 
-            />
+            <GlobalErrorBoundary 
+                errorMessage="Market Data Unavailable"
+                fallback={
+                    <div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-4">
+                        <Activity size={16} />
+                        <span>Market data could not be loaded.</span>
+                    </div>
+                }
+            >
+                <RecentMarketDataPanel 
+                    currentSymbol={tab.title}
+                    isOpen={showRecentData} 
+                    onToggle={() => setShowRecentData(!showRecentData)} 
+                />
+            </GlobalErrorBoundary>
         </div>
 
         <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={tab.trades || []} />
