@@ -39,8 +39,10 @@ import {
   FileInput,
   RefreshCw,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  Star
 } from 'lucide-react';
+import { Timeframe } from '../types';
 
 interface ToolbarProps {
   onFileUpload: (file: File) => void;
@@ -78,6 +80,8 @@ interface ToolbarProps {
   tickerSymbol?: string;
   tickerPrice?: number;
   tickerPrevPrice?: number;
+  favoriteTimeframes?: string[];
+  onToggleFavoriteTimeframe?: (tf: string) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -115,16 +119,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenBackgroundSettings,
   tickerSymbol,
   tickerPrice,
-  tickerPrevPrice
+  tickerPrevPrice,
+  favoriteTimeframes = [],
+  onToggleFavoriteTimeframe
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   const layoutMenuRef = useRef<HTMLDivElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const timeframeMenuRef = useRef<HTMLDivElement>(null);
   
   const [isToolsOpen, setIsToolsOpen] = useState(false);
   const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isTimeframeMenuOpen, setIsTimeframeMenuOpen] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -132,13 +140,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       if (toolsMenuRef.current && !toolsMenuRef.current.contains(target)) setIsToolsOpen(false);
       if (layoutMenuRef.current && !layoutMenuRef.current.contains(target)) setIsLayoutMenuOpen(false);
       if (settingsMenuRef.current && !settingsMenuRef.current.contains(target)) setIsSettingsOpen(false);
+      if (timeframeMenuRef.current && !timeframeMenuRef.current.contains(target)) setIsTimeframeMenuOpen(false);
     };
 
-    if (isToolsOpen || isLayoutMenuOpen || isSettingsOpen) {
+    if (isToolsOpen || isLayoutMenuOpen || isSettingsOpen || isTimeframeMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isToolsOpen, isLayoutMenuOpen, isSettingsOpen]);
+  }, [isToolsOpen, isLayoutMenuOpen, isSettingsOpen, isTimeframeMenuOpen]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) onFileUpload(e.target.files[0]);
@@ -221,6 +230,41 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         <div className="h-6 w-px bg-slate-700"></div>
+
+        {/* Timeframe Selector */}
+        <div className="relative" ref={timeframeMenuRef}>
+            <button
+                onClick={() => setIsTimeframeMenuOpen(!isTimeframeMenuOpen)}
+                className={`flex items-center gap-2 px-2 py-1.5 text-sm font-medium rounded transition-colors ${
+                    isTimeframeMenuOpen ? 'bg-[#334155] text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'
+                }`}
+                title="Select Favorite Timeframes"
+            >
+                <Clock size={16} />
+                <ChevronDown size={12} className={`transition-transform duration-200 ${isTimeframeMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isTimeframeMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 w-32 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                    <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-[#0f172a]/50">
+                        Favorites
+                    </div>
+                    {Object.values(Timeframe).map((tf) => (
+                        <button
+                            key={tf}
+                            onClick={() => onToggleFavoriteTimeframe?.(tf)}
+                            className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors group"
+                        >
+                            <span>{tf}</span>
+                            <Star 
+                                size={14} 
+                                className={`transition-colors ${favoriteTimeframes.includes(tf) ? 'text-amber-400 fill-amber-400' : 'text-slate-600 group-hover:text-slate-400'}`} 
+                            />
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
 
         <div className="flex items-center gap-1 bg-[#0f172a] p-1 rounded-lg">
           <button

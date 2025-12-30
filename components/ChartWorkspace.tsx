@@ -30,6 +30,9 @@ interface ChartWorkspaceProps {
   
   // New handler for range history
   onVisibleRangeChange?: (range: { from: number; to: number }) => void;
+  
+  // Timeframe favorites
+  favoriteTimeframes?: string[];
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -49,7 +52,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   isLayersPanelOpen = false,
   onToggleLayers,
   isSyncing = false,
-  onVisibleRangeChange
+  onVisibleRangeChange,
+  favoriteTimeframes
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
@@ -466,7 +470,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           <h1 className="text-sm font-bold text-white tracking-wide truncate max-w-[150px]">{tab.title}</h1>
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
-              {Object.values(Timeframe).map((tf) => (
+              {Object.values(Timeframe)
+                .filter(tf => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf))
+                .map((tf) => (
               <button key={tf} onClick={() => onTimeframeChange(tf)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
                   {tf}
               </button>

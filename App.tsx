@@ -51,6 +51,12 @@ const App: React.FC = () => {
   const [favoriteTools, setFavoriteTools] = useState<string[]>(['trend_line', 'rectangle']);
   const [isFavoritesBarVisible, setIsFavoritesBarVisible] = useState(true);
   
+  // Timeframe Favorites
+  const [favoriteTimeframes, setFavoriteTimeframes] = useState<string[]>([
+    Timeframe.M1, Timeframe.M5, Timeframe.M15, 
+    Timeframe.H1, Timeframe.H4, Timeframe.D1, Timeframe.W1
+  ]);
+  
   // Global Drawing Modes
   const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); 
   const [isMagnetMode, setIsMagnetMode] = useState(false);
@@ -69,6 +75,12 @@ const App: React.FC = () => {
   const toggleFavorite = (id: string) => {
     setFavoriteTools(prev => 
       prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+    );
+  };
+  
+  const toggleFavoriteTimeframe = (tf: string) => {
+    setFavoriteTimeframes(prev => 
+        prev.includes(tf) ? prev.filter(t => t !== tf) : [...prev, tf]
     );
   };
   
@@ -125,6 +137,9 @@ const App: React.FC = () => {
           setTabs(savedState.tabs);
           setActiveTabId(savedState.activeTabId || savedState.tabs[0].id);
           setFavoriteTools(savedState.favoriteTools || ['trend_line', 'rectangle']);
+          if (savedState.favoriteTimeframes) {
+              setFavoriteTimeframes(savedState.favoriteTimeframes);
+          }
           setIsFavoritesBarVisible(savedState.isFavoritesBarVisible ?? true);
           setIsWatchlistOpen(savedState.isWatchlistOpen ?? false);
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
@@ -193,6 +208,7 @@ const App: React.FC = () => {
         })),
         activeTabId,
         favoriteTools,
+        favoriteTimeframes,
         isFavoritesBarVisible,
         isWatchlistOpen,
         isStayInDrawingMode,
@@ -209,7 +225,7 @@ const App: React.FC = () => {
     }, 1000); 
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, isAppReady, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
+  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, isAppReady, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
 
 
   const activeTab = useMemo(() => 
@@ -788,6 +804,7 @@ const App: React.FC = () => {
             tabs: tabs.map(t => ({ ...t, fileState: undefined })),
             activeTabId,
             favoriteTools,
+            favoriteTimeframes,
             isFavoritesBarVisible,
             isWatchlistOpen,
             isStayInDrawingMode,
@@ -821,7 +838,7 @@ const App: React.FC = () => {
                 trades: t.trades
             })),
             activeTabId,
-            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode }
+            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode, favoriteTimeframes }
         };
         const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -875,6 +892,7 @@ const App: React.FC = () => {
                     setIsFavoritesBarVisible(imported.settings.favoritesVisible ?? true);
                     setIsMagnetMode(imported.settings.magnet ?? false);
                     setIsStayInDrawingMode(imported.settings.stayInDrawing ?? false);
+                    if (imported.settings.favoriteTimeframes) setFavoriteTimeframes(imported.settings.favoriteTimeframes);
                 }
 
                 alert("Layout imported successfully. Please reload your data files if needed.");
@@ -1035,6 +1053,7 @@ const App: React.FC = () => {
                         isMagnetMode={isMagnetMode}
                         isStayInDrawingMode={isStayInDrawingMode}
                         onVisibleRangeChange={handleVisibleRangeChange}
+                        favoriteTimeframes={favoriteTimeframes}
                     />
                 )}
             </div>
@@ -1072,6 +1091,7 @@ const App: React.FC = () => {
                             isStayInDrawingMode={isStayInDrawingMode}
                             isSyncing={isCrosshairSync || isTimeSync}
                             onVisibleRangeChange={tab.id === activeTabId ? handleVisibleRangeChange : undefined}
+                            favoriteTimeframes={favoriteTimeframes}
                         />
                     </div>
                 );
@@ -1158,6 +1178,8 @@ const App: React.FC = () => {
         tickerSymbol={currentSymbolName}
         tickerPrice={currentPrice}
         tickerPrevPrice={prevPrice}
+        favoriteTimeframes={favoriteTimeframes}
+        onToggleFavoriteTimeframe={toggleFavoriteTimeframe}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
@@ -1227,6 +1249,7 @@ const App: React.FC = () => {
                         activeToolId=""
                         areDrawingsLocked={false}
                         isMagnetMode={false}
+                        favoriteTimeframes={favoriteTimeframes}
                       />
                   </Popout>
               );
