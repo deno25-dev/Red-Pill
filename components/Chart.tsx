@@ -426,7 +426,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
              const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
-             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'eraser') if (!isReplaySelecting) onSelectDrawing(null);
+             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'eraser' || activeToolId === 'arrow') if (!isReplaySelecting) onSelectDrawing(null);
         }
     };
     chart.subscribeClick(handleChartClick);
@@ -504,6 +504,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       chart.remove(); chartRef.current = null;
     };
   }, []);
+
+  // Effect to toggle crosshair based on tool
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const isArrow = activeToolId === 'arrow';
+    chartRef.current.applyOptions({
+        crosshair: {
+            mode: CrosshairMode.Normal,
+            vertLine: { visible: !isArrow, labelVisible: !isArrow },
+            horzLine: { visible: !isArrow, labelVisible: !isArrow },
+        }
+    });
+  }, [activeToolId]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -615,9 +628,18 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (canvasRef.current) {
-        const isInteractive = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser' || isReplaySelecting || activeToolId === 'eraser';
-        if (isInteractive) { canvasRef.current.style.pointerEvents = 'auto'; document.body.style.cursor = activeToolId === 'eraser' ? 'cell' : 'crosshair'; }
-        else { canvasRef.current.style.pointerEvents = 'none'; document.body.style.cursor = 'default'; }
+        // 'arrow' acts like cross (default cursor, but can hit drawings)
+        const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor'].includes(activeToolId);
+        const isInteractive = isDrawingTool || isReplaySelecting || activeToolId === 'eraser';
+        
+        if (isInteractive) { 
+            canvasRef.current.style.pointerEvents = 'auto'; 
+            document.body.style.cursor = activeToolId === 'eraser' ? 'cell' : 'crosshair'; 
+        }
+        else { 
+            canvasRef.current.style.pointerEvents = 'none'; 
+            document.body.style.cursor = activeToolId === 'arrow' ? 'default' : 'crosshair'; 
+        }
     }
   }, [activeToolId, isReplaySelecting]);
 
@@ -730,7 +752,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const handleContainerMouseMove = (e: React.MouseEvent) => {
       if (isReplaySelecting && canvasRef.current) { const rect = canvasRef.current.getBoundingClientRect(); replayMouseX.current = e.clientX - rect.left; requestDraw(); return; }
       if (interactionState.current.isCreating || interactionState.current.isDragging) return;
-      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser') return;
+      
+      // Update: allow arrow to trigger hover/select logic
+      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser' && activeToolId !== 'arrow') return;
+      
       if (chartContainerRef.current && canvasRef.current) {
           const rect = chartContainerRef.current.getBoundingClientRect();
           const { hitHandle, hitDrawing } = getHitObject(e.clientX - rect.left, e.clientY - rect.top);
@@ -741,7 +766,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               document.body.style.cursor = hitDrawing?.properties.locked ? 'not-allowed' : hitHandle ? 'grab' : 'move'; 
               canvasRef.current.style.pointerEvents = 'auto'; 
           }
-          else { document.body.style.cursor = 'default'; canvasRef.current.style.pointerEvents = 'none'; }
+          else { 
+             // If arrow, force default cursor. If cross, force crosshair.
+             document.body.style.cursor = activeToolId === 'arrow' ? 'default' : 'crosshair'; 
+             canvasRef.current.style.pointerEvents = 'none'; 
+          }
       }
   };
 
@@ -749,7 +778,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const rect = canvasRef.current!.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
     if (isReplaySelecting) { const p = screenToPoint(x, y, true); if (p && onReplayPointSelect) onReplayPointSelect(p.time); return; }
     const { hitHandle, hitDrawing } = getHitObject(x, y);
-    const isDrawingTool = activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser';
+    // Include 'arrow' in non-drawing tools check
+    const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor'].includes(activeToolId);
+    
     if (isDrawingTool) {
         onActionStart?.(); const p = screenToPoint(x, y, activeToolId !== 'brush' && activeToolId !== 'text');
         if (p) {
