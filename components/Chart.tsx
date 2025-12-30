@@ -24,6 +24,7 @@ import {
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties } from '../types';
 import { COLORS } from '../constants';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
+import { debugLog } from '../utils/logger';
 import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
 
 interface ChartProps {
@@ -402,6 +403,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
+    
+    // Performance Tracking Start
+    const startTime = performance.now();
+    
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#0f172a' }, textColor: COLORS.text },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
@@ -409,12 +414,21 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { borderColor: '#334155', timeVisible: true, secondsVisible: false },
       rightPriceScale: { borderColor: '#334155' },
-      // Explicitly disable watermark and attribution for a clean, brand-neutral look
       watermark: { visible: false },
       // @ts-ignore
       attributionLogo: false, 
     });
     chartRef.current = chart;
+
+    // Performance Tracking End
+    const endTime = performance.now();
+    const renderDuration = endTime - startTime;
+    // Dispatch to logger but debounce via custom event if needed to avoid spam, or just log
+    debugLog('Perf', `Chart instance initialized in ${renderDuration.toFixed(2)}ms`, { duration: renderDuration });
+    // Also dispatch generic performance event for UI
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('chart-render-perf', { detail: { duration: renderDuration } }));
+    }
 
     const handleResize = (width: number, height: number) => {
         if (chartRef.current && canvasRef.current) {
@@ -594,7 +608,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             upColor, 
             downColor, 
             borderVisible: true,
-            // borderColor: borderUpColor, // REMOVED: Caused generic override preventing borderDownColor from applying
             borderUpColor,
             borderDownColor,
             wickUpColor, 
@@ -615,7 +628,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         const upColor = config.upColor || COLORS.volumeBullish;
         const downColor = config.downColor || COLORS.volumeBearish;
         
-        // Use simpler logic for volume colors, just bullish/bearish, maybe faded
         const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
         const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
 
@@ -647,8 +659,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (canvasRef.current) {
-        // 'arrow' acts like cross (default cursor, but can hit drawings)
-        // 'dot' acts like cross (but with dot cursor)
         const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor', 'dot'].includes(activeToolId);
         const isInteractive = isDrawingTool || isReplaySelecting || activeToolId === 'eraser';
         

@@ -1,10 +1,13 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { debugLog } from '../utils/logger';
 
 interface Props {
   children?: ReactNode;
   fallback?: ReactNode;
   errorMessage?: string; // Optional custom message
+  onErrorCaptured?: (error: string) => void;
 }
 
 interface State {
@@ -12,11 +15,14 @@ interface State {
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends React.Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null
-  };
+export class GlobalErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
@@ -24,21 +30,28 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log the error to an error reporting service or console
+    // Log the error to the dev diagnostics
+    debugLog('UI', 'Global Error Boundary caught an exception', { 
+        message: error.message, 
+        stack: errorInfo.componentStack 
+    });
+    
+    // Notify parent if listener exists (for Debug Panel)
+    if (this.props.onErrorCaptured) {
+        this.props.onErrorCaptured(error.message);
+    }
+
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
   handleRetry = () => {
-    // Resetting the state will re-render the children
+    debugLog('UI', 'User attempted Error Boundary retry');
     this.setState({ hasError: false, error: null });
   };
 
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
-        // If a custom fallback is provided, we can wrap it or render it directly.
-        // For robustness, we render the custom fallback but ensure the retry mechanism is accessible
-        // if the fallback accepts it, or just wrap it to add the button.
         return (
             <div className="w-full h-full min-h-[120px] flex flex-col items-center justify-center p-4 bg-[#1e293b] border border-[#334155] rounded-lg text-slate-300">
                 {this.props.fallback}

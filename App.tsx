@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -13,6 +14,8 @@ import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, ge
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle } from './utils/storage';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
+import { DeveloperTools } from './components/DeveloperTools';
+import { debugLog } from './utils/logger';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -65,6 +68,19 @@ const App: React.FC = () => {
   const [databaseFiles, setDatabaseFiles] = useState<any[]>([]);
   const [databaseHandle, setDatabaseHandle] = useState<any>(null);
   
+  // Dev Diagnostic States
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
+
+  // Performance Listener
+  useEffect(() => {
+    const handlePerf = (e: any) => {
+      setChartRenderTime(e.detail.duration);
+    };
+    window.addEventListener('chart-render-perf', handlePerf);
+    return () => window.removeEventListener('chart-render-perf', handlePerf);
+  }, []);
+
   const toggleFavorite = (id: string) => {
     setFavoriteTools(prev => 
       prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
@@ -143,12 +159,14 @@ const App: React.FC = () => {
           setIsIntervalSync(savedState.isIntervalSync ?? false);
           setIsCrosshairSync(savedState.isCrosshairSync ?? false);
           setIsTimeSync(savedState.isTimeSync ?? false);
+          debugLog('Data', 'Session restored from local storage');
         } else {
           const mock = generateMockData(MOCK_DATA_COUNT);
           const newTab = createNewTab('default-tab', 'BTC/USD', mock);
           setTabs([newTab]);
           setActiveTabId(newTab.id);
           setLayoutTabIds([newTab.id]);
+          debugLog('Data', 'No session found, initialized mock data');
         }
 
         try {
@@ -159,16 +177,20 @@ const App: React.FC = () => {
                     setDatabaseHandle(dbHandle);
                     const files = await scanRecursive(dbHandle);
                     setDatabaseFiles(files);
+                    debugLog('Data', `Database connected: ${files.length} files indexed`);
                 } else {
                     setDatabaseHandle(dbHandle);
                 }
             }
         } catch (e) {
             console.warn("Database restore failed", e);
+            debugLog('Data', 'Database restore failed', e);
         }
 
-      } catch (e) {
+      } catch (e: any) {
         console.error("Failed to restore session:", e);
+        debugLog('UI', 'Failed to restore session', e.message);
+        setLastError(e.message);
         const mock = generateMockData(MOCK_DATA_COUNT);
         const newTab = createNewTab('default-tab', 'BTC/USD', mock);
         setTabs([newTab]);
@@ -205,7 +227,10 @@ const App: React.FC = () => {
         isTimeSync
       };
       
-      saveAppState(stateToSave).catch(e => console.warn("Auto-save failed:", e));
+      saveAppState(stateToSave).catch(e => {
+        console.warn("Auto-save failed:", e);
+        debugLog('Data', 'Auto-save failed', e);
+      });
     }, 1000); 
 
     return () => clearTimeout(saveTimeout);
@@ -290,6 +315,7 @@ const App: React.FC = () => {
          undoStack: newUndoStack,
          redoStack: [...activeTab.redoStack, currentSnapshot]
      });
+     debugLog('UI', 'Undo action performed');
   }, [activeTab, updateActiveTab]);
 
   const handleRedo = useCallback(() => {
@@ -309,6 +335,7 @@ const App: React.FC = () => {
          undoStack: [...activeTab.undoStack, currentSnapshot],
          redoStack: newRedoStack
      });
+     debugLog('UI', 'Redo action performed');
   }, [activeTab, updateActiveTab]);
 
 
@@ -339,10 +366,12 @@ const App: React.FC = () => {
   const handleDetachTab = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     updateTab(id, { isDetached: true });
+    debugLog('UI', `Tab detached: ${id}`);
   };
 
   const handleAttachTab = (id: string) => {
     updateTab(id, { isDetached: false });
+    debugLog('UI', `Tab attached: ${id}`);
   };
 
   const handleSwitchTab = (id: string) => {
@@ -384,6 +413,7 @@ const App: React.FC = () => {
 
   const startFileStream = useCallback(async (file: File, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
       setLoading(true);
+      debugLog('Data', `Starting file stream for ${fileName}`);
       try {
           // Command: get_local_chart_data
           // Executed via this utility to fetch and parse the file
@@ -441,9 +471,12 @@ const App: React.FC = () => {
           } else {
               updateTab(tabIdToUpdate, updates);
           }
+          debugLog('Data', `File stream started successfully. Records: ${rawData.length}`);
 
-      } catch (e) {
+      } catch (e: any) {
           console.error("Error starting stream:", e);
+          debugLog('Data', 'Error starting file stream', e.message);
+          setLastError(e.message);
           alert("Failed to load file.");
       } finally {
           setLoading(false);
@@ -490,13 +523,15 @@ const App: React.FC = () => {
                   },
                   replayIndex: tab.replayIndex + (displayData.length - tab.data.length)
               });
+              debugLog('Data', `Loaded history chunk. Total records: ${uniqueData.length}`);
           } else {
                updateTab(tabId, { 
                    fileState: { ...tab.fileState, isLoading: false } 
                });
           }
-      } catch (e) {
+      } catch (e: any) {
           console.error("Error loading history:", e);
+          debugLog('Data', 'Error loading history', e.message);
           updateTab(tabId, { 
              fileState: { ...tab.fileState, isLoading: false } 
           });
@@ -513,8 +548,10 @@ const App: React.FC = () => {
     try {
       const file = await fileHandle.getFile();
       startFileStream(file, file.name);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error reading file from library:", e);
+      debugLog('Data', 'Error reading library file', e.message);
+      setLastError(e.message);
       alert('Error reading selected file.');
       setLoading(false);
     }
@@ -524,6 +561,7 @@ const App: React.FC = () => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
     
+    debugLog('UI', `Timeframe change request: ${tf} for tab ${id}`);
     const targets = (isIntervalSync && layoutTabIds.length > 1) ? layoutTabIds : [id];
 
     targets.forEach(async (targetId) => {
@@ -544,6 +582,7 @@ const App: React.FC = () => {
         if (matchingFileHandle) {
             try {
                 const file = await matchingFileHandle.getFile();
+                debugLog('Data', `Found matching file for timeframe ${tf}: ${file.name}`);
                 startFileStream(file, file.name, targetId, tf, preservedReplay);
             } catch (e) {
                 console.error("Error syncing file for timeframe:", e);
@@ -800,8 +839,11 @@ const App: React.FC = () => {
                 }
 
                 alert("Layout imported successfully. Please reload your data files if needed.");
-            } catch (err) {
+                debugLog('Data', 'Layout imported successfully');
+            } catch (err: any) {
                 alert("Failed to import layout file. Please ensure it is a valid Red Pill Layout JSON.");
+                debugLog('Data', 'Import layout failed', err.message);
+                setLastError(err.message);
             }
         };
         input.click();
@@ -818,6 +860,7 @@ const App: React.FC = () => {
       if (window.confirm('Are you sure you want to remove all drawings?')) {
           handleSaveHistory();
           updateActiveTab({ drawings: [] });
+          debugLog('UI', 'Cleared all drawings');
       }
   }, [activeTab, handleSaveHistory, updateActiveTab]);
 
@@ -858,6 +901,9 @@ const App: React.FC = () => {
   }, [activeTab.data, activeTab.isReplayMode, activeTab.isAdvancedReplayMode, activeTab.replayIndex, activeTab.simulatedPrice]);
 
   const currentSymbolName = getBaseSymbolName(activeTab.title);
+
+  // Derive active data source string for dev tools
+  const activeDataSource = activeTab.fileState ? activeTab.fileState.file.name : (activeTab.data.length > 0 ? 'Mock Data' : 'None');
 
   const renderLayout = () => {
     if (layoutMode === 'single') {
@@ -952,6 +998,13 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
       
+      {/* Developer Diagnostic Overlay */}
+      <DeveloperTools 
+        activeDataSource={activeDataSource} 
+        lastError={lastError} 
+        chartRenderTime={chartRenderTime}
+      />
+
       <CandleSettingsDialog 
         isOpen={isCandleSettingsOpen}
         onClose={() => setIsCandleSettingsOpen(false)}
