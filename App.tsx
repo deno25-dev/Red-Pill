@@ -6,7 +6,6 @@ import { TabBar } from './components/TabBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { Popout } from './components/Popout';
 import { TradingPanel } from './components/TradingPanel';
-import { SearchPalette } from './components/SearchPalette';
 import { WatchlistPanel } from './components/WatchlistPanel';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
@@ -28,7 +27,6 @@ const App: React.FC = () => {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isTradingPanelOpen, setIsTradingPanelOpen] = useState(false);
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('single');
   
   // Synchronization Toggles
@@ -979,17 +977,6 @@ const App: React.FC = () => {
       }
   };
 
-  useEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-              e.preventDefault();
-              setIsSearchOpen(true);
-          }
-      };
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const renderLayout = () => {
     if (layoutMode === 'single') {
         return (
@@ -1108,15 +1095,6 @@ const App: React.FC = () => {
         onChange={handleDatabaseFallbackSelect}
       />
 
-      <SearchPalette 
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        files={databaseFiles} 
-        onFileSelect={handleLibraryFileSelect}
-        onConnectDatabase={handleConnectDatabase}
-        isConnected={!!databaseHandle}
-      />
-
       <CandleSettingsDialog 
         isOpen={isCandleSettingsOpen}
         onClose={() => setIsCandleSettingsOpen(false)}
@@ -1141,7 +1119,6 @@ const App: React.FC = () => {
       />
 
       <Toolbar 
-        onSearch={() => setIsSearchOpen(true)}
         onFileUpload={handleFileUpload}
         toggleTheme={toggleTheme}
         isDark={activeTab.config.theme === 'dark'}

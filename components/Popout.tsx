@@ -22,10 +22,10 @@ export const Popout: React.FC<PopoutProps> = ({ title, onClose, children }) => {
     windowRef.current = win;
     win.document.title = title;
 
-    // Inject Tailwind
-    const script = win.document.createElement('script');
-    script.src = "https://cdn.tailwindcss.com";
-    win.document.head.appendChild(script);
+    // Copy styles from parent window (Offline support)
+    Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).forEach((node) => {
+        win.document.head.appendChild(node.cloneNode(true));
+    });
 
     // Inject Base Styles
     const style = win.document.createElement('style');
@@ -57,10 +57,6 @@ export const Popout: React.FC<PopoutProps> = ({ title, onClose, children }) => {
     div.id = 'popout-root';
     win.document.body.appendChild(div);
     setContainer(div);
-
-    // Copy main window stylesheets if any (for Lucide icons usually injected via JS or CSS?)
-    // Lucide icons are SVG inline, so they work.
-    // However, if we had external CSS files, we'd copy them here.
 
     const handleUnload = () => {
         onClose();

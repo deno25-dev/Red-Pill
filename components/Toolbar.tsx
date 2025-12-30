@@ -31,7 +31,6 @@ import {
   Clock,
   ArrowRightLeft,
   Folder,
-  Search,
   Trash2,
   Layers,
   Link,
@@ -41,7 +40,6 @@ import {
 } from 'lucide-react';
 
 interface ToolbarProps {
-  onSearch?: () => void;
   onFileUpload: (file: File) => void;
   toggleTheme: () => void;
   isDark: boolean;
@@ -77,7 +75,6 @@ interface ToolbarProps {
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
-  onSearch,
   onFileUpload,
   toggleTheme,
   isDark,
@@ -159,14 +156,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1">
-          <button 
-            onClick={onSearch}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-[#334155] rounded transition-colors"
-            title="Symbol Search"
-          >
-            <Search size={18} />
-          </button>
-
           <button 
             onClick={onUndo}
             className="p-1.5 text-slate-400 hover:text-white hover:bg-[#334155] rounded transition-colors"
