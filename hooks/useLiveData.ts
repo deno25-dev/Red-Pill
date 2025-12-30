@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useOnlineStatus } from './useOnlineStatus';
 import { ConnectionError } from '../utils/errors';
+import { useSmartFetch } from './useSmartFetch';
+import { debugLog } from '../utils/logger';
 
 export interface LiveTicker {
   symbol: string;
@@ -21,21 +23,11 @@ const DEFAULT_SYMBOLS = [
 
 const STORAGE_KEY = 'redpill_market_symbols';
 
-// Command hook: useMarketPrices
-// This hook provides the interface for the 'fetch_market_prices' command logic
 export const useMarketPrices = (userSymbol?: string) => {
-  // Allow null to represent a ConnectionError state
-  const [tickers, setTickers] = useState<LiveTicker[] | null>([]);
-  
-  // Network Guard: Centralized status check
-  // Enforces "Zero-Assumption Connectivity"
+  // Network Guard
   const isConnected = useOnlineStatus();
-
-  const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
-  const [error, setError] = useState<string | null>(null);
-  const [refreshCounter, setRefreshCounter] = useState(0);
   
-  // Manage custom list with persistence
+  // Persistence
   const [watchedSymbols, setWatchedSymbols] = useState<string[]>(() => {
       try {
           const saved = localStorage.getItem(STORAGE_KEY);
@@ -45,12 +37,73 @@ export const useMarketPrices = (userSymbol?: string) => {
       }
   });
 
+  // Track the last successful update time separately from the fetch cycle
+  const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
+  
+  // Track previous prices for tick direction (optional, but good for future)
+  // const prevPrices = useRef<Record<string, number>>({});
+
+  // 1. Define the atomic fetch operation
+  const fetchMarketData = useCallback(async (): Promise<LiveTicker[]> => {
+    // Construct symbol list
+    const symbolsToFetch = new Set(watchedSymbols);
+    
+    // Add User Symbol if relevant
+    if (userSymbol) {
+      const normalized = userSymbol.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (normalized.length <= 5 && !normalized.endsWith('USDT') && !normalized.endsWith('USD')) {
+         symbolsToFetch.add(`${normalized}USDT`);
+      } else {
+         symbolsToFetch.add(normalized);
+      }
+    }
+
+    if (symbolsToFetch.size === 0) return [];
+
+    const symbolParam = JSON.stringify(Array.from(symbolsToFetch));
+    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${symbolParam}`;
+    
+    const response = await fetch(url).catch((e) => {
+        throw new ConnectionError(`Network request failed: ${e.message}`);
+    });
+
+    if (!response.ok) {
+        if (response.status === 429) {
+             throw new ConnectionError("Rate limited (429). Backing off.");
+        }
+        throw new ConnectionError(`Market data fetch failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (Array.isArray(data)) {
+        setLastUpdated(Date.now());
+        // Simple cache update logic could go here
+        return data;
+    }
+    
+    throw new Error("Invalid API response format");
+  }, [watchedSymbols, userSymbol]);
+
+  // 2. Orchestrate with useSmartFetch
+  const { 
+    data: tickers, 
+    error, 
+    isLoading: isSyncing, 
+    isSettling, 
+    retry 
+  } = useSmartFetch<LiveTicker[]>(fetchMarketData, isConnected, {
+    baseInterval: 30000,    // 30s normal polling
+    settlingDelay: 2000,    // 2s surge guard
+    initialRetryDelay: 5000, // 5s wait on first error
+    maxRetryDelay: 60000     // Cap at 60s
+  });
+
+  // 3. Helper Functions
   const addSymbol = useCallback((input: string) => {
       const normalized = input.trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       if (!normalized) return;
       
-      // Heuristic: Append USDT if it looks like a coin name (3-5 chars), 
-      // otherwise assume it's a full pair if longer.
       let symbolToAdd = normalized;
       if (normalized.length <= 5 && !normalized.endsWith('USDT') && !normalized.endsWith('USD') && !normalized.endsWith('BTC') && !normalized.endsWith('ETH')) {
           symbolToAdd = `${normalized}USDT`;
@@ -58,11 +111,13 @@ export const useMarketPrices = (userSymbol?: string) => {
 
       setWatchedSymbols(prev => {
           if (prev.includes(symbolToAdd)) return prev;
-          const newList = [symbolToAdd, ...prev]; // Add to top
+          const newList = [symbolToAdd, ...prev]; 
           localStorage.setItem(STORAGE_KEY, JSON.stringify(newList));
           return newList;
       });
-  }, []);
+      // Trigger immediate fetch to populate new symbol
+      retry();
+  }, [retry]);
 
   const removeSymbol = useCallback((symbol: string) => {
       setWatchedSymbols(prev => {
@@ -71,96 +126,17 @@ export const useMarketPrices = (userSymbol?: string) => {
           return newList;
       });
   }, []);
-  
-  const refetch = useCallback(() => {
-    setRefreshCounter(prev => prev + 1);
-  }, []);
-  
-  // Track previous prices to determine tick direction for UI animation if needed
-  const prevPrices = useRef<Record<string, number>>({});
-
-  useEffect(() => {
-    // STRICT OFFLINE GUARD
-    // If we are offline, set tickers to null to trigger offline UI, and do not fetch.
-    if (!isConnected) {
-        setTickers(null);
-        return;
-    }
-
-    // Command: fetch_market_prices
-    // Executes the API call to retrieve live market data
-    const fetchMarketPrices = async () => {
-      try {
-        // Construct symbol list from state
-        const symbolsToFetch = new Set(watchedSymbols);
-        
-        // Try to add the user's current local symbol if it looks like a valid pair
-        if (userSymbol) {
-          const normalized = userSymbol.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-          if (normalized.length <= 5 && !normalized.endsWith('USDT') && !normalized.endsWith('USD')) {
-             symbolsToFetch.add(`${normalized}USDT`);
-          } else {
-             symbolsToFetch.add(normalized);
-          }
-        }
-
-        if (symbolsToFetch.size === 0) return;
-
-        const symbolParam = JSON.stringify(Array.from(symbolsToFetch));
-        const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${symbolParam}`;
-        
-        // Simulate Rust-like Result/Error handling
-        const response = await fetch(url).catch((e) => {
-            throw new ConnectionError(`Network request failed: ${e.message}`);
-        });
-
-        if (!response.ok) {
-            throw new ConnectionError(`Market data fetch failed: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        // Validate array response (Binance returns object on error sometimes)
-        if (Array.isArray(data)) {
-            setTickers(data);
-            setLastUpdated(Date.now());
-            setError(null);
-            
-            // Update cache
-            data.forEach((t: any) => {
-                prevPrices.current[t.symbol] = parseFloat(t.lastPrice);
-            });
-        }
-      } catch (err) {
-        if (err instanceof ConnectionError) {
-             console.warn("ConnectionError:", err.message);
-             // Return null to the UI as requested
-             setTickers(null);
-        } else {
-             // CRASH PREVENTION: Handle other errors silently.
-             console.warn("Live data fetch skipped or failed:", err);
-             setTickers(null);
-        }
-      }
-    };
-
-    // Initial Fetch
-    fetchMarketPrices();
-
-    // Poll every 5 seconds
-    const interval = setInterval(fetchMarketPrices, 5000);
-
-    return () => clearInterval(interval);
-  }, [isConnected, userSymbol, watchedSymbols, refreshCounter]);
 
   return {
     tickers,
     isConnected,
+    isSyncing,
+    isSettling,
     lastUpdated,
-    error,
+    error: error ? error.message : null,
     addSymbol,
     removeSymbol,
     watchedSymbols,
-    refetch
+    refetch: retry
   };
 };

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { useMarketPrices } from '../hooks/useLiveData';
 import { MarketOfflineFallback } from './MarketOfflineFallback';
 
@@ -10,9 +10,18 @@ interface StatsPanelProps {
 }
 
 export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol, isOpen, onToggle }) => {
-  // Use the isolated command hook for data. 
-  // This satisfies the requirement: Market Overview only calls fetch_market_prices (via this hook)
-  const { tickers, isConnected, lastUpdated, addSymbol, removeSymbol, watchedSymbols, refetch } = useMarketPrices(currentSymbol);
+  // Consuming the upgraded hook with Smart Fetch capabilities
+  const { 
+      tickers, 
+      isConnected, 
+      isSyncing,
+      isSettling,
+      lastUpdated, 
+      addSymbol, 
+      removeSymbol, 
+      watchedSymbols, 
+      refetch 
+  } = useMarketPrices(currentSymbol);
   
   const [isAdding, setIsAdding] = useState(false);
   const [newSymbolInput, setNewSymbolInput] = useState('');
@@ -71,12 +80,29 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
       if (newSymbolInput) {
           addSymbol(newSymbolInput);
           setNewSymbolInput('');
-          // setIsAdding(false); // Keep open for multiple adds
       }
   };
 
   // Determine if we should show fallback
-  const showFallback = tickers === null || !isConnected;
+  // Logic: Show fallback if we have NO data AND we are not currently trying to get it (unless we are offline)
+  const showFallback = (!tickers || tickers.length === 0) && !isConnected;
+
+  // Determine Status Label and Color
+  let statusLabel = 'OFFLINE';
+  let statusColorClass = 'bg-slate-800 text-slate-500 border-slate-700';
+
+  if (isConnected) {
+      if (isSettling) {
+          statusLabel = 'CONNECTING';
+          statusColorClass = 'bg-amber-900/20 text-amber-400 border-amber-900/50 animate-pulse';
+      } else if (isSyncing) {
+          statusLabel = 'SYNCING';
+          statusColorClass = 'bg-blue-900/20 text-blue-400 border-blue-900/50';
+      } else {
+          statusLabel = 'LIVE';
+          statusColorClass = 'bg-emerald-900/20 text-emerald-400 border-emerald-900/50';
+      }
+  }
 
   return (
     <div className="border-t border-[#334155] bg-[#0f172a] shrink-0">
@@ -85,24 +111,30 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
         onClick={onToggle}
       >
         <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
-            <Activity size={16} className={!showFallback ? "text-emerald-500" : "text-slate-500"} />
+            <Activity size={16} className={isConnected ? "text-emerald-500" : "text-slate-500"} />
             <span>Market Overview</span>
-            <span className={`text-[10px] font-normal px-1.5 rounded border ml-2 ${!showFallback ? 'bg-emerald-900/20 text-emerald-400 border-emerald-900/50' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
-                {!showFallback ? 'LIVE' : 'OFFLINE'}
+            <span className={`text-[10px] font-normal px-1.5 rounded border ml-2 transition-all duration-300 ${statusColorClass}`}>
+                {statusLabel}
             </span>
         </div>
         <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                {!showFallback ? <Wifi size={10} /> : <WifiOff size={10} />}
-                {!showFallback && <span>{new Date(lastUpdated).toLocaleTimeString()}</span>}
+                {isSyncing ? (
+                    <Loader2 size={10} className="animate-spin text-blue-400" />
+                ) : isConnected ? (
+                    <Wifi size={10} />
+                ) : (
+                    <WifiOff size={10} />
+                )}
+                {isConnected && <span>{new Date(lastUpdated).toLocaleTimeString()}</span>}
             </div>
             
             {/* Add Symbol Button - Disabled if offline */}
             <button 
-                onClick={(e) => { e.stopPropagation(); if (!showFallback) { setIsAdding(!isAdding); if(!isOpen) onToggle(); }}}
-                className={`flex items-center justify-center p-1 rounded transition-colors ${isAdding ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'} ${showFallback ? 'opacity-50 cursor-not-allowed' : ''}`}
+                onClick={(e) => { e.stopPropagation(); if (isConnected) { setIsAdding(!isAdding); if(!isOpen) onToggle(); }}}
+                className={`flex items-center justify-center p-1 rounded transition-colors ${isAdding ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'} ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
                 title="Add Symbol"
-                disabled={showFallback}
+                disabled={!isConnected}
             >
                 <Plus size={14} />
             </button>
@@ -161,10 +193,10 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
                                 </tr>
                             </thead>
                             <tbody className="text-slate-300 divide-y divide-[#334155]/30 whitespace-nowrap">
-                                {displayTickers.length === 0 ? (
+                                {(!tickers || tickers.length === 0) ? (
                                     <tr>
                                         <td colSpan={7} className="px-4 py-8 text-center text-slate-500 italic">
-                                            Loading market data...
+                                            {isSettling ? 'Establishing connection...' : 'Loading market data...'}
                                         </td>
                                     </tr>
                                 ) : (
