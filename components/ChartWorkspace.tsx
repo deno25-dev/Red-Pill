@@ -4,6 +4,7 @@ import { ReplayControls } from './ReplayControls';
 import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
+import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
@@ -58,6 +59,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
+  
+  // States for new Stats Panels
+  const [showRecentData, setShowRecentData] = useState(true);
+
   const settingsRef = useRef<HTMLDivElement>(null);
   
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
@@ -564,6 +569,16 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           onVisibleRangeChange={onVisibleRangeChange}
         />
         </div>
+        
+        {/* NEW: Statistics Panels */}
+        <div className="flex flex-col overflow-y-auto max-h-[40vh] custom-scrollbar">
+            <RecentMarketDataPanel 
+                data={displayedData} 
+                isOpen={showRecentData} 
+                onToggle={() => setShowRecentData(!showRecentData)} 
+            />
+        </div>
+
         <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={tab.trades || []} />
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
             <div className="flex gap-4">
@@ -573,7 +588,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span>
             </div>
             <div className="flex items-center gap-4">
-               <span className="hidden md:inline text-slate-600">Red Pill Charting v0.2.1 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
+               <span className="hidden md:inline text-slate-600">Red Pill Charting v0.2.2 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
                <div className="w-px h-3 bg-slate-700 hidden md:block"></div>
                <span className="font-mono text-slate-400 flex items-center gap-2">
                    <span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span>

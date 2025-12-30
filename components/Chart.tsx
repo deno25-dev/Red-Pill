@@ -425,7 +425,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             requestDraw();
         }
     };
-    window.addEventListener('resize', handleResize); handleResize();
+    
+    // Use ResizeObserver for robust container resizing detection
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(chartContainerRef.current);
+    
+    // Initial resize
+    handleResize();
 
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
@@ -498,7 +504,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     });
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       window.removeEventListener('chart-sync-range', onSyncRange);
       window.removeEventListener('chart-sync-crosshair', onSyncCrosshair);
       if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current);
