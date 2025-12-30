@@ -16,6 +16,11 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
   const [isAdding, setIsAdding] = useState(false);
   const [newSymbolInput, setNewSymbolInput] = useState('');
 
+  // Handle ConnectionError: If tickers is null, return null to UI
+  if (tickers === null) {
+      return null;
+  }
+
   const displayTickers = useMemo(() => {
     // Transform API data to display format
     return tickers.map(t => {

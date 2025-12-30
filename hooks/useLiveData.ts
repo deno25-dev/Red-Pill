@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOnlineStatus } from './useOnlineStatus';
+import { ConnectionError } from '../utils/errors';
 
 export interface LiveTicker {
   symbol: string;
@@ -23,7 +24,8 @@ const STORAGE_KEY = 'redpill_market_symbols';
 // Command hook: useMarketPrices
 // This hook provides the interface for the 'fetch_market_prices' command logic
 export const useMarketPrices = (userSymbol?: string) => {
-  const [tickers, setTickers] = useState<LiveTicker[]>([]);
+  // Allow null to represent a ConnectionError state
+  const [tickers, setTickers] = useState<LiveTicker[] | null>([]);
   
   // Network Guard: Centralized status check
   // Enforces "Zero-Assumption Connectivity"
@@ -75,7 +77,6 @@ export const useMarketPrices = (userSymbol?: string) => {
   useEffect(() => {
     // STRICT OFFLINE GUARD
     // If we are offline, do not attempt to fetch.
-    // This prevents errors and unnecessary processing power usage.
     if (!isConnected) {
         return;
     }
@@ -90,7 +91,6 @@ export const useMarketPrices = (userSymbol?: string) => {
         // Try to add the user's current local symbol if it looks like a valid pair
         if (userSymbol) {
           const normalized = userSymbol.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-          // Heuristic: Append USDT if it looks like a coin name, otherwise assume full pair
           if (normalized.length <= 5 && !normalized.endsWith('USDT') && !normalized.endsWith('USD')) {
              symbolsToFetch.add(`${normalized}USDT`);
           } else {
@@ -103,8 +103,14 @@ export const useMarketPrices = (userSymbol?: string) => {
         const symbolParam = JSON.stringify(Array.from(symbolsToFetch));
         const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${symbolParam}`;
         
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Market data fetch failed');
+        // Simulate Rust-like Result/Error handling
+        const response = await fetch(url).catch((e) => {
+            throw new ConnectionError(`Network request failed: ${e.message}`);
+        });
+
+        if (!response.ok) {
+            throw new ConnectionError(`Market data fetch failed: ${response.statusText}`);
+        }
         
         const data = await response.json();
         
@@ -120,10 +126,14 @@ export const useMarketPrices = (userSymbol?: string) => {
             });
         }
       } catch (err) {
-        // CRASH PREVENTION: Handle errors silently.
-        // We log a warning but do not unmount components or throw.
-        // The UI will gracefully show the last cached data or an offline indicator.
-        console.warn("Live data fetch skipped or failed:", err);
+        if (err instanceof ConnectionError) {
+             console.warn("ConnectionError:", err.message);
+             // Return null to the UI as requested
+             setTickers(null);
+        } else {
+             // CRASH PREVENTION: Handle other errors silently.
+             console.warn("Live data fetch skipped or failed:", err);
+        }
       }
     };
 
