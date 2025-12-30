@@ -408,6 +408,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { borderColor: '#334155', timeVisible: true, secondsVisible: false },
       rightPriceScale: { borderColor: '#334155' },
+      // Explicitly disable watermark and attribution for a clean, brand-neutral look
+      watermark: { visible: false },
+      // @ts-ignore
+      attributionLogo: false, 
     });
     chartRef.current = chart;
 
@@ -426,7 +430,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
              const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
-             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'eraser' || activeToolId === 'arrow') if (!isReplaySelecting) onSelectDrawing(null);
+             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'eraser' || activeToolId === 'arrow' || activeToolId === 'dot') if (!isReplaySelecting) onSelectDrawing(null);
         }
     };
     chart.subscribeClick(handleChartClick);
@@ -509,11 +513,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => {
     if (!chartRef.current) return;
     const isArrow = activeToolId === 'arrow';
+    const isDot = activeToolId === 'dot';
+    const hideCrosshair = isArrow || isDot;
     chartRef.current.applyOptions({
         crosshair: {
             mode: CrosshairMode.Normal,
-            vertLine: { visible: !isArrow, labelVisible: !isArrow },
-            horzLine: { visible: !isArrow, labelVisible: !isArrow },
+            vertLine: { visible: !hideCrosshair, labelVisible: !hideCrosshair },
+            horzLine: { visible: !hideCrosshair, labelVisible: !hideCrosshair },
         }
     });
   }, [activeToolId]);
@@ -629,7 +635,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => {
     if (canvasRef.current) {
         // 'arrow' acts like cross (default cursor, but can hit drawings)
-        const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor'].includes(activeToolId);
+        // 'dot' acts like cross (but with dot cursor)
+        const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor', 'dot'].includes(activeToolId);
         const isInteractive = isDrawingTool || isReplaySelecting || activeToolId === 'eraser';
         
         if (isInteractive) { 
@@ -638,7 +645,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         }
         else { 
             canvasRef.current.style.pointerEvents = 'none'; 
-            document.body.style.cursor = activeToolId === 'arrow' ? 'default' : 'crosshair'; 
+            if (activeToolId === 'arrow') document.body.style.cursor = 'default';
+            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
+            else document.body.style.cursor = 'crosshair'; 
         }
     }
   }, [activeToolId, isReplaySelecting]);
@@ -753,8 +762,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (isReplaySelecting && canvasRef.current) { const rect = canvasRef.current.getBoundingClientRect(); replayMouseX.current = e.clientX - rect.left; requestDraw(); return; }
       if (interactionState.current.isCreating || interactionState.current.isDragging) return;
       
-      // Update: allow arrow to trigger hover/select logic
-      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser' && activeToolId !== 'arrow') return;
+      // Update: allow arrow and dot to trigger hover/select logic
+      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser' && activeToolId !== 'arrow' && activeToolId !== 'dot') return;
       
       if (chartContainerRef.current && canvasRef.current) {
           const rect = chartContainerRef.current.getBoundingClientRect();
@@ -767,9 +776,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               canvasRef.current.style.pointerEvents = 'auto'; 
           }
           else { 
-             // If arrow, force default cursor. If cross, force crosshair.
-             document.body.style.cursor = activeToolId === 'arrow' ? 'default' : 'crosshair'; 
-             canvasRef.current.style.pointerEvents = 'none'; 
+            // If arrow, force default cursor. If cross, force crosshair. If dot, force dot.
+            if (activeToolId === 'arrow') document.body.style.cursor = 'default';
+            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
+            else document.body.style.cursor = 'crosshair'; 
+            canvasRef.current.style.pointerEvents = 'none'; 
           }
       }
   };
@@ -778,8 +789,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const rect = canvasRef.current!.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
     if (isReplaySelecting) { const p = screenToPoint(x, y, true); if (p && onReplayPointSelect) onReplayPointSelect(p.time); return; }
     const { hitHandle, hitDrawing } = getHitObject(x, y);
-    // Include 'arrow' in non-drawing tools check
-    const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor'].includes(activeToolId);
+    // Include 'arrow' and 'dot' in non-drawing tools check
+    const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor', 'dot'].includes(activeToolId);
     
     if (isDrawingTool) {
         onActionStart?.(); const p = screenToPoint(x, y, activeToolId !== 'brush' && activeToolId !== 'text');
