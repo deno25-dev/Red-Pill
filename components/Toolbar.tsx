@@ -58,7 +58,6 @@ interface ToolbarProps {
   onToggleReplay: () => void;
   isReplayMode: boolean;
   onOpenIndicators?: () => void;
-  onToggleWatchlist?: () => void;
   onToggleAdvancedReplay?: () => void;
   isAdvancedReplayMode?: boolean;
   onOpenLocalData?: () => void;
@@ -98,7 +97,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleReplay,
   isReplayMode,
   onOpenIndicators,
-  onToggleWatchlist,
   onToggleAdvancedReplay,
   isAdvancedReplayMode,
   onOpenLocalData,
@@ -305,14 +303,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {isToolsOpen && (
             <div className="absolute top-full left-0 mt-2 w-56 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                 <button
-                    onClick={() => { setIsToolsOpen(false); onToggleWatchlist?.(); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                >
-                    <List size={16} className="text-emerald-400" />
-                    Watchlist
-                </button>
-                <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 <div className="relative group/indicators w-full">
                     <button
                         className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"

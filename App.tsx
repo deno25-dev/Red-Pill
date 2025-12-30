@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -7,12 +6,11 @@ import { TabBar } from './components/TabBar';
 import { ChartWorkspace } from './components/ChartWorkspace';
 import { Popout } from './components/Popout';
 import { TradingPanel } from './components/TradingPanel';
-import { WatchlistPanel } from './components/WatchlistPanel';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
-import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, WatchlistItem, HistorySnapshot } from './types';
+import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, HistorySnapshot } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, getWatchlist, addToWatchlist, removeFromWatchlist } from './utils/storage';
+import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle } from './utils/storage';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 
@@ -38,10 +36,6 @@ const App: React.FC = () => {
 
   // Layout Slots: Tracks which tab is in which pane position
   const [layoutTabIds, setLayoutTabIds] = useState<string[]>([]);
-
-  // Watchlist State
-  const [isWatchlistOpen, setIsWatchlistOpen] = useState(false);
-  const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
 
   // Settings Dialogs State
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
@@ -142,7 +136,6 @@ const App: React.FC = () => {
               setFavoriteTimeframes(savedState.favoriteTimeframes);
           }
           setIsFavoritesBarVisible(savedState.isFavoritesBarVisible ?? true);
-          setIsWatchlistOpen(savedState.isWatchlistOpen ?? false);
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
           setIsMagnetMode(savedState.isMagnetMode ?? false);
           setLayoutMode(savedState.layoutMode || 'single');
@@ -158,13 +151,6 @@ const App: React.FC = () => {
           setTabs([newTab]);
           setActiveTabId(newTab.id);
           setLayoutTabIds([newTab.id]);
-        }
-
-        try {
-            const wList = await getWatchlist();
-            setWatchlistItems(wList);
-        } catch (e) {
-            console.warn("Watchlist restore failed", e);
         }
 
         try {
@@ -211,7 +197,6 @@ const App: React.FC = () => {
         favoriteTools,
         favoriteTimeframes,
         isFavoritesBarVisible,
-        isWatchlistOpen,
         isStayInDrawingMode,
         isMagnetMode,
         layoutMode,
@@ -226,7 +211,7 @@ const App: React.FC = () => {
     }, 1000); 
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isWatchlistOpen, isStayInDrawingMode, isMagnetMode, isAppReady, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
+  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isMagnetMode, isAppReady, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
 
 
   const activeTab = useMemo(() => 
@@ -813,7 +798,6 @@ const App: React.FC = () => {
             favoriteTools,
             favoriteTimeframes,
             isFavoritesBarVisible,
-            isWatchlistOpen,
             isStayInDrawingMode,
             isMagnetMode,
             layoutMode,
@@ -936,69 +920,6 @@ const App: React.FC = () => {
       const newTrades = [...(activeTab.trades || []), newTrade];
       updateActiveTab({ trades: newTrades });
   }, [activeTab, updateActiveTab]);
-
-  const handleAddToWatchlist = async (symbol: string) => {
-      await addToWatchlist(symbol);
-      const updated = await getWatchlist();
-      setWatchlistItems(updated);
-  };
-
-  const handleRemoveFromWatchlist = async (symbol: string) => {
-      await removeFromWatchlist(symbol);
-      const updated = await getWatchlist();
-      setWatchlistItems(updated);
-  };
-
-  const handleWatchlistSelect = async (symbol: string) => {
-      const existingTab = tabs.find(t => t.title === symbol || getBaseSymbolName(t.title) === symbol);
-      if (existingTab) {
-          setActiveTabId(existingTab.id);
-          if (layoutMode === 'single') setLayoutTabIds([existingTab.id]);
-          return;
-      }
-
-      let fileHandle = findFileForTimeframe(databaseFiles, symbol, Timeframe.H1) ||
-                       findFileForTimeframe(databaseFiles, symbol, Timeframe.D1) ||
-                       findFileForTimeframe(databaseFiles, symbol, Timeframe.M15);
-      
-      if (!fileHandle) {
-          fileHandle = databaseFiles.find(f => getBaseSymbolName(f.name) === symbol);
-      }
-      
-      if (!fileHandle) {
-          fileHandle = explorerFiles.find(f => getBaseSymbolName(f.name) === symbol);
-      }
-
-      if (fileHandle) {
-          setLoading(true);
-          try {
-              const file = await fileHandle.getFile();
-              if (activeTab.title === 'New Chart' && activeTab.data.length === 0) {
-                   startFileStream(file, file.name);
-              } else {
-                   const newTabId = crypto.randomUUID();
-                   const newTab = createNewTab(newTabId, 'Loading...');
-                   setTabs(prev => [...prev, newTab]);
-                   setActiveTabId(newTabId);
-                   if (layoutMode === 'single') setLayoutTabIds([newTabId]);
-                   startFileStream(file, file.name, newTabId);
-              }
-          } catch (e) {
-              console.error("Failed to open watchlist item:", e);
-              alert("Could not read file for " + symbol);
-          } finally {
-              setLoading(false);
-          }
-      } else {
-          if (confirm(`No file found for ${symbol}. Create mock chart?`)) {
-               const mock = generateMockData(MOCK_DATA_COUNT);
-               const newTab = createNewTab(crypto.randomUUID(), symbol, mock);
-               setTabs(prev => [...prev, newTab]);
-               setActiveTabId(newTab.id);
-               if (layoutMode === 'single') setLayoutTabIds([newTab.id]);
-          }
-      }
-  };
 
   const { currentPrice, prevPrice } = useMemo(() => {
     if (!activeTab || activeTab.data.length === 0) return { currentPrice: 0, prevPrice: 0 };
@@ -1167,7 +1088,6 @@ const App: React.FC = () => {
         onToggleReplay={handleToggleReplay}
         isReplayMode={activeTab.isReplayMode || activeTab.isReplaySelecting}
         onOpenIndicators={() => alert('Indicators coming soon')}
-        onToggleWatchlist={() => setIsWatchlistOpen(!isWatchlistOpen)}
         onToggleAdvancedReplay={handleToggleAdvancedReplay}
         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
         onOpenLocalData={() => setIsLibraryOpen(true)}
@@ -1215,16 +1135,6 @@ const App: React.FC = () => {
         />
 
         {renderLayout()}
-
-        <WatchlistPanel 
-            isOpen={isWatchlistOpen}
-            onClose={() => setIsWatchlistOpen(false)}
-            items={watchlistItems}
-            onAdd={handleAddToWatchlist}
-            onRemove={handleRemoveFromWatchlist}
-            onSelect={handleWatchlistSelect}
-            currentSymbol={currentSymbolName}
-        />
         
         {!isTradingPanelDetached && (
            <TradingPanel 
