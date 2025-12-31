@@ -9,9 +9,10 @@ import { Popout } from './components/Popout';
 import { TradingPanel } from './components/TradingPanel';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
-import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, HistorySnapshot } from './types';
-import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe, getLocalChartData, readChunk } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, deleteChartMeta } from './utils/storage';
+import { AssetLibrary } from './components/AssetLibrary';
+import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, HistorySnapshot, Drawing } from './types';
+import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
+import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { MOCK_DATA_COUNT } from './constants';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   const [isAppReady, setIsAppReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
   const [isTradingPanelOpen, setIsTradingPanelOpen] = useState(false);
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('single');
@@ -75,7 +77,7 @@ const App: React.FC = () => {
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
 
   // Electron File System Hook
-  const { checkFileExists, isBridgeAvailable } = useFileSystem();
+  const { checkFileExists, isBridgeAvailable, currentPath: databasePath } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -489,6 +491,9 @@ const App: React.FC = () => {
   };
 
   const startFileStream = useCallback(async (fileSource: File | any, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
+      // NUCLEAR RESET SIGNAL: Freeze all imperative systems before loading new data
+      window.dispatchEvent(new CustomEvent('GLOBAL_ASSET_CHANGE'));
+      
       setLoading(true);
       debugLog('Data', `Starting file stream for ${fileName}`);
       try {
@@ -520,7 +525,18 @@ const App: React.FC = () => {
               initialTf = detectTimeframe(rawData);
           }
           
-          const displayData = resampleData(rawData, initialTf);
+          // --- SANITIZATION LAYER ---
+          const tfMs = getTimeframeDuration(initialTf);
+          const { data: cleanRawData, stats: sanitizationReport } = sanitizeData(rawData, tfMs);
+          
+          debugLog('Data', `Sanitization Report for ${displayTitle}`, sanitizationReport);
+          if (sanitizationReport.fixedZeroes > 0 || sanitizationReport.fixedLogic > 0 || sanitizationReport.filledGaps > 0) {
+              // Optional: notify user via small toast, or just rely on debug log
+              console.log(`Loaded ${sanitizationReport.totalRecords} candles. Fixed ${sanitizationReport.fixedZeroes + sanitizationReport.fixedLogic} errors, filled ${sanitizationReport.filledGaps} gaps.`);
+          }
+          // --------------------------
+
+          const displayData = resampleData(cleanRawData, initialTf);
 
           let replayIndex = displayData.length - 1;
           if (preservedReplay?.replayGlobalTime) {
@@ -530,7 +546,7 @@ const App: React.FC = () => {
 
           const updates: Partial<TabSession> = {
               title: displayTitle,
-              rawData: rawData,
+              rawData: cleanRawData,
               data: displayData,
               timeframe: initialTf,
               filePath: filePath, // Store bridge path
@@ -547,7 +563,9 @@ const App: React.FC = () => {
               isReplayPlaying: false,
               isReplayMode: preservedReplay?.isReplayMode ?? false,
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
-              replayGlobalTime: preservedReplay?.replayGlobalTime ?? null
+              replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
+              drawings: [], // Hard Reset: Clear drawings to prevent ghosting
+              visibleRange: null // Hard Reset: Reset view
           };
 
           const tabIdToUpdate = targetTabId || activeTabId;
@@ -559,7 +577,7 @@ const App: React.FC = () => {
           } else {
               updateTab(tabIdToUpdate, updates);
           }
-          debugLog('Data', `File stream started successfully. Records: ${rawData.length}`);
+          debugLog('Data', `File stream started successfully. Records: ${cleanRawData.length}`);
 
       } catch (e: any) {
           console.error("Error starting stream:", e);
@@ -583,8 +601,16 @@ const App: React.FC = () => {
           const result = await loadPreviousChunk(tab, tab.fileState);
           if (result) {
               const { newPoints, newCursor, newLeftover, hasMore } = result;
+              
+              // Sort before sanitizing to ensure time order within chunk
               newPoints.sort((a, b) => a.time - b.time);
-              const fullRawData = [...newPoints, ...tab.rawData];
+              
+              // Sanitize the new chunk
+              const tfMs = getTimeframeDuration(tab.timeframe);
+              const { data: cleanNewPoints } = sanitizeData(newPoints, tfMs);
+
+              const fullRawData = [...cleanNewPoints, ...tab.rawData];
+              // Re-sort combined to be safe
               fullRawData.sort((a, b) => a.time - b.time);
               
               const uniqueData: OHLCV[] = [];
@@ -658,6 +684,17 @@ const App: React.FC = () => {
     }
   };
   
+  // Handler for AssetLibrary direct load (Quick-Load Action)
+  const handleAssetLoad = (fileHandle: any, timeframe: Timeframe) => {
+      // Force explicit load with specific timeframe
+      // If fileHandle is from AssetLibrary, it's already a bridge object with path
+      
+      // We pass undefined for targetTabId to use active tab
+      // We pass timeframe to force resampling correctly
+      // We do NOT pass preservedReplay to ensure a fresh start (reset replay buffer)
+      startFileStream(fileHandle, fileHandle.name, undefined, timeframe, undefined);
+  };
+  
   const handleTimeframeChange = async (id: string, tf: Timeframe) => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
@@ -675,11 +712,9 @@ const App: React.FC = () => {
             replayGlobalTime: targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null)
         };
 
-        let matchingFileHandle = findFileForTimeframe(databaseFiles, targetTab.title, tf);
-        if (!matchingFileHandle) {
-             matchingFileHandle = findFileForTimeframe(explorerFiles, targetTab.title, tf);
-        }
-
+        // Try database first (Asset Vault)
+        let matchingFileHandle = findFileForTimeframe(explorerFiles, targetTab.title, tf); // Use explorerFiles which reflects current monitored folder (Asset Vault)
+        
         if (matchingFileHandle) {
             try {
                 // Determine source type
@@ -960,17 +995,56 @@ const App: React.FC = () => {
     }
   };
 
-  const handleClearAll = useCallback(() => {
+  const handleClearAll = useCallback(async () => {
+      // 1. Guard Clauses
       if (!activeTab) return;
       if (activeTab.drawings.length === 0) {
           alert("No drawings to clear.");
           return;
       }
+
+      // 2. Confirmation Dialog
+      if (!window.confirm('Are you sure you want to remove all drawings? This action will clear the chart and local database.')) {
+          return;
+      }
+
+      // 3. Save History (Undo capability)
+      handleSaveHistory();
+
+      // 4. "Registry" / State Clear
+      const emptyDrawings: Drawing[] = [];
+      updateActiveTab({ drawings: emptyDrawings });
       
-      if (window.confirm('Are you sure you want to remove all drawings?')) {
-          handleSaveHistory();
-          updateActiveTab({ drawings: [] });
-          debugLog('UI', 'Cleared all drawings');
+      // DISPATCH FORCE CLEAR EVENT for Chart Component
+      window.dispatchEvent(new CustomEvent('redpill-force-clear'));
+
+      // 5. Force Persistence Clear (Nuclear Option)
+      // We bypass the debounced auto-saver to ensure immediate disk/DB flush
+      const sourceId = activeTab.filePath || (activeTab.title ? `${activeTab.title}_${activeTab.timeframe}` : null);
+      
+      if (sourceId) {
+          const nuclearState = {
+              sourceId,
+              timestamp: Date.now(),
+              drawings: [], // Explicit empty
+              config: activeTab.config,
+              visibleRange: activeTab.visibleRange
+          };
+
+          try {
+              // Electron Bridge
+              const electron = (window as any).electronAPI;
+              if (electron && activeTab.filePath) {
+                  await electron.saveMeta(activeTab.filePath, nuclearState);
+              } else {
+                  // Web Mode
+                  await saveChartMeta(nuclearState);
+              }
+              debugLog('Data', `Nuclear clear executed for ${sourceId}`);
+          } catch (e: any) {
+              console.error("Nuclear clear failed:", e);
+              debugLog('Data', "Nuclear clear failed", e.message);
+          }
       }
   }, [activeTab, handleSaveHistory, updateActiveTab]);
 
@@ -1130,6 +1204,15 @@ const App: React.FC = () => {
         config={activeTab.config}
         onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
       />
+      
+      {/* Asset Library Dialog */}
+      <AssetLibrary
+        isOpen={isAssetLibraryOpen}
+        onClose={() => setIsAssetLibraryOpen(false)}
+        files={explorerFiles}
+        onLoadAsset={handleAssetLoad}
+        databasePath={databasePath}
+      />
 
       <TabBar 
         tabs={tabs} 
@@ -1156,7 +1239,7 @@ const App: React.FC = () => {
         onOpenIndicators={() => alert('Indicators coming soon')}
         onToggleAdvancedReplay={handleToggleAdvancedReplay}
         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
-        onOpenLocalData={() => setIsLibraryOpen(true)}
+        onOpenLocalData={() => setIsAssetLibraryOpen(true)} // Re-purpose local data button to open library
         onLayoutAction={handleLayoutAction}
         isSymbolSync={isSymbolSync}
         isIntervalSync={isIntervalSync}

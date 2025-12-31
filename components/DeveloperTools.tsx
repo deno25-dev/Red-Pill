@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -149,7 +150,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
             </span>
             <span className={`font-bold w-14 shrink-0 ${
               log.category === 'UI' ? 'text-purple-400' :
-              log.category === 'Net' ? 'text-yellow-400' :
+              log.category === 'Network' ? 'text-yellow-400' :
               log.category === 'Data' ? 'text-blue-400' :
               log.category === 'Auth' ? 'text-red-400' :
               'text-emerald-400'

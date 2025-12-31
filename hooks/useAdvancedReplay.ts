@@ -25,7 +25,7 @@ export const useAdvancedReplay = ({
   onComplete,
   isActive
 }: UseAdvancedReplayProps) => {
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   
   // The global index in the fullData array we are currently simulating
@@ -33,6 +33,20 @@ export const useAdvancedReplay = ({
   
   // The virtual time accumulator (ms) for the CURRENT candle being formed
   const virtualNowRef = useRef<number>(0);
+
+  // NUCLEAR RESET LISTENER
+  useEffect(() => {
+    const handleGlobalReset = () => {
+        if (requestRef.current) cancelAnimationFrame(requestRef.current);
+        requestRef.current = null;
+        virtualNowRef.current = 0;
+        lastFrameTimeRef.current = 0;
+        // Reset current index to safe default, though props will update it soon
+        currentIndexRef.current = 0;
+    };
+    window.addEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
+    return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
+  }, []);
 
   // Reset internal refs when startIndex changes significantly (user scrub)
   useEffect(() => {

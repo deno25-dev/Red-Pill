@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -32,7 +33,8 @@ import {
   TrendingDown,
   Clock,
   ArrowRightLeft,
-  Star
+  Star,
+  FolderOpen
 } from 'lucide-react';
 import { Timeframe } from '../types';
 
@@ -326,6 +328,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="flex items-center gap-1">
             <button
+                onClick={onOpenLocalData}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded transition-colors hover:text-white hover:bg-[#334155] text-slate-400`}
+                title="Open Asset Library"
+            >
+                <FolderOpen size={16} />
+                <span className="hidden lg:inline">Library</span>
+            </button>
+            <button
                 onClick={onToggleLibrary}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded transition-colors ${
                 isLibraryOpen ? 'bg-[#334155] text-white' : 'text-slate-400 hover:text-white hover:bg-[#334155]'
@@ -333,7 +343,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 title="Local Data Explorer"
             >
                 <Database size={16} />
-                <span className="hidden lg:inline">Explorer</span>
             </button>
         </div>
 

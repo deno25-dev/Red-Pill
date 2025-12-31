@@ -1,5 +1,5 @@
 
-import { OHLCV, Timeframe, DrawingPoint } from '../types';
+import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
 
@@ -75,6 +75,120 @@ export const readChunk = async (fileSource: File | string, start: number, end: n
     }
 
     throw new Error("Invalid file source for current environment");
+};
+
+// --- DATA SANITIZER ---
+
+export const sanitizeData = (
+    data: OHLCV[], 
+    timeframeMs: number,
+    smoothOutliers: boolean = false
+): { data: OHLCV[], stats: SanitizationStats } => {
+    const cleanData: OHLCV[] = [];
+    const stats: SanitizationStats = { 
+        fixedZeroes: 0, 
+        fixedLogic: 0, 
+        filledGaps: 0, 
+        outliers: 0, 
+        totalRecords: 0 
+    };
+    
+    if (data.length === 0) return { data: [], stats };
+
+    for (let i = 0; i < data.length; i++) {
+        // Clone to avoid mutating original source if needed, though mostly we build new array
+        let candle = { ...data[i] };
+        
+        // Use the last valid candle from our CLEAN list as 'previous'
+        const prev = cleanData.length > 0 ? cleanData[cleanData.length - 1] : null;
+
+        // 1. Zero-Value Fix
+        // If critical fields are 0, use previous Close
+        let hadZero = false;
+        if (candle.open === 0 || candle.high === 0 || candle.low === 0 || candle.close === 0) {
+            if (prev) {
+                if (candle.open === 0) candle.open = prev.close;
+                if (candle.high === 0) candle.high = prev.close;
+                if (candle.low === 0) candle.low = prev.close;
+                if (candle.close === 0) candle.close = prev.close;
+                hadZero = true;
+            } else {
+                // If first candle is 0, we can't do much without context. 
+                // Fallback: set to the first non-zero property of itself?
+                const fallback = [candle.open, candle.high, candle.low, candle.close].find(v => v !== 0) || 0;
+                if (fallback !== 0) {
+                    if (candle.open === 0) candle.open = fallback;
+                    if (candle.high === 0) candle.high = fallback;
+                    if (candle.low === 0) candle.low = fallback;
+                    if (candle.close === 0) candle.close = fallback;
+                    hadZero = true;
+                }
+            }
+        }
+        if (hadZero) stats.fixedZeroes++;
+
+        // 2. Logic Check (H/L Integrity)
+        // High must be highest, Low must be lowest
+        let logicFixed = false;
+        // Fix inverted High/Low
+        if (candle.low > candle.high) {
+            const temp = candle.low;
+            candle.low = candle.high;
+            candle.high = temp;
+            logicFixed = true;
+        }
+        // Ensure boundaries
+        if (candle.open > candle.high) { candle.high = candle.open; logicFixed = true; }
+        if (candle.close > candle.high) { candle.high = candle.close; logicFixed = true; }
+        if (candle.open < candle.low) { candle.low = candle.open; logicFixed = true; }
+        if (candle.close < candle.low) { candle.low = candle.close; logicFixed = true; }
+        
+        if (logicFixed) stats.fixedLogic++;
+
+        // 3. Gap Filling
+        // If gap is exactly 2x timeframe (with 10% tolerance for jitter), fill it
+        if (prev && timeframeMs > 0) {
+            const diff = candle.time - prev.time;
+            const tolerance = timeframeMs * 0.1;
+            // Target gap: 2 * timeframe. 
+            // e.g. 1m chart. Prev: 12:00. Curr: 12:02. Diff: 2m. Missing: 12:01.
+            if (Math.abs(diff - (2 * timeframeMs)) < tolerance) {
+                const filler: OHLCV = {
+                    time: prev.time + timeframeMs,
+                    open: prev.close,
+                    high: prev.close,
+                    low: prev.close,
+                    close: prev.close,
+                    volume: 0,
+                    dateStr: new Date(prev.time + timeframeMs).toLocaleString()
+                };
+                cleanData.push(filler);
+                stats.filledGaps++;
+            }
+        }
+
+        // 4. Outlier Filtering (Flash Crash Protection)
+        // 50% move check
+        if (prev && prev.close > 0) {
+            const pctChange = Math.abs((candle.close - prev.close) / prev.close);
+            if (pctChange > 0.5) {
+                stats.outliers++;
+                if (smoothOutliers) {
+                    // Smooth data: Cap the candle at previous close (flat) or some average?
+                    // Prompt says "hide these spikes", so we flatten it to prev close usually.
+                    candle.open = prev.close;
+                    candle.high = prev.close;
+                    candle.low = prev.close;
+                    candle.close = prev.close;
+                }
+            }
+        }
+
+        cleanData.push(candle);
+    }
+
+    stats.totalRecords = cleanData.length;
+    return { data: cleanData, stats };
 };
 
 // --- EXISTING UTILS ---
@@ -290,33 +404,114 @@ export const resampleData = (data: OHLCV[], timeframe: Timeframe | string): OHLC
   return resampled;
 };
 
-// --- BRUSH SMOOTHING ALGORITHM ---
-// Uses a simple iterative Moving Average approach to smooth out jagged lines
-export const smoothPoints = (points: DrawingPoint[], iterations: number): DrawingPoint[] => {
-    if (iterations <= 0 || points.length < 3) return points;
+// Helper: Perpendicular Distance of point p from line segment (p1, p2)
+// Used for Ramer-Douglas-Peucker
+function perpendicularDistance(p: DrawingPoint, p1: DrawingPoint, p2: DrawingPoint): number {
+    const x = p.time;
+    const y = p.price;
+    const x1 = p1.time;
+    const y1 = p1.price;
+    const x2 = p2.time;
+    const y2 = p2.price;
 
-    let current = [...points];
+    // Handle case where p1 and p2 are the same point
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
 
-    for (let iter = 0; iter < iterations; iter++) {
-        const next = [current[0]]; // Always keep start point
-        
-        for (let i = 1; i < current.length - 1; i++) {
-            const prev = current[i - 1];
-            const curr = current[i];
-            const nxt = current[i + 1];
-
-            // 3-point Moving Average
-            next.push({
-                time: (prev.time + curr.time + nxt.time) / 3,
-                price: (prev.price + curr.price + nxt.price) / 3
-            });
-        }
-        
-        next.push(current[current.length - 1]); // Always keep end point
-        current = next;
+    if (lenSq === 0) {
+        return Math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
     }
 
-    return current;
+    // Projection of point onto line
+    const t = ((x - x1) * dx + (y - y1) * dy) / lenSq;
+
+    let closestX, closestY;
+
+    if (t < 0) {
+        closestX = x1;
+        closestY = y1;
+    } else if (t > 1) {
+        closestX = x2;
+        closestY = y2;
+    } else {
+        closestX = x1 + t * dx;
+        closestY = y1 + t * dy;
+    }
+
+    const distDx = x - closestX;
+    const distDy = y - closestY;
+    return Math.sqrt(distDx * distDx + distDy * distDy);
+}
+
+// Ramer-Douglas-Peucker Simplification
+export const ramerDouglasPeucker = (points: DrawingPoint[], epsilon: number): DrawingPoint[] => {
+    if (points.length < 3) return points;
+
+    let dmax = 0;
+    let index = 0;
+    const end = points.length - 1;
+
+    for (let i = 1; i < end; i++) {
+        const d = perpendicularDistance(points[i], points[0], points[end]);
+        if (d > dmax) {
+            index = i;
+            dmax = d;
+        }
+    }
+
+    if (dmax > epsilon) {
+        const res1 = ramerDouglasPeucker(points.slice(0, index + 1), epsilon);
+        const res2 = ramerDouglasPeucker(points.slice(index), epsilon);
+        return res1.slice(0, res1.length - 1).concat(res2);
+    } else {
+        return [points[0], points[end]];
+    }
+};
+
+// --- BRUSH SMOOTHING ALGORITHM ---
+// Uses Moving Average + RDP Simplification + Robustness Guards
+export const smoothPoints = (points: DrawingPoint[], iterations: number): DrawingPoint[] => {
+    // 1. Math Guard: Remove Invalid Points immediately
+    // Ensure absolute Time is finite and positive
+    const validPoints = points.filter(p => 
+        Number.isFinite(p.time) && 
+        Number.isFinite(p.price) && 
+        p.time > 0
+    );
+
+    if (validPoints.length < 3) return validPoints;
+
+    let current = [...validPoints];
+
+    // 2. Smoothing Phase (Moving Average)
+    if (iterations > 0) {
+        for (let iter = 0; iter < iterations; iter++) {
+            const next = [current[0]]; // Always keep start point
+            
+            for (let i = 1; i < current.length - 1; i++) {
+                const prev = current[i - 1];
+                const curr = current[i];
+                const nxt = current[i + 1];
+
+                // 3-point Moving Average
+                next.push({
+                    time: (prev.time + curr.time + nxt.time) / 3,
+                    price: (prev.price + curr.price + nxt.price) / 3
+                });
+            }
+            
+            next.push(current[current.length - 1]); // Always keep end point
+            current = next;
+        }
+    }
+
+    // 3. Simplification Phase (Ramer-Douglas-Peucker)
+    // We use a small epsilon to remove redundant collinear points without losing shape
+    // Since Time is large (10^12) compared to Price (10^4), typical Epsilon ~ 0 effectively just cleans exact lines.
+    // To properly simplify, we could normalize, but for "Fixing Brush Logic", removing redundant points is usually enough.
+    // Let's use Epsilon = 0 to strip perfectly collinear points, or slightly higher to smooth jitter.
+    return ramerDouglasPeucker(current, 0);
 };
 
 // --- CHUNK PARSING LOGIC ---

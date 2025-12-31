@@ -260,6 +260,35 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
   };
 
   const handleFileClick = async (fileHandle: any) => {
+      // --- VALIDATION INTERCEPTOR ---
+      // If running in Tauri context, perform schema check before loading
+      if ((window as any).__TAURI__) {
+          try {
+              setLoading(true);
+              const tauri = (window as any).__TAURI__;
+              const path = fileHandle.path || fileHandle.name; // In real Tauri file handle, .path is exposed
+              
+              const result = await tauri.invoke('validate_csv', { path });
+              
+              if (result.timeframe_warning) {
+                  console.warn("Timeframe validation warning:", result.timeframe_warning);
+              }
+              
+              if (!result.has_volume) {
+                  // Signal to hide volume - logic can be passed up via onFileSelect params in future
+                  console.info("File has no volume data.");
+              }
+              
+              setLoading(false);
+          } catch (err: any) {
+              setLoading(false);
+              // Use a Modal or alert as requested
+              alert(`Invalid CSV Format:\n${err}`);
+              return; // ABORT LOADING
+          }
+      }
+      // -----------------------------
+
       // Optimistically select
       onFileSelect(fileHandle);
       

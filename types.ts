@@ -166,3 +166,11 @@ export interface TabSession {
   // Trades
   trades: Trade[];
 }
+
+export interface SanitizationStats {
+  fixedZeroes: number;
+  fixedLogic: number;
+  filledGaps: number;
+  outliers: number;
+  totalRecords: number;
+}

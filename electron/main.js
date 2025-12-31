@@ -60,24 +60,36 @@ ipcMain.handle('file:watch-folder', async (event, folderPath) => {
   try {
     if (!fs.existsSync(folderPath)) throw new Error("Folder does not exist");
 
-    // Initial Scan
-    const getFiles = () => {
-      return fs.readdirSync(folderPath)
-        .filter(f => f.endsWith('.csv') || f.endsWith('.txt'))
-        .map(f => ({ name: f, path: path.join(folderPath, f), kind: 'file' }));
+    // Helper for recursive scan
+    const getFilesRecursive = (dir) => {
+      let results = [];
+      const list = fs.readdirSync(dir);
+      list.forEach((file) => {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+        if (stat && stat.isDirectory()) {
+          results = results.concat(getFilesRecursive(fullPath));
+        } else {
+          // Only include CSV/TXT
+          if (file.endsWith('.csv') || file.endsWith('.txt')) {
+             results.push({ name: file, path: fullPath, kind: 'file' });
+          }
+        }
+      });
+      return results;
     };
 
     // Watch for changes
-    watcher = fs.watch(folderPath, (eventType, filename) => {
+    watcher = fs.watch(folderPath, { recursive: true }, (eventType, filename) => {
       if (filename && (filename.endsWith('.csv') || filename.endsWith('.txt'))) {
         // Debounce slightly to avoid rapid-fire updates during writes
         if (mainWindow) {
-           mainWindow.webContents.send('folder-changed', getFiles());
+           mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
         }
       }
     });
 
-    return getFiles();
+    return getFilesRecursive(folderPath);
   } catch (e) {
     console.error("Watcher error:", e);
     throw e;
@@ -162,6 +174,32 @@ ipcMain.handle('meta:delete', async (event, sourcePath) => {
   }
 });
 
+ipcMain.handle('meta:scan', async (event, folderPath) => {
+    try {
+        if (!fs.existsSync(folderPath)) return [];
+        
+        const metaFiles = [];
+        const scan = (dir) => {
+            const list = fs.readdirSync(dir);
+            list.forEach((file) => {
+                const fullPath = path.join(dir, file);
+                const stat = fs.statSync(fullPath);
+                if (stat && stat.isDirectory()) {
+                    scan(fullPath);
+                } else if (file.endsWith('.meta.json')) {
+                    // Return the source path (without .meta.json)
+                    metaFiles.push(fullPath.replace('.meta.json', ''));
+                }
+            });
+        };
+        scan(folderPath);
+        return metaFiles;
+    } catch (e) {
+        console.error("Meta scan failed:", e);
+        return [];
+    }
+});
+
 // --- TRADE PERSISTENCE (Global Store) ---
 // Stores trades in appData/trades.json
 
@@ -198,6 +236,22 @@ ipcMain.handle('trade:get-by-source', async (event, sourceId) => {
         return trades.filter(t => t.sourceId === sourceId);
     } catch (e) {
         console.error("Trade fetch failed:", e);
+        return [];
+    }
+});
+
+ipcMain.handle('trade:scan', async () => {
+    try {
+        const dbPath = getTradesPath();
+        if (!fs.existsSync(dbPath)) return [];
+        
+        const raw = fs.readFileSync(dbPath, 'utf8');
+        const trades = JSON.parse(raw);
+        
+        // Return unique sourceIds
+        return [...new Set(trades.map(t => t.sourceId))];
+    } catch (e) {
+        console.error("Trade scan failed:", e);
         return [];
     }
 });

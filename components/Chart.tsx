@@ -10,8 +10,6 @@ import {
   PriceScaleMode,
   ISeriesPrimitive,
   IPrimitivePaneRenderer,
-  IPrimitivePaneView,
-  ISeriesPrimitiveAxisView,
   PrimitivePaneViewZOrder,
   LineSeries,
   AreaSeries,
@@ -21,9 +19,7 @@ import {
   MouseEventParams,
   LogicalRange,
   Time,
-  SeriesMarker,
-  SeriesMarkerPosition,
-  SeriesMarkerShape
+  SeriesMarker
 } from 'lightweight-charts';
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Trade } from '../types';
 import { COLORS } from '../constants';
@@ -32,6 +28,7 @@ import { debugLog } from '../utils/logger';
 import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
 import { useChartReplay } from '../hooks/useChartReplay';
 import { useAdvancedReplay } from '../hooks/useAdvancedReplay';
+import { useDrawingRegistry } from '../hooks/useDrawingRegistry';
 
 interface ChartProps {
   id?: string;
@@ -54,6 +51,7 @@ interface ChartProps {
   areDrawingsLocked?: boolean;
   isMagnetMode?: boolean;
   isSyncing?: boolean;
+  isStayInDrawingMode?: boolean;
   
   // New props for range history
   visibleRange: { from: number; to: number } | null;
@@ -129,10 +127,19 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         }
         const timeScale = _chart.timeScale();
         const pointToScreen = (p: DrawingPoint) => {
+            // Guard: Sticky Left Recovery (Coordinate 0 / NaN fix)
+            if (!p.time || p.time <= 0 || !Number.isFinite(p.time)) {
+                // Log silently to avoid console spam during drag, but this is a critical data check
+                return { x: OFF_SCREEN, y: OFF_SCREEN };
+            }
+
             try {
                 const price = _series.priceToCoordinate(p.price);
                 if (price === null) return { x: OFF_SCREEN, y: OFF_SCREEN };
+                
                 let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
+                
+                // Fallback for timestamps outside of currently visible/indexed range
                 if (x === null) {
                     const idx = _timeToIndex?.get(p.time);
                     if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical);
@@ -144,6 +151,12 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                          x = timeScale.logicalToCoordinate(targetLogical as Logical);
                     }
                 }
+                
+                // Final Guard: If X is still invalid or explicitly NaN (some logic errors), or incorrectly 0 for non-start data
+                if (x === null || !Number.isFinite(x)) {
+                    return { x: OFF_SCREEN, y: OFF_SCREEN };
+                }
+
                 return { x: (x !== null) ? x : OFF_SCREEN, y: price };
             } catch { return { x: OFF_SCREEN, y: OFF_SCREEN }; }
         };
@@ -346,6 +359,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     areDrawingsLocked = false, 
     isMagnetMode = false, 
     isSyncing = false, 
+    isStayInDrawingMode = false,
     visibleRange, 
     onVisibleRangeChange,
     // Replay Props
@@ -379,6 +393,24 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   
   // State for Text Input Overlay
   const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
+
+  // Re-init trigger for force clear
+  const [reinitCount, setReinitCount] = useState(0);
+
+  // --- REGISTRY HOOK ---
+  const { register, forceClear } = useDrawingRegistry(chartRef, seriesRef);
+
+  // Listen for force clear event
+  useEffect(() => {
+    const handleForceClear = () => {
+        debugLog('UI', 'Chart: Received Force Clear signal');
+        forceClear();
+        // Trigger a re-initialization of the primitive
+        setReinitCount(c => c + 1);
+    };
+    window.addEventListener('redpill-force-clear', handleForceClear);
+    return () => window.removeEventListener('redpill-force-clear', handleForceClear);
+  }, [forceClear]);
 
   // --- REPLAY ENGINES ---
   
@@ -435,6 +467,28 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
 
+  // NUCLEAR RESET LISTENER FOR INTERACTION
+  useEffect(() => {
+      const handleReset = () => {
+          interactionState.current = { 
+              isDragging: false, 
+              isCreating: false, 
+              isErasing: false, 
+              dragDrawingId: null, 
+              dragHandleIndex: null, 
+              startPoint: null, 
+              creatingPoints: [], 
+              creationStep: 0, 
+              activeToolId: propsRef.current.activeToolId,
+              initialDrawingPoints: null,
+              draggedDrawingPoints: null
+          };
+          setTextInputState(null);
+      };
+      window.addEventListener('GLOBAL_ASSET_CHANGE', handleReset);
+      return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleReset);
+  }, []);
+
   const processedData = useMemo(() => {
     return data.map(d => ({ time: (d.time / 1000) as Time, open: d.open, high: d.high, low: d.low, close: d.close, value: d.close }));
   }, [data]);
@@ -451,6 +505,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (drawingsPrimitiveRef.current) {
           const lastCandle = data.length > 0 ? data[data.length - 1] : null;
           drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
+          
           requestDraw(); 
       }
   }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
@@ -460,7 +515,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (seriesRef.current && trades && Array.isArray(trades)) {
           // Safety guard: ensure seriesRef.current exists AND has setMarkers
           // This prevents race conditions where series is being swapped out
-          if (typeof seriesRef.current.setMarkers !== 'function') return;
+          // Cast to any to avoid TS error
+          const seriesApi = seriesRef.current as any;
+          if (typeof seriesApi.setMarkers !== 'function') return;
 
           const markers: SeriesMarker<Time>[] = trades.map(t => ({
               time: (t.timestamp / 1000) as Time,
@@ -471,7 +528,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           }));
           
           try {
-            seriesRef.current.setMarkers(markers);
+            seriesApi.setMarkers(markers);
           } catch (e) {
             // Ignore marker errors if series is unstable
           }
@@ -516,7 +573,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { borderColor: '#334155', timeVisible: true, secondsVisible: false },
       rightPriceScale: { borderColor: '#334155' },
-      watermark: { visible: false },
       // @ts-ignore
       attributionLogo: false, 
     });
@@ -722,8 +778,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;
     primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
+    
+    // REGISTRY: Register the primitive so it can be cleared externally
+    register('drawings-primitive', primitive);
+    
     newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw();
-  }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor]); 
+  }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount]); 
 
   useEffect(() => {
     if (!seriesRef.current) return;
@@ -768,7 +828,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         
         if (isInteractive) { 
             canvasRef.current.style.pointerEvents = 'auto'; 
-            document.body.style.cursor = activeToolId === 'eraser' ? 'cell' : 'crosshair'; 
+            if (activeToolId === 'eraser') document.body.style.cursor = 'cell';
+            else if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair'; 
+            else document.body.style.cursor = 'crosshair'; 
         }
         else { 
             canvasRef.current.style.pointerEvents = 'none'; 
@@ -782,6 +844,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const pointToScreen = (p: DrawingPoint) => {
     if (!chartRef.current || !seriesRef.current) return { x: OFF_SCREEN, y: OFF_SCREEN };
     try {
+        // Guard: Check for invalid timestamps immediately
+        if (!p.time || !Number.isFinite(p.time) || p.time <= 0) return { x: OFF_SCREEN, y: OFF_SCREEN };
+
         const timeScale = chartRef.current.timeScale(); const price = seriesRef.current.priceToCoordinate(p.price);
         let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
         
@@ -819,14 +884,28 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (!chartRef.current || !seriesRef.current) return null;
     if (applyMagnet && propsRef.current.isMagnetMode) { const snapped = snapToCandle(x, y); if (snapped) return snapped; }
     try {
-        const timeScale = chartRef.current.timeScale(); const timeSeconds = timeScale.coordinateToTime(x) as number; const price = seriesRef.current.coordinateToPrice(y);
+        const timeScale = chartRef.current.timeScale(); 
+        const timeSeconds = timeScale.coordinateToTime(x) as number; 
+        const price = seriesRef.current.coordinateToPrice(y);
+        
+        // Robustness: Handle lightweight-charts edge cases where coordinateToTime returns null
+        // or unexpected values at the chart edges.
         if (timeSeconds === null || price === null || !Number.isFinite(timeSeconds) || !Number.isFinite(price)) {
             const logical = timeScale.coordinateToLogical(x);
-            if (logical !== null) {
-                 const lastIdx = data.length - 1; 
+            // Verify data exists to prevent crashes on empty charts
+            if (logical !== null && propsRef.current.data.length > 0) {
+                 const currentData = propsRef.current.data;
+                 const lastIdx = currentData.length - 1; 
                  const diff = logical - lastIdx; 
                  const tfMs = getTimeframeDuration(propsRef.current.timeframe as any);
-                 return { time: data[lastIdx].time + (diff * tfMs), price: price || 0 };
+                 
+                 // Calculate estimated timestamp based on timeframe projection
+                 const estimatedTime = currentData[lastIdx].time + (diff * tfMs);
+                 
+                 // Guard against NaN resulting from bad math
+                 if (!Number.isFinite(estimatedTime)) return null;
+
+                 return { time: estimatedTime, price: price || 0 };
             }
             return null;
         }
@@ -905,7 +984,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           else { 
             // If arrow, force default cursor. If cross, force crosshair. If dot, force dot.
             if (activeToolId === 'arrow') document.body.style.cursor = 'default';
-            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
+            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
             else document.body.style.cursor = 'crosshair'; 
             canvasRef.current.style.pointerEvents = 'none'; 
           }
@@ -913,6 +992,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
+    // Only handle left clicks for starting actions
+    if (e.button !== 0) return;
+
     const rect = canvasRef.current!.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
     if (isReplaySelecting) { const p = screenToPoint(x, y, true); if (p && onReplayPointSelect) onReplayPointSelect(p.time); return; }
     const { hitHandle, hitDrawing } = getHitObject(x, y);
@@ -1013,7 +1095,27 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const handleCanvasMouseUp = () => {
     if (isReplaySelecting) return;
     if (interactionState.current.isCreating) {
-        if (activeToolId === 'brush') { onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: smoothPoints(interactionState.current.creatingPoints, currentDefaultProperties.smoothing || 0), properties: currentDefaultProperties }]); interactionState.current.isCreating = false; onToolComplete(); }
+        if (activeToolId === 'brush') { 
+            // 1. Commit the drawing with updated smoothing logic (RDP + Checks)
+            onUpdateDrawings([
+                ...drawings, 
+                { 
+                    id: crypto.randomUUID(), 
+                    type: activeToolId, 
+                    points: smoothPoints(interactionState.current.creatingPoints, currentDefaultProperties.smoothing || 0), 
+                    properties: currentDefaultProperties 
+                }
+            ]);
+            
+            // 2. PERSISTENT MODE: Reset creating state for the next stroke, but DO NOT complete the tool
+            interactionState.current.isCreating = false; 
+            interactionState.current.creatingPoints = [];
+            interactionState.current.creationStep = 0;
+            
+            // 3. Just redraw to clear the "creation" ghost lines
+            requestDraw();
+            return;
+        }
         else if (activeToolId === 'text') {
              // Instead of prompt, open custom text input
              const point = interactionState.current.creatingPoints[0];
@@ -1032,7 +1134,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         } else {
             const step = interactionState.current.creationStep;
             if (step < interactionState.current.creatingPoints.length - 1) { interactionState.current.creationStep = step + 1; interactionState.current.creatingPoints[step + 1] = interactionState.current.creatingPoints[step]; requestDraw(); return; }
-            onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: interactionState.current.creatingPoints, properties: currentDefaultProperties }]); interactionState.current.isCreating = false; onToolComplete(); 
+            onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: interactionState.current.creatingPoints, properties: currentDefaultProperties }]); interactionState.current.isCreating = false; 
+            
+            // Handle Persistent Mode for other tools if requested
+            if (propsRef.current.isStayInDrawingMode) {
+                 interactionState.current.isCreating = false;
+                 interactionState.current.creatingPoints = [];
+            } else {
+                 onToolComplete(); 
+            }
         }
     }
     
@@ -1048,10 +1158,38 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     interactionState.current.isDragging = false; 
     interactionState.current.isErasing = false;
     interactionState.current.dragDrawingId = null; 
-    document.body.style.cursor = activeToolId === 'eraser' ? 'cell' : 'default'; 
+    
+    // Restore Cursor based on active tool
+    if (activeToolId === 'eraser') document.body.style.cursor = 'cell';
+    else if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
+    else if (activeToolId === 'arrow') document.body.style.cursor = 'default';
+    else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
+    else document.body.style.cursor = 'crosshair';
+
     requestDraw();
   };
   
+  // Explicitly handle Right Click to cancel/deselect tools
+  const handleContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // If we are currently drawing a shape (in-progress), cancel the shape but keep tool if brush/persistent
+      if (interactionState.current.isCreating) {
+          interactionState.current.isCreating = false;
+          interactionState.current.creatingPoints = [];
+          requestDraw();
+          return;
+      }
+      
+      // If no shape in progress, right click deselects the tool entirely (Manual Disengagement)
+      if (activeToolId !== 'cross') {
+          onToolComplete(); // Switch to Cross
+      } else if (selectedDrawingId) {
+          onSelectDrawing(null); // Deselect object
+      }
+  };
+
   const handleScrollToRealTime = () => {
        // Use scrollToPosition to force a consistent right margin (3 bars)
        // This ensures the latest candle is clearly visible and not stuck to the edge
@@ -1087,7 +1225,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   return (
     <div className="w-full h-full relative group" onMouseMove={handleContainerMouseMove}>
        <div ref={chartContainerRef} className="w-full h-full" />
-       <canvas ref={canvasRef} className="absolute inset-0 z-10" style={{ pointerEvents: 'none' }} onMouseDown={handleCanvasMouseDown} onMouseMove={handleCanvasMouseMove} onMouseUp={handleCanvasMouseUp} />
+       <canvas 
+          ref={canvasRef} 
+          className="absolute inset-0 z-10" 
+          style={{ pointerEvents: 'none' }} 
+          onMouseDown={handleCanvasMouseDown} 
+          onMouseMove={handleCanvasMouseMove} 
+          onMouseUp={handleCanvasMouseUp} 
+          onContextMenu={handleContextMenu}
+        />
        {config.showVolume && <div className="absolute left-0 right-0 z-30 h-1 cursor-ns-resize group/resize" style={{ top: `${localVolumeTopMargin * 100}%` }} onMouseDown={handleVolumeResizeMouseDown}><div className="w-full h-px bg-slate-600 opacity-0 group-hover/resize:opacity-100 transition-opacity" /></div>}
        <div ref={toolTipRef} className="absolute hidden pointer-events-none bg-[#1e293b]/95 border border-[#475569] p-2.5 rounded shadow-xl backdrop-blur-sm z-50 transition-opacity duration-75" />
        

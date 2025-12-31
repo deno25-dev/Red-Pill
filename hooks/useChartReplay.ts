@@ -22,7 +22,7 @@ export const useChartReplay = ({
   onSyncState,
   onComplete
 }: UseChartReplayProps) => {
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
   
   // Replay Buffer: Stores candles *after* the cut point
@@ -32,6 +32,19 @@ export const useChartReplay = ({
   // Cursor tracking position *within the buffer* (0.0 to buffer.length)
   // 0.0 means we are at the very start of buffer[0]
   const bufferCursorRef = useRef<number>(0);
+
+  // NUCLEAR RESET LISTENER
+  useEffect(() => {
+    const handleGlobalReset = () => {
+        if (requestRef.current) cancelAnimationFrame(requestRef.current);
+        requestRef.current = null;
+        replayBufferRef.current = [];
+        bufferCursorRef.current = 0;
+        lastFrameTimeRef.current = 0;
+    };
+    window.addEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
+    return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
+  }, []);
 
   // Initialization & Buffer Setup
   // We strictly re-initialize the buffer only when NOT playing (e.g. init, pause, or scrub)
