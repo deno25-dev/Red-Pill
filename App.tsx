@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -10,6 +9,7 @@ import { TradingPanel } from './components/TradingPanel';
 import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
+import { SplashController } from './components/SplashController';
 import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, HistorySnapshot, Drawing } from './types';
 import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
@@ -248,6 +248,7 @@ const App: React.FC = () => {
           debugLog('Data', 'No session found, initialized mock data');
         }
 
+        // --- GATE: Wait for Database ---
         try {
             const dbHandle = await getDatabaseHandle();
             if (dbHandle) {
@@ -276,7 +277,9 @@ const App: React.FC = () => {
         setActiveTabId(newTab.id);
         setLayoutTabIds([newTab.id]);
       } finally {
-        setIsAppReady(true);
+        // --- GATE: Open App ---
+        // Minimum visual delay to show splash branding (optional but nice)
+        setTimeout(() => setIsAppReady(true), 500);
       }
     };
 
@@ -1172,13 +1175,9 @@ const App: React.FC = () => {
     );
   };
 
+  // --- THE GATE: Splash Screen ---
   if (!isAppReady) {
-    return (
-      <div className="h-screen bg-[#0f172a] text-slate-300 flex flex-col gap-4 items-center justify-center">
-        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-        <p className="font-mono text-sm animate-pulse">Initializing Red Pill Charting...</p>
-      </div>
-    );
+    return <SplashController />;
   }
 
   return (
