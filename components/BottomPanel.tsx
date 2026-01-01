@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { X, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { Trade } from '../types';
 
 interface BottomPanelProps {

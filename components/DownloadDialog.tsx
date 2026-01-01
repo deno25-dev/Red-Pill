@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Download, X, CheckCircle2, Calendar, Clock, Database, ArrowRight, Save, AlertTriangle, FolderInput } from 'lucide-react';
+import { Download, X, CheckCircle2, Calendar, Clock, Database, ArrowRight, AlertTriangle, FolderInput } from 'lucide-react';
 import { BINANCE_INTERVALS } from '../utils/binance';
 
 interface DownloadDialogProps {
@@ -30,7 +31,6 @@ export const DownloadDialog: React.FC<DownloadDialogProps> = ({
   const [startDate, setStartDate] = useState<string>('2023-01-01');
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [existingLastTime, setExistingLastTime] = useState<number | null>(null);
-  const [isChecking, setIsChecking] = useState(false);
 
   // Auto-check for existing file when symbol/interval changes
   useEffect(() => {
@@ -39,15 +39,12 @@ export const DownloadDialog: React.FC<DownloadDialogProps> = ({
             setExistingLastTime(null);
             return;
         }
-        setIsChecking(true);
         try {
             const lastTime = await checkExistingFile(symbol.toUpperCase(), interval);
             setExistingLastTime(lastTime);
             // Removed auto-update of startDate to respect user input "From"
         } catch (e) {
             setExistingLastTime(null);
-        } finally {
-            setIsChecking(false);
         }
     };
     

@@ -53,9 +53,9 @@ interface ChartProps {
   isSyncing?: boolean;
   isStayInDrawingMode?: boolean;
   
-  // New props for range history
-  visibleRange: { from: number; to: number } | null;
-  onVisibleRangeChange: (range: { from: number; to: number }) => void;
+  // New props for range history - Made Optional to fix TS error
+  visibleRange?: { from: number; to: number } | null;
+  onVisibleRangeChange?: (range: { from: number; to: number }) => void;
 
   // Replay Props
   fullData?: OHLCV[]; // The complete dataset for lookahead
@@ -118,7 +118,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context); }); }
     _drawImpl(target: CanvasRenderingContext2D) {
         if (!target || typeof target.beginPath !== 'function') return;
-        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _timeframe } = this._source;
+        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties } = this._source;
         if (!_series || !_chart) return;
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId, draggedDrawingPoints } = _interactionStateRef.current;
         let drawingsToRender = [..._drawings];
@@ -280,8 +280,8 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
 
 class DrawingsPriceAxisPaneRenderer {
     constructor(private _source: DrawingsPrimitive) {}
-    draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context, scope.mediaSize.width, scope.mediaSize.height); }); }
-    _drawImpl(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context, scope.mediaSize.width); }); }
+    _drawImpl(ctx: CanvasRenderingContext2D, width: number) {
         const { _drawings, _series } = this._source;
         if (!_series) return;
         const priceFormatter = _series.priceFormatter();
@@ -355,11 +355,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onActionStart, 
     isReplaySelecting, 
     onReplayPointSelect, 
-    onRequestMoreData, 
     areDrawingsLocked = false, 
-    isMagnetMode = false, 
-    isSyncing = false, 
-    isStayInDrawingMode = false,
     visibleRange, 
     onVisibleRangeChange,
     // Replay Props
@@ -668,7 +664,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
                  rangeDebounceTimeout.current = setTimeout(() => {
                      // Only fire if not programmatic
-                     if (!isProgrammaticUpdate.current) {
+                     if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) {
                         propsRef.current.onVisibleRangeChange({ from: range.from, to: range.to });
                      }
                  }, 500); // 500ms debounce for history save
@@ -789,16 +785,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (!seriesRef.current) return;
     try { seriesRef.current.setData(processedData); } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
-        const upColor = config.upColor || COLORS.volumeBullish;
-        const downColor = config.downColor || COLORS.volumeBearish;
-        
-        const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
-        const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
+        // Defaults if colors are missing
+        const upColor = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
+        const downColor = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
 
         volumeSeriesRef.current.setData(data.map(d => ({ 
             time: (d.time / 1000) as Time, 
             value: d.volume, 
-            color: d.close >= d.open ? volUp : volDown 
+            color: d.close >= d.open ? upColor : downColor 
         })));
     }
     if (smaSeriesRef.current && config.showSMA) {

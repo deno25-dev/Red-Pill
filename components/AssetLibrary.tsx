@@ -26,7 +26,7 @@ interface AssetLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   onLoadAsset: (file: any, timeframe: Timeframe) => void;
-  databasePath?: string;
+  databasePath?: string; // Kept as optional but ignored to avoid breaking change if passed elsewhere, or remove if strictly unused. TS error said it IS declared but never read.
   files?: any[]; // Keep for Web mode fallback
   onRefresh?: () => void; // Keep for Web mode refresh
 }
@@ -56,7 +56,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   isOpen, 
   onClose, 
   onLoadAsset,
-  databasePath,
   files = [] 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
