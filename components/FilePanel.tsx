@@ -48,12 +48,19 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
     loadRecents();
   }, []);
 
-  // Sync with Bridge Files if active
+  // Sync with Bridge Files if active - UPDATED to always sync path even if empty
   useEffect(() => {
-      if (isBridgeMode && fileSystem.files.length > 0) {
-          setFiles(fileSystem.files);
-          const pathParts = fileSystem.currentPath.split(/[\\/]/);
-          setDirectoryName(pathParts[pathParts.length - 1] || 'Watched Folder');
+      if (isBridgeMode) {
+          // Always update path if available
+          if (fileSystem.currentPath) {
+              const pathParts = fileSystem.currentPath.split(/[\\/]/);
+              setDirectoryName(pathParts[pathParts.length - 1] || 'Watched Folder');
+          }
+          
+          // Update files
+          if (fileSystem.files) {
+              setFiles(fileSystem.files);
+          }
       }
   }, [isBridgeMode, fileSystem.files, fileSystem.currentPath]);
 
@@ -67,7 +74,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
   };
 
   const checkStoredHandle = async () => {
-    // If we are in Bridge mode, we don't rely on indexedDB handles for folders as much
     if (isBridgeMode) return;
 
     try {
@@ -75,8 +81,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       if (handle) {
         setStoredHandle(handle);
         setDirectoryName(handle.name);
-        
-        // Check if we already have permission
         try {
             if (handle.queryPermission) {
                 // @ts-ignore
@@ -87,12 +91,10 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
                     setNeedsPermission(true);
                 }
             } else {
-                // If handle is stale or invalid structure, reset
                 await clearExplorerHandle();
                 setStoredHandle(null);
             }
         } catch (permErr) {
-            // Handle permission query failure or non-standard behavior (e.g., folder moved)
             console.warn("Permission query failed, invalidating handle:", permErr);
             await clearExplorerHandle();
             setStoredHandle(null);
@@ -108,74 +110,49 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
     setLoading(true);
     setError(null);
     try {
-      // Use recursive scan to find all files in subfolders
       const fileList = await scanRecursive(handle);
-      
-      // Sort files alphabetically
       fileList.sort((a: any, b: any) => a.name.localeCompare(b.name));
-      
       setFiles(fileList);
       setNeedsPermission(false);
     } catch (e) {
       console.error("Error listing files:", e);
       setError("Failed to access folder. It may have been moved or deleted.");
       setNeedsPermission(true);
-      setFiles([]); // Clear stale state
+      setFiles([]); 
     } finally {
       setLoading(false);
     }
   };
 
   const handleConnect = async () => {
-    // 0. Use Robust Bridge if available (Electron)
     if (isBridgeMode) {
         const name = await fileSystem.connectFolder();
         if (name) setDirectoryName(name);
         return;
     }
 
-    // 1. Try Modern File System Access API
     if ('showDirectoryPicker' in window) {
         try {
             // @ts-ignore
-            const handle = await window.showDirectoryPicker({
-                mode: 'read'
-            });
-
-            // Clean state before applying new one
+            const handle = await window.showDirectoryPicker({ mode: 'read' });
             setFiles([]);
             setError(null);
             setLoading(true);
-            
-            // Wipe old persistence first to avoid race conditions
             await clearExplorerHandle();
-
-            // Update UI immediately (Optimistic)
             setStoredHandle(handle);
             setDirectoryName(handle.name);
-            
             await listFiles(handle);
-
-            // Save new handle to persistence
-            try {
-                await saveExplorerHandle(handle);
-            } catch (dbErr) {
-                console.warn('Failed to save directory handle to DB:', dbErr);
-            }
+            try { await saveExplorerHandle(handle); } catch (dbErr) {}
             return;
-
         } catch (err: any) {
             setLoading(false);
-            if (err.name === 'AbortError') {
-                return; // User cancelled
-            }
+            if (err.name === 'AbortError') return;
             console.warn('File System API failed, using fallback:', err);
         }
     }
     
-    // 2. Legacy Fallback
     if (legacyInputRef.current) {
-        legacyInputRef.current.value = ''; // Reset input to allow re-selection
+        legacyInputRef.current.value = ''; 
         legacyInputRef.current.click();
     }
   };
@@ -186,26 +163,19 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
           const validFiles = rawFiles.filter(f => 
              f.name.toLowerCase().endsWith('.csv') || f.name.toLowerCase().endsWith('.txt')
           );
-          
           if (validFiles.length === 0) {
               setError("No .csv or .txt files found in selection.");
               setFiles([]);
               return;
           }
-
-          // Sort
           validFiles.sort((a, b) => a.name.localeCompare(b.name));
-
-          // Wrap to match interface { name, getFile() }
           const wrapped = validFiles.map(f => ({
               kind: 'file',
               name: f.name,
               getFile: async () => f
           }));
-
           setFiles(wrapped);
           
-          // Try to guess directory name from relative path
           let dirName = "Selected Folder";
           // @ts-ignore
           if (validFiles[0].webkitRelativePath) {
@@ -214,8 +184,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
              if (parts.length > 0) dirName = parts[0];
           }
           setDirectoryName(dirName);
-          
-          // Clear persistence state as legacy doesn't support it
           clearExplorerHandle();
           setStoredHandle(null);
           setNeedsPermission(false);
@@ -225,7 +193,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
 
   const handleReconnect = async () => {
     if (isBridgeMode) return;
-
     if (!storedHandle) return;
     try {
       // @ts-ignore
@@ -244,7 +211,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
   };
 
   const handleClearDatabase = async () => {
-      // Clear Memory State
       if (isBridgeMode) {
           await fileSystem.disconnect();
       }
@@ -254,47 +220,12 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       setNeedsPermission(false);
       setError(null);
       if (legacyInputRef.current) legacyInputRef.current.value = '';
-      
-      // Clear Persistence
       await clearExplorerHandle();
   };
 
   const handleFileClick = async (fileHandle: any) => {
-      // --- VALIDATION INTERCEPTOR ---
-      // If running in Tauri context, perform schema check before loading
-      if ((window as any).__TAURI__) {
-          try {
-              setLoading(true);
-              const tauri = (window as any).__TAURI__;
-              const path = fileHandle.path || fileHandle.name; // In real Tauri file handle, .path is exposed
-              
-              const result = await tauri.invoke('validate_csv', { path });
-              
-              if (result.timeframe_warning) {
-                  console.warn("Timeframe validation warning:", result.timeframe_warning);
-              }
-              
-              if (!result.has_volume) {
-                  // Signal to hide volume - logic can be passed up via onFileSelect params in future
-                  console.info("File has no volume data.");
-              }
-              
-              setLoading(false);
-          } catch (err: any) {
-              setLoading(false);
-              // Use a Modal or alert as requested
-              alert(`Invalid CSV Format:\n${err}`);
-              return; // ABORT LOADING
-          }
-      }
-      // -----------------------------
-
-      // Optimistically select
       onFileSelect(fileHandle);
-      
-      // Try to save to recents
       try {
-          // Only save to recents if not using Bridge (Recents in Bridge handled differently or logic needed update)
           if (!isBridgeMode) {
             await addRecentFile(fileHandle);
             await loadRecents();
@@ -321,7 +252,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
         </button>
       </div>
       
-      {/* Hidden Fallback Input */}
       <input 
         type="file" 
         ref={legacyInputRef} 
@@ -353,6 +283,13 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
                         <FolderOpen size={16} />
                     </button>
                 </div>
+                
+                {/* --- DISPLAY ACTIVE PATH (Debug Label) --- */}
+                {isBridgeMode && fileSystem.currentPath && (
+                    <div className="text-[10px] text-slate-500 font-mono break-all bg-black/20 p-2 rounded border border-slate-800">
+                        Searching in: <span className="text-blue-400 select-all">{fileSystem.currentPath}</span>
+                    </div>
+                )}
 
                 {needsPermission && storedHandle && !isBridgeMode && (
                      <button 
@@ -391,7 +328,6 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2 custom-scrollbar">
-        {/* Recents Section (Only non-bridge mode) */}
         {!isBridgeMode && recentFiles.length > 0 && (
             <div className="mb-4">
                  <div className="px-2 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">

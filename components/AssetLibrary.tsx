@@ -8,10 +8,13 @@ import {
   ChevronRight, 
   ChevronDown, 
   Star,
-  Pin
+  Pin,
+  RefreshCw,
+  Database
 } from 'lucide-react';
 import { getBaseSymbolName } from '../utils/dataUtils';
 import { Timeframe } from '../types';
+import { debugLog } from '../utils/logger';
 
 interface AssetSymbol {
   name: string;
@@ -23,8 +26,9 @@ interface AssetLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   onLoadAsset: (file: any, timeframe: Timeframe) => void;
-  databasePath?: string; 
-  files?: any[];
+  databasePath?: string;
+  files?: any[]; // Keep for Web mode fallback
+  onRefresh?: () => void; // Keep for Web mode refresh
 }
 
 const InteractiveStar = ({ isFavorite, onClick }: { isFavorite: boolean, onClick: (e: React.MouseEvent) => void }) => (
@@ -35,7 +39,7 @@ const InteractiveStar = ({ isFavorite, onClick }: { isFavorite: boolean, onClick
       hover:scale-110 active:scale-95 group/star
       ${isFavorite 
         ? 'text-amber-400 bg-amber-400/10 hover:bg-amber-400/20' 
-        : 'text-slate-600 hover:text-amber-400 hover:bg-black/40 opacity-0 group-hover:opacity-100' // Only show empty star on hover
+        : 'text-slate-600 hover:text-amber-400 hover:bg-black/40 opacity-0 group-hover:opacity-100' 
       }
     `}
     title={isFavorite ? "Unpin from favorites" : "Pin to favorites"}
@@ -53,13 +57,20 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   onClose, 
   onLoadAsset,
   databasePath,
-  files = []
+  files = [] 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedSymbols, setExpandedSymbols] = useState<Set<string>>(new Set());
   const [assets, setAssets] = useState<AssetSymbol[]>([]);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
+  // Independent State for Bridge Mode
+  const [internalFiles, setInternalFiles] = useState<any[]>([]);
+  
+  const electron = (window as any).electronAPI;
+  const isBridgeMode = !!electron;
+
   // Local favorites persistence
   const [favorites, setFavorites] = useState<string[]>(() => {
       try {
@@ -67,23 +78,58 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
       } catch { return []; }
   });
 
-  // Process files into assets whenever they change or dialog opens
+  // --- BOOT STRATEGY ---
+  // Ensure library is fetched immediately when the component mounts (App start)
   useEffect(() => {
-    if (isOpen) {
-        processFiles(files);
+      if (isBridgeMode) {
+          fetchInternalLibrary();
+      }
+  }, [isBridgeMode]);
+
+  const fetchInternalLibrary = async () => {
+      if (!electron) return;
+      try {
+          debugLog('Data', 'AssetLibrary: Requesting library scan...');
+          // This calls the internal:get-library IPC which returns cached results from main.js boot scan
+          const data = await electron.getInternalLibrary();
+          if (Array.isArray(data)) {
+              setInternalFiles(data);
+              debugLog('Data', `AssetLibrary: Loaded ${data.length} assets from src/database.`);
+          }
+      } catch (e: any) {
+          console.error("AssetLibrary: Failed to load internal library", e);
+          debugLog('Data', 'AssetLibrary: Load failed', e.message);
+      }
+  };
+
+  // --- PROCESSING ---
+  // Determine which source to use: Internal (Bridge) or Props (Web)
+  const activeFileList = isBridgeMode ? internalFiles : files;
+
+  useEffect(() => {
+    if (activeFileList.length > 0) {
+        processFiles(activeFileList);
+    } else {
+        setAssets([]);
     }
-  }, [isOpen, files, favorites]);
+  }, [activeFileList, favorites]);
 
   const processFiles = (fileList: any[]) => {
       const grouped: Record<string, any[]> = {};
       
       fileList.forEach(f => {
-          let base = getBaseSymbolName(f.name);
-          if (!base || base.trim() === '') {
-              base = 'Misc';
+          let groupKey = '';
+          
+          if (f.folder && f.folder !== 'database' && f.folder !== '.') {
+              groupKey = f.folder;
+          } else {
+              let base = getBaseSymbolName(f.name);
+              if (!base || base.trim() === '') base = 'Misc';
+              groupKey = base;
           }
-          if (!grouped[base]) grouped[base] = [];
-          grouped[base].push(f);
+
+          if (!grouped[groupKey]) grouped[groupKey] = [];
+          grouped[groupKey].push(f);
       });
 
       const processed: AssetSymbol[] = Object.entries(grouped).map(([name, assetFiles]) => ({
@@ -96,41 +142,46 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   };
 
   const handleToggleFavorite = (e: React.MouseEvent, assetName: string) => {
-    e.stopPropagation(); // Stop propagation to prevent folder toggling
-    
+    e.stopPropagation(); 
     let newFavs = [];
     if (favorites.includes(assetName)) {
         newFavs = favorites.filter(f => f !== assetName);
     } else {
         newFavs = [...favorites, assetName];
     }
-    
     setFavorites(newFavs);
     localStorage.setItem('redpill_asset_favorites', JSON.stringify(newFavs));
   };
 
-  // Logic: Sort (Hoist Favorites) and Filter
+  const handleManualRefresh = async () => {
+      setIsRefreshing(true);
+      if (isBridgeMode) {
+          try {
+              // Force re-scan via IPC (internal:scan-database)
+              const data = await electron.scanInternalDatabase();
+              setInternalFiles(data || []);
+              debugLog('Data', `AssetLibrary: Manual refresh found ${data?.length || 0} files.`);
+          } catch (e) {
+              console.error("Manual refresh failed", e);
+          }
+      } else {
+          // Web Mode fallback
+      }
+      setTimeout(() => setIsRefreshing(false), 500); 
+  };
+
   const { pinnedAssets, unpinnedAssets } = useMemo(() => {
     let result = assets;
-
-    // 1. Filter by Search
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       result = result.filter(a => a.name.toLowerCase().includes(lower));
     }
-
-    // 2. Filter by Favorites Toggle
     if (onlyFavorites) {
         result = result.filter(a => a.isFavorite);
     }
-
-    // 3. Sort Alphabetically first
     result.sort((a, b) => a.name.localeCompare(b.name));
-
-    // 4. Split into Pinned and Unpinned
     const pinned = result.filter(a => a.isFavorite);
     const unpinned = result.filter(a => !a.isFavorite);
-
     return { pinnedAssets: pinned, unpinnedAssets: unpinned };
   }, [assets, searchTerm, onlyFavorites]);
 
@@ -141,7 +192,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
     setExpandedSymbols(next);
   };
 
-  // Helper renderer for Asset Card to avoid duplication
   const renderAssetCard = (asset: AssetSymbol) => {
       const isExpanded = expandedSymbols.has(asset.name);
       return (
@@ -159,7 +209,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
                 onClick={(e) => handleToggleFavorite(e, asset.name)} 
             />
 
-            {/* Card Header */}
             <div 
                 className={`p-4 cursor-pointer flex items-center justify-between select-none bg-gradient-to-br transition-colors duration-300 ${asset.isFavorite ? 'from-[#2a2418] to-[#1e293b]' : 'from-[#1e293b] to-[#0f172a]'}`}
                 onClick={() => toggleExpand(asset.name)}
@@ -174,22 +223,20 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
                     </div>
                 </div>
                 
-                {/* Chevron */}
                 <div className="absolute bottom-3 right-3 text-slate-600 group-hover:text-slate-400 transition-colors">
                         {isExpanded ? <ChevronDown size={20} className="text-blue-400" /> : <ChevronRight size={20} />}
                 </div>
             </div>
 
-            {/* Expanded Content (Timeframes) */}
             {isExpanded && (
                 <div className="border-t border-[#334155] bg-[#0f172a]/50 p-2 grid grid-cols-2 gap-2 animate-in slide-in-from-top-2 duration-150">
                     {asset.files.map((file, idx) => {
-                        // Strip base symbol name to get timeframe, remove extension
                         let displayTF = file.name.replace(/\.(csv|txt)$/i, '');
                         if (asset.name !== 'Misc') {
-                            displayTF = displayTF.replace(asset.name, '').replace(/^[_.-]+/, '').replace(/[_.-]+$/, '');
+                            const regex = new RegExp(asset.name, 'i');
+                            displayTF = displayTF.replace(regex, '').replace(/^[_.-]+/, '').replace(/[_.-]+$/, '');
                         }
-                        if (!displayTF) displayTF = 'Default';
+                        if (!displayTF || displayTF.trim() === '') displayTF = 'Default';
                         
                         return (
                             <button
@@ -220,7 +267,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-6 animate-in fade-in duration-200">
       <div className="w-full max-w-5xl h-[85vh] bg-[#0f172a] border border-[#334155] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         
-        {/* Header */}
         <div className="flex items-center justify-between px-8 py-6 border-b border-[#334155] bg-[#1e293b]">
           <div className="flex flex-col gap-1">
             <h2 className="text-2xl font-bold text-white flex items-center gap-3">
@@ -228,7 +274,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               Asset Library
             </h2>
             <p className="text-slate-400 text-sm">
-              {assets.length} symbols found in {databasePath ? 'database' : 'file list'}
+              {assets.length} symbols found in {isBridgeMode ? 'src/database' : 'Indexed Storage'}
             </p>
           </div>
           <button 
@@ -239,7 +285,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
           </button>
         </div>
 
-        {/* Search & Toolbar */}
         <div className="px-8 py-4 border-b border-[#334155] bg-[#0f172a] flex items-center gap-4">
           <div className="relative flex-1 max-w-xl">
             <Search className="absolute left-4 top-3.5 text-slate-500" size={20} />
@@ -254,6 +299,14 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
           </div>
           
           <button
+            onClick={handleManualRefresh}
+            className={`p-3 rounded-xl border border-[#334155] bg-[#1e293b] text-slate-400 hover:text-white hover:bg-[#334155] transition-all ${isRefreshing ? 'animate-spin text-blue-400' : ''}`}
+            title="Scan Database"
+          >
+              <RefreshCw size={20} />
+          </button>
+          
+          <button
             onClick={() => setOnlyFavorites(!onlyFavorites)}
             className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all ${onlyFavorites ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-[#1e293b] border-[#334155] text-slate-400 hover:text-white'}`}
           >
@@ -262,17 +315,17 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
           </button>
         </div>
 
-        {/* Content Grid */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-[#0b0f19]">
           {pinnedAssets.length === 0 && unpinnedAssets.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-slate-500 opacity-50">
-              <Folder size={64} className="mb-4" />
-              <p className="text-lg font-medium">No assets found</p>
+              <Database size={64} className="mb-4" />
+              <p className="text-lg font-medium">Database Empty</p>
+              {isBridgeMode && (
+                  <p className="text-sm mt-2">Add folders to /src/database/ to populate this library.</p>
+              )}
             </div>
           ) : (
             <div className="space-y-8">
-                
-                {/* 1. Favorites Section */}
                 {pinnedAssets.length > 0 && (
                     <div>
                         <div className="flex items-center gap-3 mb-4 px-2 text-amber-500/80">
@@ -286,7 +339,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
                     </div>
                 )}
 
-                {/* 2. All Symbols Section */}
                 {unpinnedAssets.length > 0 && (
                     <div>
                         {pinnedAssets.length > 0 && (
@@ -305,7 +357,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
           )}
         </div>
         
-        {/* Footer */}
         <div className="px-8 py-3 bg-[#1e293b] border-t border-[#334155] text-xs text-slate-500 flex justify-between">
             <span>Select a timeframe to Quick-Load the chart.</span>
             <span>ESC to close</span>

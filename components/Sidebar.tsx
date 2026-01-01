@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { 
   Eye,
@@ -64,7 +65,6 @@ const ToolButton: React.FC<ToolButtonProps> = ({
                     <Icon size={20} />
                  </button>
                  
-                 {/* Menu Trigger Arrow - Left Click Option */}
                  <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -77,7 +77,6 @@ const ToolButton: React.FC<ToolButtonProps> = ({
                  </button>
             </div>
 
-            {/* Flyout Menu */}
             <div className={`absolute left-full top-0 ml-3 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl overflow-hidden flex flex-col transition-all duration-200 z-50 origin-top-left ${isMenuOpen ? 'visible opacity-100 scale-100' : 'invisible opacity-0 scale-95 pointer-events-none'} ${menuClassName || 'min-w-[160px]'}`}>
                  {menuContent}
             </div>
@@ -101,10 +100,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClearAll
 }) => {
   const [hideDrawings, setHideDrawings] = useState(false);
-  
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  // Close menus when clicking anywhere (left click)
   useEffect(() => {
     const handleGlobalClick = () => {
         setOpenMenuId(null);
@@ -117,6 +114,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setOpenMenuId(prev => prev === menuId ? null : menuId);
   };
 
+  // --- IPC SENDERS (The 3 Headaches Fix) ---
+  const sendIPCSignal = (action: 'hide' | 'lock' | 'delete', value?: any) => {
+      const electron = (window as any).electronAPI;
+      if (electron && electron.sendDrawingAction) {
+          electron.sendDrawingAction(action, value);
+      }
+  };
+
+  const handleHideToggle = () => {
+      const newState = !hideDrawings;
+      setHideDrawings(newState);
+      sendIPCSignal('hide', newState);
+  };
+
+  const handleLockToggle = () => {
+      if (onToggleDrawingsLock) onToggleDrawingsLock();
+      sendIPCSignal('lock', !areDrawingsLocked);
+  };
+
+  const handleClear = () => {
+      if (onClearAll) onClearAll();
+      sendIPCSignal('delete');
+  };
+
   const handleCategoryClick = (category: any[], defaultIndex = 0) => {
     const activeInCat = category.find(t => t.id === activeToolId);
     if (activeInCat) {
@@ -126,7 +147,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  // Helper to find the active icon for a category
   const getCategoryIcon = (category: any[], defaultIndex: number = 0) => {
     const activeInCat = category.find(t => t.id === activeToolId);
     return activeInCat ? activeInCat.icon : category[defaultIndex].icon;
@@ -174,10 +194,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className="w-14 bg-[#1e293b] border-r border-[#334155] flex flex-col items-center py-3 gap-2 z-30 shrink-0">
       
-      {/* Chart Tools */}
       <div className="flex flex-col gap-2 w-full px-2">
         
-        {/* Cursor Tool Menu */}
+        {/* Cursor Tools */}
         <ToolButton 
             id="cursors"
             active={isCategoryActive(TOOLS.cursors)}
@@ -196,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }
         />
 
-        {/* Line Tools Menu */}
+        {/* Line Tools */}
         <ToolButton 
             id="lines"
             active={isCategoryActive(TOOLS.lines)}
@@ -216,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }
         />
 
-        {/* Shape Tools Menu */}
+        {/* Shape Tools */}
         <ToolButton 
             id="shapes"
             active={isCategoryActive(TOOLS.shapes)}
@@ -306,7 +325,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <Pencil size={20} className={isStayInDrawingMode ? "fill-current" : ""} />
         </button>
 
-        {/* Measure Tools Menu */}
+        {/* Measure Tools */}
         <ToolButton 
             id="measure"
             active={isCategoryActive(TOOLS.measure)}
@@ -326,9 +345,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }
         />
 
-        {/* Lock/Unlock Drawing Tools (Read Only) */}
+        {/* Lock/Unlock Drawing Tools */}
         <button
-          onClick={onToggleDrawingsLock}
+          onClick={handleLockToggle}
           className={`p-2 rounded-lg transition-all group relative flex justify-center ${
              areDrawingsLocked 
                ? 'text-blue-400 bg-[#334155]/50' 
@@ -341,7 +360,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Hide/Unhide Drawing Tools */}
         <button
-          onClick={() => setHideDrawings(!hideDrawings)}
+          onClick={handleHideToggle}
           className={`p-2 rounded-lg transition-all group relative flex justify-center ${
              hideDrawings 
                ? 'text-blue-400 bg-[#334155]/50' 
@@ -367,7 +386,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Clear All */}
         <button
-          onClick={onClearAll}
+          onClick={handleClear}
           className="p-2 text-slate-400 hover:text-white hover:bg-[#334155] rounded-lg transition-all group relative flex justify-center"
           title="Clear All Drawings"
         >

@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { debugLog } from '../utils/logger';
 
@@ -50,6 +51,28 @@ export const useFileSystem = () => {
     return null;
   }, [electron]);
 
+  const connectDefaultDatabase = useCallback(async () => {
+      if (!electron) return;
+      
+      try {
+          const dbPath = await electron.getDefaultDatabasePath();
+          if (dbPath) {
+              setCurrentPath(dbPath);
+              debugLog('Data', `FileSystem: Auto-connected to database at ${dbPath}`);
+              
+              // Start watching
+              const initialFiles = await electron.watchFolder(dbPath);
+              setFiles(initialFiles || []);
+              setIsReady(true);
+              return true;
+          }
+      } catch (e: any) {
+          console.error("Failed to connect default database:", e);
+          debugLog('Data', 'FileSystem: Auto-connection failed', e.message);
+      }
+      return false;
+  }, [electron]);
+
   const disconnect = useCallback(async () => {
       if (electron) {
           await electron.unwatchFolder();
@@ -72,6 +95,7 @@ export const useFileSystem = () => {
     isReady,
     isBridgeAvailable: !!electron,
     connectFolder,
+    connectDefaultDatabase,
     disconnect,
     checkFileExists
   };

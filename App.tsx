@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -63,12 +64,15 @@ const App: React.FC = () => {
   const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); 
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
+  
+  // Hide Drawings State (for Sidebar sync)
+  const [hideDrawingsState, setHideDrawingsState] = useState(false);
 
-  // Data Explorer (Files in the ad-hoc panel)
+  // Data Explorer (Files in the ad-hoc panel) - MANUAL
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
   const [explorerFolderName, setExplorerFolderName] = useState<string>('');
 
-  // Database (Files in the specific 'Database' folder)
+  // Database (Web Mode Only - Files in the specific 'Database' folder)
   const [databaseFiles, setDatabaseFiles] = useState<any[]>([]);
   const [databaseHandle, setDatabaseHandle] = useState<any>(null);
   
@@ -77,7 +81,7 @@ const App: React.FC = () => {
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
 
   // Electron File System Hook
-  const { checkFileExists, isBridgeAvailable, currentPath: databasePath } = useFileSystem();
+  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -100,6 +104,20 @@ const App: React.FC = () => {
     );
   };
   
+  // Initial Boot Sequence
+  useEffect(() => {
+      const electron = (window as any).electronAPI;
+      if (electron) {
+          // Load Drawing States
+          if (electron.getDrawingsState) {
+              electron.getDrawingsState().then((state: any) => {
+                  if (state.areLocked !== undefined) setAreDrawingsLocked(state.areLocked);
+                  if (state.areHidden !== undefined) setHideDrawingsState(state.areHidden);
+              });
+          }
+      }
+  }, []); // Run once on mount
+
   // Tab Management
   const [tabs, setTabs] = useState<TabSession[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
@@ -230,7 +248,10 @@ const App: React.FC = () => {
           }
           setIsFavoritesBarVisible(savedState.isFavoritesBarVisible ?? true);
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
+          
+          // Magnet is local preference, but lock/hide might be overridden by global drawings_state.json in bridge mode
           setIsMagnetMode(savedState.isMagnetMode ?? false);
+          
           setLayoutMode(savedState.layoutMode || 'single');
           setLayoutTabIds(savedState.layoutTabIds || []);
           
@@ -248,23 +269,25 @@ const App: React.FC = () => {
           debugLog('Data', 'No session found, initialized mock data');
         }
 
-        // --- GATE: Wait for Database ---
-        try {
-            const dbHandle = await getDatabaseHandle();
-            if (dbHandle) {
-                const perm = await dbHandle.queryPermission({ mode: 'readwrite' });
-                if (perm === 'granted') {
-                    setDatabaseHandle(dbHandle);
-                    const files = await scanRecursive(dbHandle);
-                    setDatabaseFiles(files);
-                    debugLog('Data', `Database connected: ${files.length} files indexed`);
-                } else {
-                    setDatabaseHandle(dbHandle);
+        // --- GATE: Wait for Database (Web Mode) ---
+        if (!isBridgeAvailable) {
+            try {
+                const dbHandle = await getDatabaseHandle();
+                if (dbHandle) {
+                    const perm = await dbHandle.queryPermission({ mode: 'readwrite' });
+                    if (perm === 'granted') {
+                        setDatabaseHandle(dbHandle);
+                        const files = await scanRecursive(dbHandle);
+                        setDatabaseFiles(files);
+                        debugLog('Data', `Database connected: ${files.length} files indexed`);
+                    } else {
+                        setDatabaseHandle(dbHandle);
+                    }
                 }
+            } catch (e) {
+                console.warn("Database restore failed", e);
+                debugLog('Data', 'Database restore failed', e);
             }
-        } catch (e) {
-            console.warn("Database restore failed", e);
-            debugLog('Data', 'Database restore failed', e);
         }
 
       } catch (e: any) {
@@ -284,7 +307,7 @@ const App: React.FC = () => {
     };
 
     restoreSession();
-  }, [createNewTab]);
+  }, [createNewTab, isBridgeAvailable]);
 
   useEffect(() => {
     if (!isAppReady) return;
@@ -715,8 +738,21 @@ const App: React.FC = () => {
             replayGlobalTime: targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null)
         };
 
-        // Try database first (Asset Vault)
-        let matchingFileHandle = findFileForTimeframe(explorerFiles, targetTab.title, tf); // Use explorerFiles which reflects current monitored folder (Asset Vault)
+        // Try database first (Internal Asset Library)
+        // For search, we need to know what files are available.
+        // We'll quickly re-scan internal cache or check explorer files
+        const electron = (window as any).electronAPI;
+        let searchList = explorerFiles;
+        
+        if (electron && electron.getInternalLibrary) {
+            try {
+                // Quick fetch of cached library for lookup
+                const internal = await electron.getInternalLibrary();
+                if (Array.isArray(internal)) searchList = internal;
+            } catch(e) {}
+        }
+
+        let matchingFileHandle = findFileForTimeframe(searchList, targetTab.title, tf);
         
         if (matchingFileHandle) {
             try {
@@ -1204,13 +1240,14 @@ const App: React.FC = () => {
         onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
       />
       
-      {/* Asset Library Dialog */}
+      {/* Asset Library Dialog (Automatic - Self Managed) */}
       <AssetLibrary
         isOpen={isAssetLibraryOpen}
         onClose={() => setIsAssetLibraryOpen(false)}
-        files={explorerFiles}
         onLoadAsset={handleAssetLoad}
-        databasePath={databasePath}
+        databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
+        files={isBridgeAvailable ? [] : explorerFiles} // Only pass explorer files in Web mode
+        onRefresh={isBridgeAvailable ? undefined : connectDefaultDatabase} // Only pass connect handler in Web mode
       />
 
       <TabBar 
@@ -1238,7 +1275,7 @@ const App: React.FC = () => {
         onOpenIndicators={() => alert('Indicators coming soon')}
         onToggleAdvancedReplay={handleToggleAdvancedReplay}
         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
-        onOpenLocalData={() => setIsAssetLibraryOpen(true)} // Re-purpose local data button to open library
+        onOpenLocalData={() => setIsAssetLibraryOpen(true)} // Opens Asset Library Modal
         onLayoutAction={handleLayoutAction}
         isSymbolSync={isSymbolSync}
         isIntervalSync={isIntervalSync}
@@ -1247,7 +1284,7 @@ const App: React.FC = () => {
         onToggleTradingPanel={() => setIsTradingPanelOpen(!isTradingPanelOpen)}
         isTradingPanelOpen={isTradingPanelOpen}
         isLibraryOpen={isLibraryOpen}
-        onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
+        onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)} // Opens File Panel Sidebar
         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
         onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
         tickerSymbol={currentSymbolName}
