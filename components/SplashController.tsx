@@ -30,18 +30,8 @@ export const SplashController: React.FC = () => {
       </div>
 
       {/* Loading Spinner */}
-      <div className="mb-8">
+      <div className="mb-4">
         <div className="w-8 h-8 border-4 border-[#1e293b] border-t-blue-500 rounded-full animate-spin"></div>
-      </div>
-
-      {/* App Title */}
-      <div className="text-center mb-2 animate-in slide-in-from-bottom-4 duration-700 delay-200 fade-in">
-          <h1 className="text-3xl font-bold text-white tracking-tight mb-2 bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">
-            Red Pill Charting
-          </h1>
-          <p className="text-slate-500 text-xs font-mono tracking-widest uppercase">
-            v0.2.2 • Offline-First Architecture
-          </p>
       </div>
 
       {/* Status Text */}
