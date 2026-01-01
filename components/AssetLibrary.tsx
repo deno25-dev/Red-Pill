@@ -94,7 +94,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
           const data = await electron.getInternalLibrary();
           if (Array.isArray(data)) {
               setInternalFiles(data);
-              debugLog('Data', `AssetLibrary: Loaded ${data.length} assets from src/database.`);
+              debugLog('Data', `AssetLibrary: Loaded ${data.length} assets.`);
           }
       } catch (e: any) {
           console.error("AssetLibrary: Failed to load internal library", e);
@@ -274,7 +274,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               Asset Library
             </h2>
             <p className="text-slate-400 text-sm">
-              {assets.length} symbols found in {isBridgeMode ? 'src/database' : 'Indexed Storage'}
+              {assets.length} symbols found in {isBridgeMode ? 'Local Database' : 'Indexed Storage'}
             </p>
           </div>
           <button 
@@ -321,7 +321,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               <Database size={64} className="mb-4" />
               <p className="text-lg font-medium">Database Empty</p>
               {isBridgeMode && (
-                  <p className="text-sm mt-2">Add folders to /src/database/ to populate this library.</p>
+                  <p className="text-sm mt-2">Add folders to your database folder to populate this library.</p>
               )}
             </div>
           ) : (

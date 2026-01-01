@@ -50,21 +50,12 @@ const validatePath = (filePath) => {
 
 // --- PATH RESOLVER & FOLDER DISCOVERY ---
 const resolveDatabasePath = () => {
-    // TARGET: src/database
-    // 1. Primary Strategy: app.getAppPath() + src/database
-    // In production, resources/app/src/database. In dev, project/src/database
-    let dbPath = path.join(app.getAppPath(), 'src', 'database');
-
-    // 2. Development Fallback: Look up from __dirname if primary missing
-    // In dev, __dirname is often /electron or /dist/electron.
-    if (!app.isPackaged && !fs.existsSync(dbPath)) {
-        const devPath = path.join(__dirname, '..', 'src', 'database');
-        if (fs.existsSync(devPath)) {
-            dbPath = devPath;
-        }
-    }
+    // Universal Path Logic: Use userData/database
+    // This ensures write access in packaged apps (Fixes Hide & Lock issues)
+    const userDataPath = app.getPath('userData');
+    const dbPath = path.join(userDataPath, 'database');
     
-    // Ensure it exists
+    // Create if Missing
     if (!fs.existsSync(dbPath)) {
         try {
             fs.mkdirSync(dbPath, { recursive: true });
@@ -318,12 +309,12 @@ ipcMain.handle('dialog:openDirectory', async () => {
 });
 
 // --- DRAWING STATE PERSISTENCE ---
-// Saves state to src/database/drawings_state.json
-const getDrawingsStatePath = () => path.join(resolveDatabasePath(), 'drawings_state.json');
+// Saves state to settings.json inside the new userData/database folder
+const getSettingsPath = () => path.join(resolveDatabasePath(), 'settings.json');
 
 const updateDrawingsState = (key, value) => {
     try {
-        const statePath = getDrawingsStatePath();
+        const statePath = getSettingsPath();
         let state = {};
         if (fs.existsSync(statePath)) {
             try {
@@ -336,13 +327,13 @@ const updateDrawingsState = (key, value) => {
         
         fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
     } catch (e) {
-        console.error("Failed to save drawings state:", e);
+        console.error("Failed to save settings:", e);
     }
 };
 
 ipcMain.handle('drawings:get-state', async () => {
     try {
-        const statePath = getDrawingsStatePath();
+        const statePath = getSettingsPath();
         if (fs.existsSync(statePath)) {
             return JSON.parse(fs.readFileSync(statePath, 'utf8'));
         }
@@ -366,7 +357,7 @@ ipcMain.on('drawings:delete', (event, arg) => {
 
 app.whenReady().then(() => {
   // --- THE BOOT SCAN ---
-  // Ensure database is scanned immediately upon startup using the resolved src/database path
+  // Ensure database is scanned immediately upon startup using the resolved path
   runBootScan();
   
   createWindow();
