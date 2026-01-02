@@ -44,15 +44,9 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
 
   // Load stored handle and recents on mount
   useEffect(() => {
-    if (isBridgeMode) {
-        // Auto-connect to Universal Path (database folder) in bridge mode
-        // This ensures the path is displayed immediately
-        fileSystem.connectDefaultDatabase();
-    } else {
-        checkStoredHandle();
-    }
+    checkStoredHandle();
     loadRecents();
-  }, [isBridgeMode]);
+  }, []);
 
   // Sync with Bridge Files if active - UPDATED to always sync path even if empty
   useEffect(() => {

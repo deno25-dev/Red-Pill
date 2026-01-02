@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Trash2, 
@@ -11,6 +10,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Check,
   Activity
 } from 'lucide-react';
 import { DrawingProperties } from '../types';

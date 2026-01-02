@@ -26,7 +26,7 @@ interface AssetLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   onLoadAsset: (file: any, timeframe: Timeframe) => void;
-  databasePath?: string; // Kept as optional but ignored to avoid breaking change if passed elsewhere, or remove if strictly unused. TS error said it IS declared but never read.
+  databasePath?: string;
   files?: any[]; // Keep for Web mode fallback
   onRefresh?: () => void; // Keep for Web mode refresh
 }
@@ -56,6 +56,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   isOpen, 
   onClose, 
   onLoadAsset,
+  databasePath,
   files = [] 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -77,29 +78,23 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
       } catch { return []; }
   });
 
-  // --- BOOT STRATEGY ---
-  // Ensure library is fetched immediately when the component mounts (App start)
+  // --- SELF-STARTING LOGIC ---
+  // Immediately fetch internal folders on mount (Bridge Mode)
   useEffect(() => {
-      if (isBridgeMode) {
-          fetchInternalLibrary();
+      if (isBridgeMode && electron.getInternalFolders) {
+          debugLog('Data', 'AssetLibrary: Self-starting internal scan...');
+          electron.getInternalFolders()
+              .then((data: any[]) => {
+                  if (Array.isArray(data)) {
+                      setInternalFiles(data);
+                      debugLog('Data', `AssetLibrary: Auto-loaded ${data.length} internal assets.`);
+                  }
+              })
+              .catch((err: any) => {
+                  console.error("AssetLibrary: Auto-load failed", err);
+              });
       }
   }, [isBridgeMode]);
-
-  const fetchInternalLibrary = async () => {
-      if (!electron) return;
-      try {
-          debugLog('Data', 'AssetLibrary: Requesting library scan...');
-          // This calls the internal:get-library IPC which returns cached results from main.js boot scan
-          const data = await electron.getInternalLibrary();
-          if (Array.isArray(data)) {
-              setInternalFiles(data);
-              debugLog('Data', `AssetLibrary: Loaded ${data.length} assets.`);
-          }
-      } catch (e: any) {
-          console.error("AssetLibrary: Failed to load internal library", e);
-          debugLog('Data', 'AssetLibrary: Load failed', e.message);
-      }
-  };
 
   // --- PROCESSING ---
   // Determine which source to use: Internal (Bridge) or Props (Web)
@@ -154,10 +149,10 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
 
   const handleManualRefresh = async () => {
       setIsRefreshing(true);
-      if (isBridgeMode) {
+      if (isBridgeMode && electron.getInternalFolders) {
           try {
-              // Force re-scan via IPC (internal:scan-database)
-              const data = await electron.scanInternalDatabase();
+              // Force re-scan via new channel
+              const data = await electron.getInternalFolders();
               setInternalFiles(data || []);
               debugLog('Data', `AssetLibrary: Manual refresh found ${data?.length || 0} files.`);
           } catch (e) {
@@ -273,7 +268,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               Asset Library
             </h2>
             <p className="text-slate-400 text-sm">
-              {assets.length} symbols found in {isBridgeMode ? 'Local Database' : 'Indexed Storage'}
+              {assets.length} symbols found in {isBridgeMode ? 'src/database' : 'Indexed Storage'}
             </p>
           </div>
           <button 
@@ -320,7 +315,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               <Database size={64} className="mb-4" />
               <p className="text-lg font-medium">Database Empty</p>
               {isBridgeMode && (
-                  <p className="text-sm mt-2">Add folders to your database folder to populate this library.</p>
+                  <p className="text-sm mt-2">Add folders to /src/database/ to populate this library.</p>
               )}
             </div>
           ) : (

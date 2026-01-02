@@ -1,6 +1,6 @@
 
-import { useState, useEffect, useRef } from 'react';
-import { ChartState, TabSession } from '../types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { ChartState, Drawing, ChartConfig, TabSession } from '../types';
 import { saveChartMeta, loadChartMeta } from '../utils/storage';
 import { debugLog } from '../utils/logger';
 

@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { useMarketPrices } from '../hooks/useLiveData';
@@ -20,6 +19,7 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
       lastUpdated, 
       addSymbol, 
       removeSymbol, 
+      watchedSymbols, 
       refetch 
   } = useMarketPrices(currentSymbol);
   
@@ -62,7 +62,7 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
              (normalizedLocal.length <= 5 && liveSymbol === `${normalizedLocal}USDT`);
   };
 
-  const formatCurrency = (val: number) => {
+  const formatCurrency = (val: number, symbol: string) => {
       if (val < 1) return val.toFixed(4);
       if (val > 1000) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(val);
       return val.toFixed(2);
@@ -203,34 +203,36 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
                                     displayTickers.map((t) => {
                                         const isUp = t.change >= 0;
                                         const isCurrent = isMatch(t.originalSymbol);
+                                        const isDeletable = watchedSymbols.includes(t.originalSymbol);
                                         
                                         return (
-                                            <tr 
-                                                key={t.originalSymbol} 
-                                                className={`transition-colors ${isCurrent ? 'bg-blue-900/20' : 'hover:bg-[#1e293b]/50'}`}
-                                            >
+                                            <tr key={t.symbol} className={`group hover:bg-[#1e293b]/30 transition-colors ${isCurrent ? 'bg-[#1e293b]/40 border-l-2 border-blue-500' : ''}`}>
                                                 <td className="px-4 py-2 font-bold flex items-center gap-2">
-                                                    <span className={isCurrent ? 'text-blue-400' : 'text-slate-200'}>{t.symbol}</span>
-                                                    {isCurrent && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>}
+                                                    <span className={isCurrent ? 'text-blue-300' : 'text-slate-200'}>{t.symbol}</span>
+                                                    {isCurrent && <span className="text-[9px] bg-blue-900/40 text-blue-400 px-1 rounded">Active</span>}
                                                 </td>
-                                                <td className="px-4 py-2 text-right font-mono">{formatCurrency(t.price)}</td>
-                                                <td className={`px-4 py-2 text-right font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                    <div className="flex items-center justify-end gap-1">
+                                                <td className="px-4 py-2 text-right font-mono text-slate-200">{formatCurrency(t.price, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right">
+                                                    <div className={`flex items-center justify-end gap-1 ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
                                                         {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                                                        {t.changePct.toFixed(2)}%
+                                                        <span className="font-bold">{t.changePct.toFixed(2)}%</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-2 text-right text-slate-400">{formatCurrency(t.high)}</td>
-                                                <td className="px-4 py-2 text-right text-slate-400">{formatCurrency(t.low)}</td>
-                                                <td className="px-4 py-2 text-right text-slate-400">{formatVolume(t.quoteVolume)}</td>
-                                                <td className="px-4 py-2 text-center">
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); removeSymbol(t.originalSymbol); }}
-                                                        className="p-1 text-slate-600 hover:text-red-400 rounded transition-colors opacity-50 hover:opacity-100"
-                                                        title="Remove"
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.high, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.low, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-500">
+                                                    {formatVolume(t.quoteVolume)}
+                                                </td>
+                                                <td className="px-2 text-center">
+                                                    {isDeletable && (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); removeSymbol(t.originalSymbol); }}
+                                                            className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
+                                                            title="Remove symbol"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         );
