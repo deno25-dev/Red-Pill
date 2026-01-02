@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { useMarketPrices } from '../hooks/useLiveData';
@@ -19,7 +20,6 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
       lastUpdated, 
       addSymbol, 
       removeSymbol, 
-      watchedSymbols, 
       refetch 
   } = useMarketPrices(currentSymbol);
   

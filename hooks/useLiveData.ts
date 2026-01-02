@@ -1,8 +1,8 @@
+
 import { useState, useCallback } from 'react';
 import { useOnlineStatus } from './useOnlineStatus';
 import { ConnectionError } from '../utils/errors';
 import { useSmartFetch } from './useSmartFetch';
-import { debugLog } from '../utils/logger';
 
 export interface LiveTicker {
   symbol: string;
@@ -136,7 +136,6 @@ export const useMarketPrices = (userSymbol?: string) => {
     error: error ? error.message : null,
     addSymbol,
     removeSymbol,
-    watchedSymbols,
     refetch: retry
   };
 };

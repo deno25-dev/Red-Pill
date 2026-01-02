@@ -51,7 +51,6 @@ interface ToolbarProps {
   onRedo?: () => void;
   onToggleReplay: () => void;
   isReplayMode: boolean;
-  onOpenIndicators?: () => void;
   onToggleAdvancedReplay?: () => void;
   isAdvancedReplayMode?: boolean;
   onOpenLocalData?: () => void;
@@ -60,7 +59,6 @@ interface ToolbarProps {
   isTradingPanelOpen?: boolean;
   isLibraryOpen?: boolean;
   onToggleLibrary?: () => void;
-  onClearAll?: () => void;
   onToggleLayers?: () => void;
   isLayersOpen?: boolean;
   isSymbolSync?: boolean;
@@ -89,7 +87,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   onToggleReplay,
   isReplayMode,
-  onOpenIndicators,
   onToggleAdvancedReplay,
   isAdvancedReplayMode,
   onOpenLocalData,
@@ -98,7 +95,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isTradingPanelOpen,
   isLibraryOpen,
   onToggleLibrary,
-  onClearAll,
   onToggleLayers,
   isLayersOpen,
   isSymbolSync,

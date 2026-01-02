@@ -43,7 +43,7 @@ interface ToolButtonProps {
 }
 
 const ToolButton: React.FC<ToolButtonProps> = ({ 
-    id, active, icon: Icon, label, onClick, onToggleMenu, isMenuOpen, menuContent, menuClassName 
+    active, icon: Icon, label, onClick, onToggleMenu, isMenuOpen, menuContent, menuClassName 
 }) => {
     return (
         <div className="relative flex justify-center w-full group/tool">

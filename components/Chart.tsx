@@ -357,7 +357,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onReplayPointSelect, 
     areDrawingsLocked = false, 
     visibleRange, 
-    onVisibleRangeChange,
     // Replay Props
     fullData,
     replayIndex,

@@ -2,7 +2,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { ISeriesApi, Time } from 'lightweight-charts';
 import { OHLCV } from '../types';
-import { getTimeframeDuration } from '../utils/dataUtils';
 
 interface UseAdvancedReplayProps {
   seriesRef: React.MutableRefObject<ISeriesApi<"Candlestick"> | null>;

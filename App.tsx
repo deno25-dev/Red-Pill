@@ -81,7 +81,7 @@ const App: React.FC = () => {
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
 
   // Electron File System Hook
-  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase } = useFileSystem();
+  const { checkFileExists, isBridgeAvailable, connectDefaultDatabase } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
