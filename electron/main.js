@@ -151,6 +151,8 @@ const runBootScan = () => {
 
 // --- IPC HANDLERS ---
 
+// --- Existing Handlers ---
+
 ipcMain.handle('get-user-data-path', async () => {
     return app.getPath('userData');
 });
@@ -232,6 +234,115 @@ const updateDrawingsState = (key, value) => {
 ipcMain.on('drawings:hide', (event, arg) => updateDrawingsState('areHidden', arg));
 ipcMain.on('drawings:lock', (event, arg) => updateDrawingsState('areLocked', arg));
 ipcMain.on('drawings:delete', (event, arg) => updateDrawingsState('lastDeleteAction', Date.now()));
+
+
+// --- NEWLY IMPLEMENTED HANDLERS ---
+
+ipcMain.handle('dialog:select-folder', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    if (canceled) return null;
+    return { path: filePaths[0], name: path.basename(filePaths[0]) };
+});
+
+ipcMain.handle('get-default-database-path', () => {
+    return resolveDatabasePath();
+});
+
+ipcMain.handle('file:unwatch-folder', () => {
+    if (watcher) {
+        watcher.close();
+        watcher = null;
+    }
+});
+
+ipcMain.handle('file:get-details', async (event, filePath) => {
+    try {
+        validatePath(filePath);
+        const stats = fs.statSync(filePath);
+        return { exists: true, size: stats.size };
+    } catch (e) {
+        return { exists: false, size: 0 };
+    }
+});
+
+// --- Sidecar Metadata Persistence ---
+const getMetaPath = (filePath) => `${filePath}.meta.json`;
+
+ipcMain.handle('meta:load', async (event, filePath) => {
+    try {
+        validatePath(filePath);
+        const metaPath = getMetaPath(filePath);
+        if (fs.existsSync(metaPath)) {
+            const data = fs.readFileSync(metaPath, 'utf8');
+            return { success: true, data: JSON.parse(data) };
+        }
+        return { success: true, data: null };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('meta:save', async (event, filePath, data) => {
+    try {
+        validatePath(filePath);
+        const metaPath = getMetaPath(filePath);
+        fs.writeFileSync(metaPath, JSON.stringify(data, null, 2));
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('meta:delete', async (event, filePath) => {
+    try {
+        validatePath(filePath);
+        const metaPath = getMetaPath(filePath);
+        if (fs.existsSync(metaPath)) {
+            fs.unlinkSync(metaPath);
+        }
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// --- Trade Persistence ---
+const getTradesDbPath = () => path.join(app.getPath('userData'), 'trades_db.json');
+
+const readTradesDb = () => {
+    const dbPath = getTradesDbPath();
+    if (fs.existsSync(dbPath)) {
+        try { return JSON.parse(fs.readFileSync(dbPath, 'utf8')); } 
+        catch { return {}; }
+    }
+    return {};
+};
+
+const writeTradesDb = (data) => {
+    const dbPath = getTradesDbPath();
+    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+};
+
+ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
+    const db = readTradesDb();
+    return db[sourceId] || [];
+});
+
+ipcMain.handle('trades:save', async (event, trade) => {
+    try {
+        const db = readTradesDb();
+        if (!db[trade.sourceId]) db[trade.sourceId] = [];
+        db[trade.sourceId].push(trade);
+        writeTradesDb(db);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// --- APP LIFECYCLE ---
 
 app.whenReady().then(() => {
   runBootScan();
