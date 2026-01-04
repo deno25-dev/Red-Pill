@@ -9,7 +9,7 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Activity, Loader2 } from 'lucide-react';
+import { GripVertical, Settings, Check, Activity, Loader2, Folder } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useChartPersistence } from '../hooks/useChartPersistence';
 import { useTradePersistence } from '../hooks/useTradePersistence';
@@ -38,6 +38,7 @@ interface ChartWorkspaceProps {
   
   // Timeframe favorites
   favoriteTimeframes?: string[];
+  onBackToLibrary?: () => void;
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -58,7 +59,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onToggleLayers,
   isSyncing = false,
   onVisibleRangeChange,
-  favoriteTimeframes
+  favoriteTimeframes,
+  onBackToLibrary
 }) => {
   // Scoped Persistence Hook (Drawings/Config)
   const { isHydrating } = useChartPersistence({ tab, updateTab });
@@ -317,6 +319,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleDrawingPropertyChange = (updates: Partial<DrawingProperties>) => {
+    if (!tab) return;
     if (selectedDrawingId) {
       onSaveHistory?.();
       const newDrawings = tab.drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
@@ -328,6 +331,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const deleteSelectedDrawing = () => {
+    if (!tab) return;
     if (selectedDrawingId) {
       onSaveHistory?.();
       const newDrawings = tab.drawings.filter(d => d.id !== selectedDrawingId);
@@ -366,11 +370,11 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const activeProperties = useMemo(() => {
     if (selectedDrawingId) {
-      const drawing = tab.drawings.find(d => d.id === selectedDrawingId);
-      return drawing ? drawing.properties : defaultDrawingProperties;
+      const drawing = tab?.drawings.find(d => d.id === selectedDrawingId);
+      return drawing?.properties ?? defaultDrawingProperties;
     }
     return defaultDrawingProperties;
-  }, [selectedDrawingId, tab.drawings, defaultDrawingProperties]);
+  }, [selectedDrawingId, tab?.drawings, defaultDrawingProperties]);
   
   const selectedDrawingType = useMemo(() => {
       if (selectedDrawingId) return tab.drawings.find(d => d.id === selectedDrawingId)?.type;
@@ -419,6 +423,19 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 </div>
              )}
           </div>
+          {onBackToLibrary && (
+              <>
+                <div className="h-4 w-px bg-slate-600"></div>
+                <button 
+                    onClick={onBackToLibrary}
+                    className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-red-400 transition-colors"
+                    title="Back to Library (Closes Chart)"
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <Folder size={14} />
+                </button>
+              </>
+          )}
         </div>
         {isFavoritesBarVisible && favoriteTools.length > 0 && (
             <div ref={favBarRef} onMouseDown={handleFavMouseDown} style={{ left: favBarPos.x, top: favBarPos.y }} className="absolute z-30 bg-[#1e293b] border border-[#334155] rounded-full shadow-xl shadow-black/50 backdrop-blur-md flex items-center p-1 gap-1 cursor-move animate-in fade-in zoom-in-95 duration-200">

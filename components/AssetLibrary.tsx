@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
@@ -25,7 +24,7 @@ interface AssetSymbol {
 interface AssetLibraryProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoadAsset: (file: any, timeframe: Timeframe) => void;
+  onSelect: (file: any, timeframe: Timeframe) => void;
   databasePath?: string;
   files?: any[]; // Keep for Web mode fallback
   onRefresh?: () => void; // Keep for Web mode refresh
@@ -55,7 +54,7 @@ const InteractiveStar = ({ isFavorite, onClick }: { isFavorite: boolean, onClick
 export const AssetLibrary: React.FC<AssetLibraryProps> = ({ 
   isOpen, 
   onClose, 
-  onLoadAsset,
+  onSelect,
   databasePath,
   files = [] 
 }) => {
@@ -114,11 +113,13 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
       fileList.forEach(f => {
           let groupKey = '';
           
-          if (f.folder && f.folder !== 'database' && f.folder !== '.') {
+          // Use folder property if it's not the root directory ('.')
+          if (f.folder && f.folder !== '.' && f.folder !== 'Assets') {
               groupKey = f.folder;
           } else {
+              // Fallback for root files: group by base name from filename
               let base = getBaseSymbolName(f.name);
-              if (!base || base.trim() === '') base = 'Misc';
+              if (!base || base.trim() === '') base = 'Miscellaneous';
               groupKey = base;
           }
 
@@ -226,7 +227,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
                 <div className="border-t border-[#334155] bg-[#0f172a]/50 p-2 grid grid-cols-2 gap-2 animate-in slide-in-from-top-2 duration-150">
                     {asset.files.map((file, idx) => {
                         let displayTF = file.name.replace(/\.(csv|txt)$/i, '');
-                        if (asset.name !== 'Misc') {
+                        if (asset.name !== 'Miscellaneous') {
                             const regex = new RegExp(asset.name, 'i');
                             displayTF = displayTF.replace(regex, '').replace(/^[_.-]+/, '').replace(/[_.-]+$/, '');
                         }
@@ -236,7 +237,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
                             <button
                                 key={idx}
                                 onClick={() => {
-                                    onLoadAsset(file, displayTF as Timeframe); 
+                                    onSelect(file, displayTF as Timeframe); 
                                     onClose();
                                 }}
                                 className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#1e293b] hover:bg-blue-600 hover:text-white text-slate-300 border border-[#334155] transition-all group/btn text-left"

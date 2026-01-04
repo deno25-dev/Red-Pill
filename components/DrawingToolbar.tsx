@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Trash2, 
@@ -16,7 +17,7 @@ import {
 import { DrawingProperties } from '../types';
 
 interface DrawingToolbarProps {
-  properties: DrawingProperties;
+  properties?: DrawingProperties;
   onChange: (updates: Partial<DrawingProperties>) => void;
   onDelete?: () => void;
   isVisible: boolean;
@@ -91,14 +92,14 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
 
   // Sync opacity and hex state when properties change or tab changes
   useEffect(() => {
-      const targetColor = colorTab === 'stroke' ? properties.color : (properties.backgroundColor || '#3b82f6');
-      setLocalOpacity(getAlphaFromHex(targetColor));
+      const targetColor = colorTab === 'stroke' ? properties?.color : (properties?.backgroundColor || '#3b82f6');
+      setLocalOpacity(getAlphaFromHex(targetColor || '#3b82f6'));
       
-      let clean = targetColor.startsWith('#') ? targetColor.slice(1) : targetColor;
+      let clean = (targetColor || '#3b82f6').startsWith('#') ? (targetColor || '#3b82f6').slice(1) : (targetColor || '#3b82f6');
       if (clean.length === 8) clean = clean.slice(0, 6);
       if (clean.length === 3) clean = clean.split('').map(c => c+c).join('');
       setManualHex(clean.toUpperCase());
-  }, [properties.color, properties.backgroundColor, colorTab]);
+  }, [properties?.color, properties?.backgroundColor, colorTab]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -115,7 +116,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
     };
   }, [activeMenu]);
 
-  if (!isVisible) return null;
+  if (!isVisible || !properties) return null;
 
   // Default position: Centered near bottom
   const style = position 

@@ -1,4 +1,5 @@
 
+
 import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
@@ -650,7 +651,7 @@ const TF_PATTERNS: Record<string, RegExp[]> = {
 
 // Extract the "Symbol" part from a filename by stripping extension and timeframe patterns
 export const getBaseSymbolName = (filename: string): string => {
-  let name = filename.replace(/\.(csv|txt)$/i, '');
+  let name = filename.replace(/\.(csv|txt|json)$/i, '');
   
   // Iterate all known TF patterns and strip them
   Object.values(TF_PATTERNS).flat().forEach(regex => {
@@ -693,18 +694,27 @@ export const findFileForTimeframe = (files: any[], currentTitle: string, targetT
 // Updated to be robust against permission errors and invalid handles
 export async function scanRecursive(dirHandle: any): Promise<any[]> {
     const files: any[] = [];
-    async function traverse(handle: any) {
+    async function traverse(handle: any, currentPath: string) {
         if (!handle || typeof handle.values !== 'function') return;
         try {
             // @ts-ignore
             for await (const entry of handle.values()) {
                 try {
                     if (entry.kind === 'file') {
-                        if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.txt')) {
-                           files.push(entry);
+                        if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.json')) {
+                           // The 'entry' is a FileSystemFileHandle. It's not a plain object.
+                           // We create a new object that carries the folder info but is compatible with consumers.
+                           const fileObject = {
+                               name: entry.name,
+                               kind: entry.kind,
+                               getFile: () => entry.getFile(), // Pass along the method
+                               folder: currentPath ? currentPath.split('/')[0] : '.', // Use folder name or '.' for root
+                               handle: entry // Keep original handle if needed
+                           };
+                           files.push(fileObject);
                         }
                     } else if (entry.kind === 'directory') {
-                        await traverse(entry);
+                        await traverse(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
                     }
                 } catch (innerErr) {
                     console.warn("Skipping entry due to error:", entry.name, innerErr);
@@ -714,6 +724,6 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
             console.error("Error scanning directory:", handle.name, err);
         }
     }
-    await traverse(dirHandle);
+    await traverse(dirHandle, ''); // Start with an empty path for the root
     return files;
 }

@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect, useCallback } from 'react';
 import { debugLog } from '../utils/logger';
 
@@ -8,6 +9,10 @@ export interface FileSystemFile {
   handle?: any; // Fallback for Web API
 }
 
+// This hook acts as a bridge to the Electron main process.
+// All file system operations, including recursive directory scanning,
+// are handled in `electron/main.js` to ensure they are performed efficiently
+// and correctly handle path information for asset grouping.
 export const useFileSystem = () => {
   const [files, setFiles] = useState<FileSystemFile[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');

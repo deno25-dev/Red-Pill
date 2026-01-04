@@ -161,10 +161,10 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       if (e.target.files && e.target.files.length > 0) {
           const rawFiles: File[] = Array.from(e.target.files);
           const validFiles = rawFiles.filter(f => 
-             f.name.toLowerCase().endsWith('.csv') || f.name.toLowerCase().endsWith('.txt')
+             f.name.toLowerCase().endsWith('.csv') || f.name.toLowerCase().endsWith('.json')
           );
           if (validFiles.length === 0) {
-              setError("No .csv or .txt files found in selection.");
+              setError("No .csv or .json files found in selection.");
               setFiles([]);
               return;
           }
@@ -354,7 +354,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
           <div className="flex flex-col items-center justify-center mt-12 text-slate-500 gap-2 px-6 text-center">
             <FileText size={32} className="opacity-20" />
             <p className="text-xs">
-                {storedHandle || isBridgeMode ? "No .csv or .txt files found in this folder." : "Connect a local folder to browse CSV files."}
+                {storedHandle || isBridgeMode ? "No .csv or .json files found in this folder." : "Connect a local folder to browse CSV files."}
             </p>
           </div>
         ) : (

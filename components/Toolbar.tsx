@@ -160,7 +160,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         type="file" 
         ref={fileInputRef} 
         className="hidden" 
-        accept=".csv,.txt"
+        accept=".csv,.json"
         onChange={handleFileChange}
       />
 

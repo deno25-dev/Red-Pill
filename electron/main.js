@@ -59,59 +59,92 @@ const validatePath = (filePath) => {
 
 // --- PATH RESOLVER & FOLDER DISCOVERY ---
 const resolveDatabasePath = () => {
-    let dbPath = path.join(app.getAppPath(), 'src', 'database');
+    // Hardcode path to 'Assets' folder at the project root
+    let assetsPath;
 
-    if (!app.isPackaged && !fs.existsSync(dbPath)) {
-        const devPath = path.join(__dirname, '..', 'src', 'database');
-        if (fs.existsSync(devPath)) {
-            dbPath = devPath;
-        }
+    if (app.isPackaged) {
+        // In a packaged app, __dirname is .../app_root/dist/
+        // So we go up to the app root and look for 'Assets'
+        assetsPath = path.join(app.getAppPath(), 'Assets');
+    } else {
+        // In development, __dirname is .../project_root/electron
+        // So we go up one level to the project root and then to 'Assets'
+        assetsPath = path.join(__dirname, '..', 'Assets');
     }
     
-    if (!fs.existsSync(dbPath)) {
+    // Create the directory if it doesn't exist
+    if (!fs.existsSync(assetsPath)) {
         try {
-            fs.mkdirSync(dbPath, { recursive: true });
+            fs.mkdirSync(assetsPath, { recursive: true });
         } catch (e) {
-            console.error("Could not create database folder:", e);
+            console.error("Could not create Assets folder:", e);
         }
     }
-    return dbPath;
+    return assetsPath;
 };
 
 // --- BOOT SCAN FUNCTION ---
 const runBootScan = () => {
     const dbPath = resolveDatabasePath();
     const results = [];
+    console.log(`[DIAGNOSTIC] Starting scan in root: ${dbPath}`);
 
     const scanDir = (dir) => {
         try {
             const list = fs.readdirSync(dir);
+            console.log(`[DIAGNOSTIC] Scanning directory: ${dir}`);
             list.forEach((file) => {
                 const fullPath = path.join(dir, file);
                 try {
                     const stat = fs.statSync(fullPath);
                     if (stat && stat.isDirectory()) {
+                        console.log(`[DIAGNOSTIC] -> Found directory, recursing into: ${file}`);
                         scanDir(fullPath);
-                    } else {
-                        if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.txt')) {
-                            const parentDir = path.basename(dir);
-                            results.push({ 
-                                name: file, 
-                                path: fullPath, 
-                                kind: 'file',
-                                folder: parentDir
-                            });
+                    } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.json')) {
+                        console.log(`[DIAGNOSTIC] -> Found file: ${file}`);
+                        let folderName = path.relative(dbPath, dir);
+                        console.log(`[DIAGNOSTIC]    - Relative path: '${folderName}'`);
+                        
+                        // START OF USER REQUESTED CHANGES
+                        console.log(`Checking: ${file} in folder: ${folderName}`);
+                        // END OF USER REQUESTED CHANGES
+
+                        let originalFolderName = folderName;
+                        if (folderName) {
+                            // START OF USER REQUESTED CHANGES
+                            console.log(`Original Path: ${folderName}`);
+                            // END OF USER REQUESTED CHANGES
+                            // folderName = folderName.split(path.sep)[0];
+                            // START OF USER REQUESTED CHANGES
+                            console.log(`Truncated Path: ${folderName}`);
+                            // END OF USER REQUESTED CHANGES
                         }
+                        console.log(`[DIAGNOSTIC]    - Processed folder name (blind spot): '${folderName}' (Original was: '${originalFolderName}')`);
+
+                        const resultObj = {
+                            name: file,
+                            path: fullPath,
+                            kind: 'file',
+                            folder: folderName || '.'
+                        };
+
+                        results.push(resultObj);
+                        console.log(`[DIAGNOSTIC]    - Pushed to results:`, resultObj);
                     }
-                } catch (e) {}
+                } catch (e) { 
+                    console.error(`[DIAGNOSTIC] Error processing path: ${fullPath}`, e);
+                }
             });
-        } catch (e) {}
+        } catch (e) { 
+            console.error(`[DIAGNOSTIC] Error reading directory: ${dir}`, e);
+        }
     };
 
     if (fs.existsSync(dbPath)) {
         scanDir(dbPath);
     }
     
+    console.log(`[DIAGNOSTIC] Scan complete. Found ${results.length} files.`);
     internalLibraryStorage = results;
     return internalLibraryStorage;
 };
@@ -150,13 +183,13 @@ ipcMain.handle('file:watch-folder', async (event, folderPath) => {
         const fullPath = path.join(dir, file);
         const stat = fs.statSync(fullPath);
         if (stat && stat.isDirectory()) res = res.concat(getFilesRecursive(fullPath));
-        else if (file.endsWith('.csv') || file.endsWith('.txt')) res.push({ name: file, path: fullPath, kind: 'file' });
+        else if (file.endsWith('.csv') || file.endsWith('.json')) res.push({ name: file, path: fullPath, kind: 'file' });
       });
       return res;
     };
     const initialFiles = getFilesRecursive(folderPath);
     watcher = fs.watch(folderPath, { recursive: true }, (eventType, filename) => {
-      if (filename && (filename.endsWith('.csv') || filename.endsWith('.txt'))) {
+      if (filename && (filename.endsWith('.csv') || filename.endsWith('.json'))) {
         if (mainWindow) mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
       }
     });
