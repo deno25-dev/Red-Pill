@@ -355,7 +355,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onActionStart, 
     isReplaySelecting, 
     onReplayPointSelect, 
-    onRequestMoreData, 
     areDrawingsLocked = false, 
     visibleRange, 
     // Replay Props
@@ -665,7 +664,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  rangeDebounceTimeout.current = setTimeout(() => {
                      // Only fire if not programmatic
                      if (!isProgrammaticUpdate.current) {
-                        propsRef.current.onVisibleRangeChange({ from: range.from, to: range.to });
+                        propsRef.current.onVisibleRangeChange?.({ from: range.from, to: range.to });
                      }
                  }, 500); // 500ms debounce for history save
              }

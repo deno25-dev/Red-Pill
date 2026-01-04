@@ -9,7 +9,7 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Activity, Loader2, Folder } from 'lucide-react';
+import { GripVertical, Settings, Check, Activity, Folder } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useChartPersistence } from '../hooks/useChartPersistence';
 import { useTradePersistence } from '../hooks/useTradePersistence';
@@ -68,7 +68,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   // Trade Persistence Hook
   // Uses filePath if available (Bridge mode), otherwise fallback to title/timeframe ID
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
-  const { trades, saveTrade, refetchTrades } = useTradePersistence(tradeSourceId);
+  const { trades } = useTradePersistence(tradeSourceId);
 
   // Sync loaded trades to Tab state so BottomPanel can see them
   useEffect(() => {
@@ -260,7 +260,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const isDraggingToolbar = useRef(false);
   const toolbarDragStart = useRef({ x: 0, y: 0 });
   const toolbarStartPos = useRef({ x: 0, y: 0 });
-  const isToolbarVisible = selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser');
+  const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser'));
 
   useEffect(() => {
     if (isToolbarVisible && toolbarPos.x === 0 && toolbarPos.y === 0) {

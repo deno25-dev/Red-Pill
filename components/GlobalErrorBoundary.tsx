@@ -15,11 +15,15 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends React.Component<Props, State> {
-  // FIX: Replaced constructor with a class property for state initialization to resolve 'this' context issues detected by TypeScript.
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
+  // FIX: Reverted to constructor for state initialization and method binding to explicitly fix 'this' context issues.
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+    this.handleRetry = this.handleRetry.bind(this);
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
@@ -41,11 +45,11 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
-  // FIX: Changed to an arrow function to correctly bind 'this' for the event handler.
-  handleRetry = () => {
+  // FIX: Changed to a regular method bound in the constructor.
+  handleRetry() {
     debugLog('UI', 'User attempted Error Boundary retry');
     this.setState({ hasError: false, error: null });
-  };
+  }
 
   render() {
     if (this.state.hasError) {

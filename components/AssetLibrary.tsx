@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
@@ -27,6 +28,7 @@ interface AssetLibraryProps {
   onSelect: (file: any, timeframe: Timeframe) => void;
   files?: any[]; // Keep for Web mode fallback
   onRefresh?: () => void; // Keep for Web mode refresh
+  databasePath?: string;
 }
 
 const InteractiveStar = ({ isFavorite, onClick }: { isFavorite: boolean, onClick: (e: React.MouseEvent) => void }) => (
@@ -54,7 +56,8 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   isOpen, 
   onClose, 
   onSelect,
-  files = [] 
+  files = [],
+  databasePath,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedSymbols, setExpandedSymbols] = useState<Set<string>>(new Set());
@@ -267,7 +270,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               Asset Library
             </h2>
             <p className="text-slate-400 text-sm">
-              {assets.length} symbols found in {isBridgeMode ? 'src/database' : 'Indexed Storage'}
+              {assets.length} symbols found in {databasePath || 'storage'}
             </p>
           </div>
           <button 

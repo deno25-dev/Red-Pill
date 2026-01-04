@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { FilePanel } from './components/FilePanel';
@@ -11,10 +11,9 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
-import { OHLCV, ChartConfig, Timeframe, TabSession, Trade, HistorySnapshot, Drawing } from './types';
-import { generateMockData, parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, scanRecursive, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, saveDatabaseHandle, clearDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
-import { MOCK_DATA_COUNT } from './constants';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, Drawing } from './types';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
 import { debugLog } from './utils/logger';
@@ -67,16 +66,9 @@ const App: React.FC = () => {
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
   
-  // Hide Drawings State (for Sidebar sync)
-  const [hideDrawingsState, setHideDrawingsState] = useState(false);
-
   // Data Explorer (Files in the ad-hoc panel) - MANUAL
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
   const [explorerFolderName, setExplorerFolderName] = useState<string>('');
-
-  // Database (Web Mode Only - Files in the specific 'Database' folder)
-  const [databaseFiles, setDatabaseFiles] = useState<any[]>([]);
-  const [databaseHandle, setDatabaseHandle] = useState<any>(null);
   
   // Dev Diagnostic States
   const [lastError, setLastError] = useState<string | null>(null);
@@ -114,7 +106,6 @@ const App: React.FC = () => {
           if (electron.getDrawingsState) {
               electron.getDrawingsState().then((state: any) => {
                   if (state.areLocked !== undefined) setAreDrawingsLocked(state.areLocked);
-                  if (state.areHidden !== undefined) setHideDrawingsState(state.areHidden);
               });
           }
       }
@@ -267,12 +258,8 @@ const App: React.FC = () => {
                 if (dbHandle) {
                     const perm = await dbHandle.queryPermission({ mode: 'readwrite' });
                     if (perm === 'granted') {
-                        setDatabaseHandle(dbHandle);
-                        const files = await scanRecursive(dbHandle);
-                        setDatabaseFiles(files);
-                        debugLog('Data', `Database connected: ${files.length} files indexed`);
-                    } else {
-                        setDatabaseHandle(dbHandle);
+                        // Files will be loaded via AssetLibrary or FilePanel, no need to store handle here
+                        debugLog('Data', `Database handle permission granted.`);
                     }
                 }
             } catch (e) {
@@ -925,7 +912,7 @@ const App: React.FC = () => {
         }
         
         if (toAdd > 0) {
-            const newTabsToAdd = [];
+            const newTabsToAdd: TabSession[] = [];
             for(let i=0; i<toAdd; i++) {
                 const nt = createNewTab(undefined, `Chart ${4-toAdd+i+1}`);
                 newTabsToAdd.push(nt);
@@ -1292,7 +1279,6 @@ const App: React.FC = () => {
                         onRedo={handleRedo}
                         onToggleReplay={handleToggleReplay}
                         isReplayMode={activeTab.isReplayMode || activeTab.isReplaySelecting}
-                        onOpenIndicators={() => alert('Indicators coming soon')}
                         onToggleAdvancedReplay={handleToggleAdvancedReplay}
                         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
                         onOpenLocalData={() => setIsAssetLibraryOpen(true)}
