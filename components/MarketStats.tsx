@@ -62,7 +62,7 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
              (normalizedLocal.length <= 5 && liveSymbol === `${normalizedLocal}USDT`);
   };
 
-  const formatCurrency = (val: number, symbol: string) => {
+  const formatCurrency = (val: number) => {
       if (val < 1) return val.toFixed(4);
       if (val > 1000) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(val);
       return val.toFixed(2);
@@ -211,15 +211,15 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
                                                     <span className={isCurrent ? 'text-blue-300' : 'text-slate-200'}>{t.symbol}</span>
                                                     {isCurrent && <span className="text-[9px] bg-blue-900/40 text-blue-400 px-1 rounded">Active</span>}
                                                 </td>
-                                                <td className="px-4 py-2 text-right font-mono text-slate-200">{formatCurrency(t.price, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-200">{formatCurrency(t.price)}</td>
                                                 <td className="px-4 py-2 text-right">
                                                     <div className={`flex items-center justify-end gap-1 ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
                                                         {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                                                         <span className="font-bold">{t.changePct.toFixed(2)}%</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.high, t.symbol)}</td>
-                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.low, t.symbol)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.high)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-slate-400">{formatCurrency(t.low)}</td>
                                                 <td className="px-4 py-2 text-right font-mono text-slate-500">
                                                     {formatVolume(t.quoteVolume)}
                                                 </td>

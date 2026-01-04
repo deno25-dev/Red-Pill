@@ -55,7 +55,7 @@ interface ChartProps {
   
   // New props for range history
   visibleRange: { from: number; to: number } | null;
-  onVisibleRangeChange: (range: { from: number; to: number }) => void;
+  onVisibleRangeChange?: (range: { from: number; to: number }) => void;
 
   // Replay Props
   fullData?: OHLCV[]; // The complete dataset for lookahead
@@ -118,7 +118,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context); }); }
     _drawImpl(target: CanvasRenderingContext2D) {
         if (!target || typeof target.beginPath !== 'function') return;
-        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _timeframe } = this._source;
+        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties } = this._source;
         if (!_series || !_chart) return;
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId, draggedDrawingPoints } = _interactionStateRef.current;
         let drawingsToRender = [..._drawings];
@@ -280,8 +280,8 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
 
 class DrawingsPriceAxisPaneRenderer {
     constructor(private _source: DrawingsPrimitive) {}
-    draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context, scope.mediaSize.width, scope.mediaSize.height); }); }
-    _drawImpl(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context, scope.mediaSize.width); }); }
+    _drawImpl(ctx: CanvasRenderingContext2D, width: number) {
         const { _drawings, _series } = this._source;
         if (!_series) return;
         const priceFormatter = _series.priceFormatter();
@@ -357,11 +357,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onReplayPointSelect, 
     onRequestMoreData, 
     areDrawingsLocked = false, 
-    isMagnetMode = false, 
-    isSyncing = false, 
-    isStayInDrawingMode = false,
     visibleRange, 
-    onVisibleRangeChange,
     // Replay Props
     fullData,
     replayIndex,
@@ -789,9 +785,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (!seriesRef.current) return;
     try { seriesRef.current.setData(processedData); } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
-        const upColor = config.upColor || COLORS.volumeBullish;
-        const downColor = config.downColor || COLORS.volumeBearish;
-        
         const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
         const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
 

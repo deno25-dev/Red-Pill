@@ -25,7 +25,6 @@ interface AssetLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (file: any, timeframe: Timeframe) => void;
-  databasePath?: string;
   files?: any[]; // Keep for Web mode fallback
   onRefresh?: () => void; // Keep for Web mode refresh
 }
@@ -55,7 +54,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   isOpen, 
   onClose, 
   onSelect,
-  databasePath,
   files = [] 
 }) => {
   const [searchTerm, setSearchTerm] = useState('');

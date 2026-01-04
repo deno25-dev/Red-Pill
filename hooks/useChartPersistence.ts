@@ -1,6 +1,5 @@
-
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChartState, Drawing, ChartConfig, TabSession } from '../types';
+import { useState, useEffect, useRef } from 'react';
+import { ChartState, TabSession } from '../types';
 import { saveChartMeta, loadChartMeta } from '../utils/storage';
 import { debugLog } from '../utils/logger';
 
@@ -79,7 +78,7 @@ export const useChartPersistence = ({ tab, updateTab }: UseChartPersistenceProps
     };
 
     hydrate();
-  }, [sourceId, electron]);
+  }, [sourceId, electron, tab.filePath, updateTab]);
 
   // 2. THE SAVER: Persist changes
   // Debounced save when drawings, config, or range changes
@@ -105,16 +104,18 @@ export const useChartPersistence = ({ tab, updateTab }: UseChartPersistenceProps
             // Web Mode
             await saveChartMeta(stateToSave);
         }
-        // debugLog('Data', 'Auto-saved scoped chart state');
-      } catch (e) {
+        debugLog('Data', `Persisted state for ${sourceId}`);
+      } catch (e: any) {
         console.error("Failed to save chart state:", e);
+        debugLog('Data', 'Persistence Error', e.message);
       }
-    }, 1000); // 1 second debounce
+    }, 1000); // Debounce save by 1 second
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [tab.drawings, tab.config, tab.visibleRange, sourceId, isHydrating, electron]);
+  }, [tab.drawings, tab.config, tab.visibleRange, sourceId, isHydrating, electron, tab.filePath]);
 
+  // FIX: Added missing return statement. The hook must return the state it exposes.
   return { isHydrating };
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { X, PaintBucket } from 'lucide-react';
 import { ChartConfig } from '../types';
 

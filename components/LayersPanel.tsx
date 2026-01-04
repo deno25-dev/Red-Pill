@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { 
   X, 
   Eye, 
@@ -75,7 +75,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
     // but default ghost is usually fine for rows.
   };
 
-  const handleDragOver = (e: React.DragEvent, visualIndex: number) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault(); // Necessary to allow dropping
     e.dataTransfer.dropEffect = 'move';
   };
@@ -145,7 +145,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                 key={d.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, visualIndex)}
-                onDragOver={(e) => handleDragOver(e, visualIndex)}
+                onDragOver={(e) => handleDragOver(e)}
                 onDrop={(e) => handleDrop(e, visualIndex)}
                 onClick={() => onSelectDrawing(d.id)}
                 className={`

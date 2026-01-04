@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, X, CheckCircle2, Calendar, Clock, Database, ArrowRight, Save, AlertTriangle, FolderInput } from 'lucide-react';
+import { Download, X, CheckCircle2, Calendar, Clock, Database, ArrowRight, AlertTriangle, FolderInput } from 'lucide-react';
 import { BINANCE_INTERVALS } from '../utils/binance';
 
 interface DownloadDialogProps {
