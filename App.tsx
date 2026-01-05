@@ -23,6 +23,29 @@ import { useTradePersistence } from './hooks/useTradePersistence';
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
 
+// Mock data for debug bypass
+const MOCK_DATA: OHLCV[] = (() => {
+  const data: OHLCV[] = [];
+  let currentPrice = 65000;
+  const baseTime = new Date('2024-05-20T00:00:00Z').getTime();
+  const interval = 15 * 60 * 1000; // 15 minutes
+
+  for (let i = 0; i < 50; i++) { // Generate 50 candles for a decent view
+      const time = baseTime + i * interval;
+      const open = currentPrice;
+      const change = (Math.random() - 0.48) * 500;
+      const close = open + change;
+      const high = Math.max(open, close) + Math.random() * 100;
+      const low = Math.min(open, close) - Math.random() * 100;
+      const volume = Math.floor(Math.random() * 200) + 50;
+
+      data.push({ time, open, high, low, close, volume });
+      currentPrice = close;
+  }
+  return data;
+})();
+
+
 type LayoutMode = 'single' | 'split-2x' | 'split-4x';
 type AppStatus = 'BOOT' | 'LIBRARY' | 'ACTIVE';
 
@@ -153,6 +176,17 @@ const App: React.FC = () => {
     };
   }, []);
   
+  const handleDebugBypass = useCallback(() => {
+    const dummyTab = createNewTab(crypto.randomUUID(), 'DEBUG-BTC', MOCK_DATA);
+    setTabs([dummyTab]);
+    setActiveTabId(dummyTab.id);
+    if (layoutMode === 'single') {
+        setLayoutTabIds([dummyTab.id]);
+    }
+    setAppStatus('ACTIVE');
+    debugLog('UI', 'Debug bypass triggered. Entering workspace with mock data.');
+  }, [createNewTab, layoutMode]);
+
   const activeTab = useMemo(() => 
     tabs.find(t => t.id === activeTabId) || tabs[0] || createNewTab(), 
   [tabs, activeTabId, createNewTab]);
@@ -1213,14 +1247,24 @@ const App: React.FC = () => {
             return <SplashController />;
         case 'LIBRARY':
             return (
-                <AssetLibrary
-                    isOpen={true}
-                    onClose={() => {}} // Cannot close in this state
-                    onSelect={handleFileSelect}
-                    databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
-                    files={isBridgeAvailable ? [] : explorerFiles}
-                    onRefresh={isBridgeAvailable ? undefined : connectDefaultDatabase}
-                />
+                <>
+                    <AssetLibrary
+                        isOpen={true}
+                        onClose={() => {}} // Cannot close in this state
+                        onSelect={handleFileSelect}
+                        databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
+                        files={isBridgeAvailable ? [] : explorerFiles}
+                        onRefresh={isBridgeAvailable ? undefined : connectDefaultDatabase}
+                    />
+                    <div className="fixed bottom-4 right-4 z-[9999]">
+                        <button
+                            onClick={handleDebugBypass}
+                            className="px-3 py-2 bg-red-700 hover:bg-red-600 text-white text-xs font-mono rounded shadow-lg border border-red-500 transition-colors"
+                        >
+                            DEBUG: Enter Workspace
+                        </button>
+                    </div>
+                </>
             );
         case 'ACTIVE':
             return (

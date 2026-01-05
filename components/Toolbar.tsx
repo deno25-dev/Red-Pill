@@ -164,15 +164,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="flex items-center gap-4">
         
         {tickerSymbol && tickerPrice !== undefined && (
-          <div className="hidden md:flex flex-col justify-center px-3 py-1.5 bg-[#172554]/40 border border-[#1e40af]/50 rounded-lg min-w-[140px] backdrop-blur-sm shadow-sm transition-colors hover:bg-[#172554]/60 group">
-            <div className="flex items-baseline justify-between gap-3">
-                <span className="text-xs font-bold text-blue-200/90 group-hover:text-blue-100">{tickerSymbol}</span>
-                <span className={`text-sm font-mono font-medium ${isTickerUp ? 'text-emerald-400' : 'text-red-400'}`}>
-                    ${tickerPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-            </div>
-            <div className={`flex items-center mt-0.5 ${isTickerUp ? 'text-emerald-500' : 'text-red-500'}`}>
-                 {isTickerUp ? <TrendingUp size={12} strokeWidth={3} /> : <TrendingDown size={12} strokeWidth={3} />}
+          <div className="hidden md:flex items-center gap-3 px-3 py-2 bg-[#172554]/40 border border-[#1e40af]/50 rounded-lg backdrop-blur-sm shadow-sm transition-colors hover:bg-[#172554]/60 group">
+            <span className="text-sm font-bold text-blue-200/90 group-hover:text-blue-100">{tickerSymbol}</span>
+            <span className={`text-base font-mono font-medium ${isTickerUp ? 'text-emerald-400' : 'text-red-400'}`}>
+                ${tickerPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <div className={`flex items-center text-xs ${isTickerUp ? 'text-emerald-500' : 'text-red-500'}`}>
+                 {isTickerUp ? <TrendingUp size={14} strokeWidth={2.5} /> : <TrendingDown size={14} strokeWidth={2.5} />}
             </div>
           </div>
         )}
