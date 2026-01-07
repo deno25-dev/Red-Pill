@@ -1107,19 +1107,29 @@ const App: React.FC = () => {
   }, [activeTab, updateActiveTab]);
 
   const handleOrderSubmit = useCallback(async (order: any) => {
-      if (!activeTab) return;
+      const electron = (window as any).electronAPI;
+      if (!activeTab || !electron) return;
       
       const newTrade: Trade = {
           id: crypto.randomUUID(),
-          // Use file path as source ID if available, else a generated key
-          sourceId: tradeSourceId || 'unknown_source',
-          timestamp: Date.now(),
+          sourceId: tradeSourceId,
+          timestamp: activeTab.isReplayMode || activeTab.isAdvancedReplayMode 
+            ? activeTab.replayGlobalTime || Date.now()
+            : Date.now(),
+          mode: activeTab.isReplayMode || activeTab.isAdvancedReplayMode ? 'simulated' : 'live',
           ...order
       };
       
-      await saveTrade(newTrade);
-      // Hook updates trades automatically, effect syncs to tab
-  }, [activeTab, tradeSourceId, saveTrade]);
+      try {
+        await electron.saveTrade(newTrade);
+        // Optimistic update
+        updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
+        debugLog('Data', `Trade submitted and saved for ${tradeSourceId}`, newTrade);
+      } catch (e) {
+        console.error("Failed to save trade:", e);
+        debugLog('Data', 'Trade submission failed', e);
+      }
+  }, [activeTab, tradeSourceId, updateActiveTab]);
 
   const { currentPrice, prevPrice } = useMemo(() => {
     if (!activeTab || activeTab.data.length === 0) return { currentPrice: 0, prevPrice: 0 };

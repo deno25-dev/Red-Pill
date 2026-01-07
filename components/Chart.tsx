@@ -122,9 +122,13 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         if (!_series || !_chart) return;
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId, draggedDrawingPoints } = _interactionStateRef.current;
         let drawingsToRender = [..._drawings];
-        if (isCreating && creatingPoints.length > 0) {
+        
+        // Performance Fix: Brush strokes are now drawn on a separate overlay canvas during creation.
+        // We only render other temporary shapes here.
+        if (isCreating && creatingPoints.length > 0 && activeToolId !== 'brush') {
              drawingsToRender.push({ id: 'temp-creation', type: activeToolId || 'line', points: creatingPoints, properties: _currentDefaultProperties });
         }
+        
         const timeScale = _chart.timeScale();
         const pointToScreen = (p: DrawingPoint) => {
             // Guard: Sticky Left Recovery (Coordinate 0 / NaN fix)
@@ -910,9 +914,41 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     const width = chartContainerRef.current?.clientWidth || 0, height = chartContainerRef.current?.clientHeight || 0;
     ctx.clearRect(0, 0, width, height);
+    
+    // --- Replay Start Line ---
     if (propsRef.current.isReplaySelecting && replayMouseX.current !== null) {
         ctx.beginPath(); ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1; ctx.setLineDash([6, 4]); ctx.moveTo(replayMouseX.current, 0); ctx.lineTo(replayMouseX.current, height); ctx.stroke(); ctx.setLineDash([]);
         ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#ef4444'; ctx.fillText('Start Replay', replayMouseX.current + 5, 20);
+    }
+
+    // --- Live Brush Drawing ---
+    const { isCreating, activeToolId, creatingPoints } = interactionState.current;
+    if (isCreating && activeToolId === 'brush' && creatingPoints.length > 1) {
+        const screenPoints = creatingPoints.map(pointToScreen);
+        const props = propsRef.current.currentDefaultProperties;
+
+        ctx.beginPath();
+        ctx.strokeStyle = props.color;
+        ctx.lineWidth = props.lineWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        if (props.lineStyle === 'dashed') ctx.setLineDash([10, 10]);
+        else if (props.lineStyle === 'dotted') ctx.setLineDash([3, 6]);
+        else ctx.setLineDash([]);
+
+        let started = false;
+        for(let i=0; i<screenPoints.length; i++) {
+            const p = screenPoints[i];
+            if (p.x !== OFF_SCREEN && p.y !== OFF_SCREEN) {
+                if (!started) {
+                    ctx.moveTo(p.x, p.y);
+                    started = true;
+                } else {
+                    ctx.lineTo(p.x, p.y);
+                }
+            }
+        }
+        ctx.stroke();
     }
   };
 
@@ -953,7 +989,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     e.preventDefault(); e.stopPropagation(); isResizingVolume.current = true;
     const handleMouseMove = (ev: MouseEvent) => { if (isResizingVolume.current && chartContainerRef.current) { const rect = chartContainerRef.current.getBoundingClientRect(); setLocalVolumeTopMargin(Math.max(0.5, Math.min((ev.clientY - rect.top) / rect.height, 0.95))); } };
     const handleMouseUp = () => { isResizingVolume.current = false; window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); if (onConfigChange) onConfigChange({ ...config, volumeTopMargin: localVolumeTopMargin }); };
-    window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
   };
   
   const handleContainerMouseMove = (e: React.MouseEvent) => {
@@ -1036,8 +1073,18 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (p) {
              if (activeToolId === 'brush') {
                  const points = [...interactionState.current.creatingPoints]; const lastScreen = pointToScreen(points[points.length - 1]);
-                 if (Math.hypot(x - lastScreen.x, y - lastScreen.y) > 5 || lastScreen.x === OFF_SCREEN) { points.push(p); interactionState.current.creatingPoints = points; redraw = true; }
-             } else if (!SINGLE_POINT_TOOLS.includes(activeToolId)) { const points = [...interactionState.current.creatingPoints]; points[interactionState.current.creationStep] = p; interactionState.current.creatingPoints = points; redraw = true; }
+                 if (Math.hypot(x - lastScreen.x, y - lastScreen.y) > 5 || lastScreen.x === OFF_SCREEN) { 
+                     points.push(p); 
+                     interactionState.current.creatingPoints = points; 
+                     // Performance Boost: Draw on temp overlay, skip full chart redraw.
+                     requestAnimationFrame(renderOverlay);
+                 }
+             } else if (!SINGLE_POINT_TOOLS.includes(activeToolId)) { 
+                 const points = [...interactionState.current.creatingPoints]; 
+                 points[interactionState.current.creationStep] = p; 
+                 interactionState.current.creatingPoints = points; 
+                 redraw = true; 
+             }
         }
     } else if (interactionState.current.isErasing) {
         const { hitDrawing } = getHitObject(x, y);

@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export interface OHLCV {
@@ -109,6 +110,7 @@ export interface Trade {
   status: 'filled' | 'open' | 'cancelled';
   pnl?: number;
   exitPrice?: number;
+  mode?: 'live' | 'simulated'; // For replay trades
 }
 
 export interface WatchlistItem {

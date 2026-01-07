@@ -15,24 +15,20 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends React.Component<Props, State> {
-  // FIX: The original implementation used class properties for state and method binding,
-  // which can cause 'this' context issues in some build environments.
-  // Refactored to use a constructor for robust state initialization and method binding.
-  constructor(props: Props) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
-    this.handleRetry = this.handleRetry.bind(this);
-  }
+  // Refactored to use class properties for state and an arrow function for the event handler.
+  // This is a more modern and concise syntax for React class components that resolves typing issues.
+  state: State = {
+    hasError: false,
+    error: null,
+  };
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  // FIX: Convert to arrow function to fix 'this' context issues.
+  componentDidCatch = (error: Error, errorInfo: ErrorInfo) => {
     // Log the error to the dev diagnostics
     debugLog('UI', 'Global Error Boundary caught an exception', { 
         message: error.message, 
@@ -47,13 +43,13 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
-  // FIX: Converted to a standard class method, bound in the constructor.
-  handleRetry() {
+  handleRetry = () => {
     debugLog('UI', 'User attempted Error Boundary retry');
     this.setState({ hasError: false, error: null });
-  }
+  };
 
-  render() {
+  // FIX: Convert to arrow function to fix 'this' context issues.
+  render = () => {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return (
