@@ -1226,7 +1226,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     
     // Restore Cursor based on active tool
     if (activeToolId === 'eraser') document.body.style.cursor = 'cell';
-    else if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
+    else if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
     else if (activeToolId === 'arrow') document.body.style.cursor = 'default';
     else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
     else document.body.style.cursor = 'crosshair';
@@ -1256,9 +1256,22 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   };
 
   const handleScrollToRealTime = () => {
-       // Use scrollToPosition to force a consistent right margin (3 bars)
-       // This ensures the latest candle is clearly visible and not stuck to the edge
-       chartRef.current?.timeScale().scrollToPosition(3, true);
+       // 1. Reference Verification - Early Return to prevent crashes
+       if (!chartRef.current) return;
+
+       // 2. Wrap in RAF to ensure paint cycle completes (Critical for Production builds)
+       requestAnimationFrame(() => {
+           // Double-check ref availability inside the callback
+           if (!chartRef.current) return;
+           
+           try {
+               // 3. Standardize Scroll Method: scrollToRealTime()
+               // This method is designed to safely navigate to the most recent bar regardless of visible range
+               chartRef.current.timeScale().scrollToRealTime();
+           } catch (e) {
+               console.warn("Scroll to real-time failed:", e);
+           }
+       });
   };
 
   // Text Input Handlers

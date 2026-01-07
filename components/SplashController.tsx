@@ -24,7 +24,7 @@ export const SplashController: React.FC = () => {
               <img 
                   src="https://i.postimg.cc/SK0PR3Tp/logo.png" 
                   alt="Logo" 
-                  className="relative w-[250px] h-[250px] object-contain drop-shadow-2xl"
+                  className="relative w-[400px] h-auto max-w-[90vw] object-contain drop-shadow-2xl"
               />
           </div>
       </div>
