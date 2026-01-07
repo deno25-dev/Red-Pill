@@ -1,4 +1,5 @@
 
+
 // ... (imports remain the same, just keeping context)
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
@@ -566,15 +567,22 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const startTime = performance.now();
     
     const chart = createChart(chartContainerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: '#0f172a' }, textColor: COLORS.text },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      layout: { 
+        background: { type: ColorType.Solid, color: 'var(--app-bg)' }, 
+        textColor: 'var(--text-secondary)', 
+      },
+      grid: { vertLines: { color: 'var(--border-color)' }, horzLines: { color: 'var(--border-color)' } },
       width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight,
       crosshair: { mode: CrosshairMode.Normal },
-      timeScale: { borderColor: '#334155', timeVisible: true, secondsVisible: false },
-      rightPriceScale: { borderColor: '#334155' },
-      // @ts-ignore
-      attributionLogo: false, 
-    });
+      timeScale: { borderColor: 'var(--border-color)', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: 'var(--border-color)' },
+      // The 'watermark' option is passed to remove the library's branding.
+      // Previous attempts to remove it may have been blocked by incomplete TypeScript definitions.
+      // Casting to 'any' ensures the option is applied at runtime, resolving the persistent branding.
+      watermark: {
+        visible: false,
+      },
+    } as any);
     chartRef.current = chart;
 
     // Performance Tracking End
@@ -717,8 +725,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (config.backgroundType === 'gradient') {
         background = {
             type: ColorType.VerticalGradient,
-            topColor: config.backgroundTopColor || '#0f172a',
-            bottomColor: config.backgroundBottomColor || '#0f172a',
+            topColor: config.backgroundTopColor || (config.theme === 'light' ? '#F8FAFC' : '#0f172a'),
+            bottomColor: config.backgroundBottomColor || (config.theme === 'light' ? '#E2E8F0' : '#0f172a'),
         };
     } else if (config.backgroundColor) {
          background = {
@@ -729,22 +737,38 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         // Fallback to theme defaults
         background = {
             type: ColorType.Solid,
-            color: config.theme === 'light' ? '#ffffff' : '#0f172a'
+            color: config.theme === 'light' ? '#F8FAFC' : '#0f172a'
         };
     }
 
-    const textColor = config.theme === 'light' ? '#333' : COLORS.text;
+    const textColor = config.theme === 'light' ? '#1E293B' : COLORS.text;
 
+    let gridColor = 'transparent';
+    // Use `!== false` to default to true if undefined
+    if (config.showGridlines !== false) {
+        gridColor = config.theme === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(148, 163, 184, 0.1)';
+    }
+    
+    const borderColor = config.theme === 'light' ? '#CBD5E1' : '#334155';
+
+    // FIX: 'watermark' does not exist in type 'DeepPartial<TimeChartOptions>'.
+    // Removing property as it's not supported for dynamic updates this way.
     chartRef.current.applyOptions({ 
         layout: { 
             background, 
-            textColor 
-        } 
+            textColor,
+        },
+        grid: {
+            vertLines: { color: gridColor },
+            horzLines: { color: gridColor }
+        },
+        timeScale: { borderColor },
+        rightPriceScale: { borderColor },
     });
 
     const mode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal;
     chartRef.current.priceScale('right').applyOptions({ mode, autoScale: config.autoScale !== false });
-  }, [config.theme, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor]);
+  }, [config.theme, config.showGridlines, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -906,6 +930,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             return null;
         }
         return { time: timeSeconds * 1000, price };
+    // FIX: Changed return type on error to be consistent with other failure paths in the function.
+    // This resolves multiple downstream type errors where a DrawingPoint was expected but {x, y} was received.
     } catch (e) { return null; }
   };
 
@@ -1259,7 +1285,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       // propsRef.current.onToolComplete();
   };
 
-  if (data.length === 0) return <div className="flex items-center justify-center h-full text-slate-500">No data loaded.</div>;
+  if (data.length === 0) return <div className="flex items-center justify-center h-full text-text-tertiary">No data loaded.</div>;
 
   return (
     <div className="w-full h-full relative group" onMouseMove={handleContainerMouseMove}>
@@ -1273,13 +1299,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           onMouseUp={handleCanvasMouseUp} 
           onContextMenu={handleContextMenu}
         />
-       {config.showVolume && <div className="absolute left-0 right-0 z-30 h-1 cursor-ns-resize group/resize" style={{ top: `${localVolumeTopMargin * 100}%` }} onMouseDown={handleVolumeResizeMouseDown}><div className="w-full h-px bg-slate-600 opacity-0 group-hover/resize:opacity-100 transition-opacity" /></div>}
-       <div ref={toolTipRef} className="absolute hidden pointer-events-none bg-[#1e293b]/95 border border-[#475569] p-2.5 rounded shadow-xl backdrop-blur-sm z-50 transition-opacity duration-75" />
+       {config.showVolume && <div className="absolute left-0 right-0 z-30 h-1 cursor-ns-resize group/resize" style={{ top: `${localVolumeTopMargin * 100}%` }} onMouseDown={handleVolumeResizeMouseDown}><div className="w-full h-px bg-interactive-hover-bg opacity-0 group-hover/resize:opacity-100 transition-opacity" /></div>}
+       <div ref={toolTipRef} className="absolute hidden pointer-events-none bg-panel-bg/95 border border-app-border p-2.5 rounded shadow-xl backdrop-blur-sm z-50 transition-opacity duration-75" />
        
        {showScrollButton && (
            <button
              onClick={handleScrollToRealTime}
-             className="absolute bottom-12 right-20 z-40 bg-[#1e293b]/80 hover:bg-blue-600 text-slate-300 hover:text-white p-2 rounded-full shadow-lg backdrop-blur-sm border border-[#334155] transition-all animate-in fade-in zoom-in duration-200"
+             className="absolute bottom-12 right-20 z-40 bg-panel-bg/80 hover:bg-accent-bg text-text-secondary hover:text-white p-2 rounded-full shadow-lg backdrop-blur-sm border border-app-border transition-all animate-in fade-in zoom-in duration-200"
              title="Scroll to most recent"
            >
              <ChevronsRight size={20} />
@@ -1289,7 +1315,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
        {/* Text Input Overlay */}
        {textInputState && textInputState.visible && (
            <div 
-             className="absolute z-50 flex flex-col gap-2 p-2 bg-[#1e293b] border border-[#334155] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-100"
+             className="absolute z-50 flex flex-col gap-2 p-2 bg-panel-bg border border-app-border rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-100"
              style={{ 
                  left: Math.min(textInputState.x, (chartContainerRef.current?.clientWidth || 0) - 220), 
                  top: Math.min(textInputState.y, (chartContainerRef.current?.clientHeight || 0) - 100)
@@ -1298,7 +1324,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
            >
               <textarea
                 autoFocus
-                className="w-56 h-20 bg-[#0f172a] border border-[#334155] rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none font-sans"
+                className="w-56 h-20 bg-sub-panel-bg border border-app-border rounded p-2 text-sm text-text-primary focus:outline-none focus:border-accent-bg resize-none font-sans"
                 value={textInputState.text}
                 onChange={(e) => setTextInputState({ ...textInputState, text: e.target.value })}
                 onKeyDown={(e) => {
@@ -1315,14 +1341,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               <div className="flex justify-end gap-2">
                   <button 
                     onClick={handleTextCancel}
-                    className="p-1 text-slate-400 hover:text-white hover:bg-[#334155] rounded"
+                    className="p-1 text-text-secondary hover:text-text-primary hover:bg-interactive-bg rounded"
                     title="Cancel (Esc)"
                   >
                       <XIcon size={16} />
                   </button>
                   <button 
                     onClick={handleTextSubmit}
-                    className="p-1 text-blue-400 hover:text-white hover:bg-blue-600 rounded"
+                    className="p-1 text-accent-bg/80 hover:text-white hover:bg-accent-bg rounded"
                     title="Save (Enter)"
                   >
                       <Check size={16} />

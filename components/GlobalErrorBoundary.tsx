@@ -1,4 +1,4 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
 
@@ -14,21 +14,20 @@ interface State {
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends React.Component<Props, State> {
-  // Refactored to use class properties for state and an arrow function for the event handler.
-  // This is a more modern and concise syntax for React class components that resolves typing issues.
-  state: State = {
-    hasError: false,
-    error: null,
-  };
+export class GlobalErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }
 
-  // FIX: Changed from an arrow function property to a standard class method.
-  // React lifecycle methods are automatically bound to the component instance.
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log the error to the dev diagnostics
     debugLog('UI', 'Global Error Boundary caught an exception', { 
@@ -49,8 +48,6 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     this.setState({ hasError: false, error: null });
   };
 
-  // FIX: Changed from an arrow function property to a standard class method.
-  // The `render` method in a React class component should be a standard method.
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) {

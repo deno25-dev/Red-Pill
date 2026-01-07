@@ -157,7 +157,8 @@ const App: React.FC = () => {
         theme: 'dark',
         volumeTopMargin: 0.8,
         priceScaleMode: 'linear',
-        autoScale: true
+        autoScale: true,
+        showGridlines: true,
       },
       isReplayMode: false,
       isAdvancedReplayMode: false,
@@ -190,6 +191,12 @@ const App: React.FC = () => {
   const activeTab = useMemo(() => 
     tabs.find(t => t.id === activeTabId) || tabs[0] || createNewTab(), 
   [tabs, activeTabId, createNewTab]);
+
+  // Global Theme Controller
+  useEffect(() => {
+    const theme = activeTab?.config?.theme || 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [activeTab?.config?.theme]);
 
   // Trade Persistence for Active Tab
   const tradeSourceId = activeTab.filePath || `${activeTab.title}_${activeTab.timeframe}`;
@@ -856,6 +863,13 @@ const App: React.FC = () => {
     }
   };
 
+  const toggleGridlines = () => {
+    if (!activeTab) return;
+    updateActiveTab({
+        config: { ...activeTab.config, showGridlines: !(activeTab.config.showGridlines ?? true) }
+    });
+  };
+
   const handleToggleReplay = () => {
     if (!activeTab) return;
     if (activeTab.isReplayMode || activeTab.isReplaySelecting) {
@@ -1164,15 +1178,15 @@ const App: React.FC = () => {
         return (
             <div className="flex-1 flex flex-col relative min-w-0">
                 {activeTab.isDetached ? (
-                    <div className="flex-1 flex flex-col items-center justify-center bg-[#0f172a] text-slate-500 gap-4">
+                    <div className="flex-1 flex flex-col items-center justify-center bg-app-bg text-text-tertiary gap-4">
                         <ExternalLink size={48} className="opacity-20" />
                         <div className="text-center">
-                            <h2 className="text-lg font-medium text-slate-300">Tab is detached</h2>
+                            <h2 className="text-lg font-medium text-text-primary">Tab is detached</h2>
                             <p className="text-sm mt-1">This chart is currently open in another window.</p>
                         </div>
                         <button 
                             onClick={() => handleAttachTab(activeTab.id)}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium transition-colors"
+                            className="px-4 py-2 bg-accent-bg hover:bg-accent-hover-bg text-white rounded text-sm font-medium transition-colors"
                         >
                             Bring back to main window
                         </button>
@@ -1205,15 +1219,15 @@ const App: React.FC = () => {
     const gridRowsClass = layoutMode === 'split-2x' ? 'grid-rows-1' : 'grid-rows-2';
 
     return (
-        <div className={`flex-1 grid ${gridColsClass} ${gridRowsClass} gap-1 p-1 bg-[#0f172a]`}>
+        <div className={`flex-1 grid ${gridColsClass} ${gridRowsClass} gap-1 p-1 bg-app-bg`}>
             {layoutTabIds.map((tabId, idx) => {
                 const tab = tabs.find(t => t.id === tabId);
-                if (!tab) return <div key={idx} className="bg-[#0f172a] border border-[#334155]" />;
+                if (!tab) return <div key={idx} className="bg-app-bg border border-app-border" />;
                 
                 return (
                     <div 
                         key={`${tab.id}-${idx}`} 
-                        className={`relative flex flex-col border ${tab.id === activeTabId ? 'border-blue-600 ring-1 ring-blue-600/50 z-10' : 'border-[#334155] opacity-80 hover:opacity-100 transition-opacity'}`}
+                        className={`relative flex flex-col border ${tab.id === activeTabId ? 'border-accent-bg ring-1 ring-accent-bg/50 z-10' : 'border-app-border opacity-80 hover:opacity-100 transition-opacity'}`}
                         onClick={() => setActiveTabId(tab.id)}
                     >
                         <ChartWorkspace 
@@ -1260,7 +1274,7 @@ const App: React.FC = () => {
                     <div className="fixed bottom-4 right-4 z-[9999]">
                         <button
                             onClick={handleDebugBypass}
-                            className="px-3 py-2 bg-red-700 hover:bg-red-600 text-white text-xs font-mono rounded shadow-lg border border-red-500 transition-colors"
+                            className="px-3 py-2 bg-danger hover:opacity-80 text-white text-xs font-mono rounded shadow-lg border border-red-500 transition-colors"
                         >
                             DEBUG: Enter Workspace
                         </button>
@@ -1269,7 +1283,7 @@ const App: React.FC = () => {
             );
         case 'ACTIVE':
             return (
-                <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 overflow-hidden">
+                <div className="flex flex-col h-screen bg-app-bg text-text-primary overflow-hidden">
                     <DeveloperTools 
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
@@ -1343,6 +1357,8 @@ const App: React.FC = () => {
                         tickerPrevPrice={prevPrice}
                         favoriteTimeframes={favoriteTimeframes}
                         onToggleFavoriteTimeframe={toggleFavoriteTimeframe}
+                        showGridlines={activeTab.config.showGridlines ?? true}
+                        onToggleGridlines={toggleGridlines}
                     />
 
                     <div className="flex flex-1 overflow-hidden relative">
@@ -1435,7 +1451,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-[#020617]">
+    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-app-bg">
         {renderContent()}
     </div>
   );

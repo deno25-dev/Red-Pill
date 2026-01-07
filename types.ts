@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 export interface OHLCV {
@@ -20,6 +21,7 @@ export interface ChartConfig {
   volumeTopMargin?: number; // 0.0 to 1.0, defines where volume section starts
   priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
   autoScale?: boolean;
+  showGridlines?: boolean;
   // Color overrides
   upColor?: string;
   downColor?: string;

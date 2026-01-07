@@ -3,16 +3,39 @@
 @tailwind utilities;
 
 :root {
-  /* Financial Dark Mode System */
-  --app-bg: #0b0e11;       /* Deepest trading dark background */
-  --panel-bg: #131722;     /* Standard panel background (TradingView style) */
-  --accent-color: #2962ff; /* Professional Financial Blue */
-  --border-color: #2a2e39; /* Low-contrast dividers */
-  --text-primary: #e0e3eb; /* High readability text */
-  --text-secondary: #787b86; /* Muted/Secondary text */
+  /* Financial Dark Mode System (Default) */
+  --app-bg: #0f172a;       
+  --panel-bg: #1e293b;     
+  --sub-panel-bg: #0f172a;
+  --interactive-bg: #334155;
+  --interactive-hover-bg: #475569;
+  --accent-bg: #3b82f6; 
+  --accent-hover-bg: #2563eb; 
+  --border-color: #334155; 
+  --text-primary: #e2e8f0; 
+  --text-secondary: #94a3b8; 
+  --text-tertiary: #64748b;
   
-  --success: #089981;
-  --danger: #f23645;
+  --success: #10B981;
+  --danger: #EF4444;
+}
+
+html[data-theme='light'] {
+  /* Paper & Steel Light Theme Overlay */
+  --app-bg: #F8FAFC;       /* Paper white */
+  --panel-bg: #E2E8F0;     /* Steel light grey */
+  --sub-panel-bg: #F1F5F9; /* Slate 100 for nested panels */
+  --interactive-bg: #CBD5E1; /* Soft slate for interaction */
+  --interactive-hover-bg: #94A3B8; /* User-requested accent for hover */
+  --accent-bg: #3b82f6; /* Keep vibrant blue for primary actions */
+  --accent-hover-bg: #2563eb;
+  --border-color: #CBD5E1; /* Soft slate border */
+  --text-primary: #1E293B;   /* High-contrast dark slate text */
+  --text-secondary: #475569; /* Softer slate for secondary text */
+  --text-tertiary: #94A3B8;
+  
+  --success: #059669; /* Darker green for accessibility on light bg */
+  --danger: #DC2626;  /* Darker red for accessibility on light bg */
 }
 
 body {
@@ -27,7 +50,32 @@ body {
   overflow: hidden;
 }
 
-/* Custom scrollbar for data tables - Updated to match Financial Dark Mode */
+/* Hide TradingView Attribution */
+#tv-attr-logo, .tv-lightweight-charts-attribution {
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Custom scrollbar - Themed */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--sub-panel-bg);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--interactive-bg);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--interactive-hover-bg);
+}
+
+/* Generic scrollbar for popouts etc. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -40,8 +88,9 @@ body {
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #363a45; /* Slightly lighter than border */
+  background: var(--interactive-hover-bg);
 }
+
 
 /* Window Dragging */
 .app-drag-region {
@@ -50,15 +99,4 @@ body {
 
 .app-no-drag {
   -webkit-app-region: no-drag;
-}
-
-/* Hide TradingView Logo/Attribution */
-a[href*="tradingview.com"],
-.tv-lightweight-charts-attribution {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-  width: 0 !important;
-  height: 0 !important;
 }

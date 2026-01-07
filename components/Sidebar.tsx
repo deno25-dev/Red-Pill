@@ -194,7 +194,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="w-14 bg-[#1e293b] border-r border-[#334155] flex flex-col items-center py-3 gap-2 z-30 shrink-0">
-      
       <div className="flex flex-col gap-2 w-full px-2">
         
         {/* Cursor Tools */}

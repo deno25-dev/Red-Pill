@@ -35,7 +35,8 @@ import {
   Clock,
   ArrowRightLeft,
   Star,
-  FolderOpen
+  FolderOpen,
+  Grid
 } from 'lucide-react';
 import { Timeframe } from '../types';
 
@@ -73,6 +74,8 @@ interface ToolbarProps {
   tickerPrevPrice?: number;
   favoriteTimeframes?: string[];
   onToggleFavoriteTimeframe?: (tf: string) => void;
+  showGridlines?: boolean;
+  onToggleGridlines?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -108,7 +111,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   tickerPrice,
   tickerPrevPrice,
   favoriteTimeframes = [],
-  onToggleFavoriteTimeframe
+  onToggleFavoriteTimeframe,
+  showGridlines,
+  onToggleGridlines
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -275,6 +280,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <LineChart size={18} />
           </button>
         </div>
+
+        <div className="h-6 w-px bg-slate-700"></div>
+        <button
+            onClick={onToggleGridlines}
+            className={`p-1.5 rounded transition-colors ${
+                showGridlines 
+                ? 'bg-[#334155] text-white' 
+                : 'text-slate-400 hover:text-white hover:bg-[#334155]'
+            }`}
+            title="Toggle Gridlines"
+        >
+            <Grid size={18} />
+        </button>
+        <div className="h-6 w-px bg-slate-700"></div>
 
         <div className="relative" ref={toolsMenuRef}>
           <button

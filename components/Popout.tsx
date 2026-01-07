@@ -22,6 +22,9 @@ export const Popout: React.FC<PopoutProps> = ({ title, onClose, children }) => {
     windowRef.current = win;
     win.document.title = title;
 
+    // Set theme attribute to match main window
+    win.document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') || 'dark');
+
     // Copy styles from parent window (Offline support)
     Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).forEach((node) => {
         win.document.head.appendChild(node.cloneNode(true));
@@ -33,8 +36,8 @@ export const Popout: React.FC<PopoutProps> = ({ title, onClose, children }) => {
       body { 
         margin: 0; 
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-        background-color: #0f172a; 
-        color: #e2e8f0; 
+        background-color: var(--app-bg); 
+        color: var(--text-primary); 
         overflow: hidden; 
         height: 100vh; 
         width: 100vw; 
@@ -45,11 +48,6 @@ export const Popout: React.FC<PopoutProps> = ({ title, onClose, children }) => {
         display: flex; 
         flex-direction: column; 
       }
-      /* Custom scrollbar */
-      ::-webkit-scrollbar { width: 8px; height: 8px; }
-      ::-webkit-scrollbar-track { background: #1e293b; }
-      ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: #64748b; }
     `;
     win.document.head.appendChild(style);
 
