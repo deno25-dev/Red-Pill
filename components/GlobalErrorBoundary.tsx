@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
 
@@ -15,13 +15,13 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
-  }
+  // Fix: Initialize state as a class property instead of in the constructor.
+  // This modern syntax helps avoid issues with 'this' context and explicitly
+  // defines the 'state' property on the component instance, resolving the errors.
+  state: State = {
+    hasError: false,
+    error: null,
+  };
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
