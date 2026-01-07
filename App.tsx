@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -11,7 +10,7 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, Drawing, ChartState } from './types';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
@@ -200,7 +199,7 @@ const App: React.FC = () => {
 
   // Trade Persistence for Active Tab
   const tradeSourceId = activeTab.filePath || `${activeTab.title}_${activeTab.timeframe}`;
-  const { saveTrade } = useTradePersistence(tradeSourceId);
+  useTradePersistence(tradeSourceId);
 
   // --- Watcher Validation Effect (Auto-Clear Deleted Files) ---
   useEffect(() => {
@@ -1121,8 +1120,7 @@ const App: React.FC = () => {
   }, [activeTab, updateActiveTab]);
 
   const handleOrderSubmit = useCallback(async (order: any) => {
-      const electron = (window as any).electronAPI;
-      if (!activeTab || !electron) return;
+      if (!activeTab) return;
       
       const newTrade: Trade = {
           id: crypto.randomUUID(),
@@ -1134,15 +1132,20 @@ const App: React.FC = () => {
           ...order
       };
       
-      try {
-        await electron.saveTrade(newTrade);
-        // Optimistic update
-        updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
-        debugLog('Data', `Trade submitted and saved for ${tradeSourceId}`, newTrade);
-      } catch (e) {
-        console.error("Failed to save trade:", e);
-        debugLog('Data', 'Trade submission failed', e);
+      const electron = (window as any).electronAPI;
+      if (electron) {
+          try {
+            await electron.saveTrade(newTrade);
+            debugLog('Data', `Trade submitted and saved for ${tradeSourceId}`, newTrade);
+          } catch (e) {
+            console.error("Failed to save trade:", e);
+            debugLog('Data', 'Trade submission failed', e);
+          }
       }
+      
+      // Optimistic update for UI even if electron save fails or if no electron
+      updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
+      
   }, [activeTab, tradeSourceId, updateActiveTab]);
 
   const { currentPrice, prevPrice } = useMemo(() => {
