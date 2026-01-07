@@ -17,8 +17,8 @@ export const SplashController: React.FC = () => {
     <div className="fixed inset-0 z-[9999] bg-[#0b0e11] flex flex-col items-center justify-center select-none cursor-wait">
       
       {/* Logo Container */}
-      <div className="relative mb-10 flex flex-col items-center justify-center">
-          <div className="relative animate-in fade-in zoom-in duration-700">
+      <div className="relative mb-8 flex flex-col items-center justify-center">
+          <div className="relative animate-in fade-in zoom-in-95 duration-[1200ms] ease-out">
               {/* Glow effect behind logo */}
               <div className="absolute inset-0 bg-blue-500/20 blur-[60px] rounded-full animate-pulse"></div>
               <img 
