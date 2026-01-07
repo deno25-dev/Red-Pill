@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { ChartState, TabSession } from '../types';
 import { saveChartMeta, loadChartMeta } from '../utils/storage';
@@ -116,6 +117,5 @@ export const useChartPersistence = ({ tab, updateTab }: UseChartPersistenceProps
     };
   }, [tab.drawings, tab.config, tab.visibleRange, sourceId, isHydrating, electron, tab.filePath]);
 
-  // FIX: Added missing return statement. The hook must return the state it exposes.
   return { isHydrating };
 };

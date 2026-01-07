@@ -11,7 +11,7 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, Drawing } from './types';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, Drawing, ChartState } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
@@ -715,7 +715,7 @@ const App: React.FC = () => {
              fileState: { ...tab.fileState, isLoading: false } 
           });
       }
-  }, [tabs, updateTab, isBridgeAvailable]);
+  }, [tabs, updateTab]);
 
 
   const handleFileUpload = useCallback((file: File) => {
@@ -1063,57 +1063,48 @@ const App: React.FC = () => {
   };
 
   const handleClearAll = useCallback(async () => {
-      // 1. Guard Clauses
-      if (!activeTab) return;
-      if (activeTab.drawings.length === 0) {
-          alert("No drawings to clear.");
-          return;
-      }
+    // 1. Guard Clauses
+    if (!activeTab || activeTab.drawings.length === 0) {
+        if (activeTab.drawings.length === 0) alert("No drawings to clear.");
+        return;
+    }
 
-      // 2. Confirmation Dialog
-      if (!window.confirm('Are you sure you want to remove all drawings? This action will clear the chart and local database.')) {
-          return;
-      }
+    // 2. Confirmation Dialog for destructive action
+    if (!window.confirm('Are you sure you want to permanently remove all drawings for this asset? This cannot be undone.')) {
+        return;
+    }
+    
+    // 3. Clear drawings from state
+    updateActiveTab({ drawings: [] });
+    
+    // 4. Dispatch event for chart component to imperatively clear any primitives.
+    window.dispatchEvent(new CustomEvent('redpill-force-clear'));
 
-      // 3. Save History (Undo capability)
-      handleSaveHistory();
-
-      // 4. "Registry" / State Clear
-      const emptyDrawings: Drawing[] = [];
-      updateActiveTab({ drawings: emptyDrawings });
-      
-      // DISPATCH FORCE CLEAR EVENT for Chart Component
-      window.dispatchEvent(new CustomEvent('redpill-force-clear'));
-
-      // 5. Force Persistence Clear (Nuclear Option)
-      // We bypass the debounced auto-saver to ensure immediate disk/DB flush
-      const sourceId = activeTab.filePath || (activeTab.title ? `${activeTab.title}_${activeTab.timeframe}` : null);
-      
-      if (sourceId) {
-          const nuclearState = {
-              sourceId,
-              timestamp: Date.now(),
-              drawings: [], // Explicit empty
-              config: activeTab.config,
-              visibleRange: activeTab.visibleRange
-          };
-
-          try {
-              // Electron Bridge
-              const electron = (window as any).electronAPI;
-              if (electron && activeTab.filePath) {
-                  await electron.saveMeta(activeTab.filePath, nuclearState);
-              } else {
-                  // Web Mode
-                  await saveChartMeta(nuclearState);
-              }
-              debugLog('Data', `Nuclear clear executed for ${sourceId}`);
-          } catch (e: any) {
-              console.error("Nuclear clear failed:", e);
-              debugLog('Data', "Nuclear clear failed", e.message);
-          }
-      }
-  }, [activeTab, handleSaveHistory, updateActiveTab]);
+    // 5. Force an immediate save of the empty drawings array to persistence.
+    // This bypasses the debounce in useChartPersistence for an immediate, destructive save.
+    const sourceId = activeTab.filePath || (activeTab.title ? `${activeTab.title}_${activeTab.timeframe}` : null);
+    if (sourceId) {
+        const clearedState: ChartState = {
+            sourceId,
+            timestamp: Date.now(),
+            drawings: [], // Explicitly empty
+            config: activeTab.config, // Preserve config
+            visibleRange: activeTab.visibleRange // Preserve zoom
+        };
+        try {
+            const electron = (window as any).electronAPI;
+            if (electron && activeTab.filePath) {
+                await electron.saveMeta(activeTab.filePath, clearedState);
+            } else {
+                await saveChartMeta(clearedState);
+            }
+            debugLog('Data', `Drawings permanently cleared for ${sourceId}`);
+        } catch (e: any) {
+            console.error("Failed to clear persisted drawings:", e);
+            debugLog('Data', 'Persistence clear failed', e.message);
+        }
+    }
+  }, [activeTab, updateActiveTab]);
 
   const handleOrderSubmit = useCallback(async (order: any) => {
       if (!activeTab) return;

@@ -1,3 +1,4 @@
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 console.log('--- PRELOAD SCRIPT V2 EXECUTED ---');

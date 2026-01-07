@@ -78,7 +78,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
              updateTab({ trades });
           }
       }
-  }, [trades]);
+  }, [trades, updateTab, tab.trades]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
@@ -199,7 +199,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     if (favBarRef.current && favBarPos.x === 0 && favBarPos.y === 0) {
         setFavBarPos({ x: window.innerWidth / 2 - favBarRef.current.clientWidth / 2, y: window.innerHeight - 150 });
     }
-  }, [favoriteTools]);
+  }, [favoriteTools, favBarPos.x, favBarPos.y]);
 
   const handleFavMouseDown = (e: React.MouseEvent) => {
     isDraggingFav.current = true;
@@ -235,7 +235,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     if ((tab.isReplayMode || tab.isAdvancedReplayMode) && replayPos.x === 0 && replayPos.y === 0) {
         setReplayPos({ x: window.innerWidth / 2 - 160, y: window.innerHeight - 200 });
     }
-  }, [tab.isReplayMode, tab.isAdvancedReplayMode]);
+  }, [tab.isReplayMode, tab.isAdvancedReplayMode, replayPos.x, replayPos.y]);
 
   const handleReplayMouseDown = (e: React.MouseEvent) => {
     isDraggingReplay.current = true;
@@ -266,7 +266,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     if (isToolbarVisible && toolbarPos.x === 0 && toolbarPos.y === 0) {
         setToolbarPos({ x: window.innerWidth / 2 - 100, y: window.innerHeight - 120 });
     }
-  }, [isToolbarVisible]);
+  }, [isToolbarVisible, toolbarPos.x, toolbarPos.y]);
 
   const handleToolbarMouseDown = (e: React.MouseEvent) => {
     isDraggingToolbar.current = true;
@@ -297,7 +297,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     if (isLayersPanelOpen && layersPanelPos.x === 0 && layersPanelPos.y === 0) {
        setLayersPanelPos({ x: window.innerWidth - 320, y: 100 });
     }
-  }, [isLayersPanelOpen]);
+  }, [isLayersPanelOpen, layersPanelPos.x, layersPanelPos.y]);
 
   const handleLayersMouseDown = (e: React.MouseEvent) => {
     isDraggingLayers.current = true;
@@ -483,7 +483,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         )}
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
         <div className="flex-1 w-full relative overflow-hidden">
-        {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">Processing Data...</div></div></div>}
+        {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">{isHydrating ? 'Loading Layout...' : 'Processing Data...'}</div></div></div>}
         <FinancialChart 
           key={chartComponentKey} 
           id={tab.id} 
