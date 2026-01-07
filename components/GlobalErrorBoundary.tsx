@@ -27,8 +27,9 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
-  // FIX: Convert to arrow function to fix 'this' context issues.
-  componentDidCatch = (error: Error, errorInfo: ErrorInfo) => {
+  // FIX: Changed from an arrow function property to a standard class method.
+  // React lifecycle methods are automatically bound to the component instance.
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log the error to the dev diagnostics
     debugLog('UI', 'Global Error Boundary caught an exception', { 
         message: error.message, 
@@ -48,8 +49,9 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     this.setState({ hasError: false, error: null });
   };
 
-  // FIX: Convert to arrow function to fix 'this' context issues.
-  render = () => {
+  // FIX: Changed from an arrow function property to a standard class method.
+  // The `render` method in a React class component should be a standard method.
+  render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return (

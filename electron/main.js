@@ -60,16 +60,13 @@ const validatePath = (filePath) => {
 
 // --- PATH RESOLVER & FOLDER DISCOVERY ---
 const resolveDatabasePath = () => {
-    // Hardcode path to 'Assets' folder at the project root
     let assetsPath;
 
     if (app.isPackaged) {
-        // In a packaged app, __dirname is .../app_root/dist/
-        // So we go up to the app root and look for 'Assets'
-        assetsPath = path.join(app.getAppPath(), 'Assets');
+        // For packaged app, 'Assets' folder is next to the executable
+        assetsPath = path.join(path.dirname(process.execPath), 'Assets');
     } else {
-        // In development, __dirname is .../project_root/electron
-        // So we go up one level to the project root and then to 'Assets'
+        // In development, use the project root's 'Assets' folder
         assetsPath = path.join(__dirname, '..', 'Assets');
     }
     
@@ -104,23 +101,7 @@ const runBootScan = () => {
                     } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.json')) {
                         console.log(`[DIAGNOSTIC] -> Found file: ${file}`);
                         let folderName = path.relative(dbPath, dir);
-                        console.log(`[DIAGNOSTIC]    - Relative path: '${folderName}'`);
-                        
-                        // START OF USER REQUESTED CHANGES
-                        console.log(`Checking: ${file} in folder: ${folderName}`);
-                        // END OF USER REQUESTED CHANGES
-
-                        let originalFolderName = folderName;
-                        if (folderName) {
-                            // START OF USER REQUESTED CHANGES
-                            console.log(`Original Path: ${folderName}`);
-                            // END OF USER REQUESTED CHANGES
-                            // folderName = folderName.split(path.sep)[0];
-                            // START OF USER REQUESTED CHANGES
-                            console.log(`Truncated Path: ${folderName}`);
-                            // END OF USER REQUESTED CHANGES
-                        }
-                        console.log(`[DIAGNOSTIC]    - Processed folder name (blind spot): '${folderName}' (Original was: '${originalFolderName}')`);
+                        console.log(`[DIAGNOSTIC]    - Relative path for grouping: '${folderName}'`);
 
                         const resultObj = {
                             name: file,

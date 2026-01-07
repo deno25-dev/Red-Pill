@@ -78,23 +78,32 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
       } catch { return []; }
   });
 
-  // --- SELF-STARTING LOGIC ---
-  // Immediately fetch internal folders on mount (Bridge Mode)
-  useEffect(() => {
+  const handleManualRefresh = async () => {
+      setIsRefreshing(true);
       if (isBridgeMode && electron.getInternalFolders) {
-          debugLog('Data', 'AssetLibrary: Self-starting internal scan...');
-          electron.getInternalFolders()
-              .then((data: any[]) => {
-                  if (Array.isArray(data)) {
-                      setInternalFiles(data);
-                      debugLog('Data', `AssetLibrary: Auto-loaded ${data.length} internal assets.`);
-                  }
-              })
-              .catch((err: any) => {
-                  console.error("AssetLibrary: Auto-load failed", err);
-              });
+          try {
+              // Force re-scan via new channel
+              const data = await electron.getInternalFolders();
+              setInternalFiles(data || []);
+              debugLog('Data', `AssetLibrary: Manual refresh found ${data?.length || 0} files.`);
+          } catch (e) {
+              console.error("Manual refresh failed", e);
+          }
+      } else {
+          // Web Mode fallback
       }
-  }, [isBridgeMode]);
+      setTimeout(() => setIsRefreshing(false), 500); 
+  };
+
+  // --- LIVE SCANNING LOGIC ---
+  // Fetches folder contents when the library is opened or refreshed
+  useEffect(() => {
+    // Self-starting logic: Scan when the library becomes visible
+    if (isOpen && isBridgeMode) {
+      handleManualRefresh();
+    }
+  }, [isOpen, isBridgeMode]);
+
 
   // --- PROCESSING ---
   // Determine which source to use: Internal (Bridge) or Props (Web)
@@ -147,23 +156,6 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
     }
     setFavorites(newFavs);
     localStorage.setItem('redpill_asset_favorites', JSON.stringify(newFavs));
-  };
-
-  const handleManualRefresh = async () => {
-      setIsRefreshing(true);
-      if (isBridgeMode && electron.getInternalFolders) {
-          try {
-              // Force re-scan via new channel
-              const data = await electron.getInternalFolders();
-              setInternalFiles(data || []);
-              debugLog('Data', `AssetLibrary: Manual refresh found ${data?.length || 0} files.`);
-          } catch (e) {
-              console.error("Manual refresh failed", e);
-          }
-      } else {
-          // Web Mode fallback
-      }
-      setTimeout(() => setIsRefreshing(false), 500); 
   };
 
   const { pinnedAssets, unpinnedAssets } = useMemo(() => {
