@@ -1,5 +1,4 @@
 
-
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -80,7 +79,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
   const { isHydrating: persistenceLoading, rehydrate } = useSymbolPersistence({
     symbol: sourceId,
-    // filePath: tab.filePath, // Removed unused
+    filePath: tab.filePath,
     onStateLoaded: (state) => {
       if (state) {
         updateTab({
@@ -127,25 +126,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     locked: false,
     smoothing: 0 
   });
-
-  // --- REHYDRATION LOGIC ---
-  
-  const rehydrateDrawings = React.useCallback(async () => {
-      if (!sourceId) return;
-      console.log(`[RedPill] Force-synchronizing drawings for Symbol: ${sourceId}`);
-      await rehydrate();
-  }, [sourceId, rehydrate]);
-
-  // Hook: OnDataLoad
-  // Triggers whenever tab.data reference changes (new file loaded or reloaded)
-  // This ensures drawings are fetched immediately after new data is set.
-  useEffect(() => {
-      if (tab.data.length > 0 && sourceId) {
-          rehydrateDrawings();
-      }
-  }, [tab.data, sourceId, rehydrateDrawings]);
-
-  // -------------------------
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
@@ -424,10 +404,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
               {Object.values(Timeframe)
-                .filter((tf: string) => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf))
-                .map((tf: string) => (
-              <button key={tf} onClick={() => onTimeframeChange(tf as Timeframe)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
-                  {tf}
+                .filter(tf => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf as string))
+                .map((tf) => (
+              <button key={tf as string} onClick={() => onTimeframeChange(tf)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
+                  {tf as string}
               </button>
               ))}
           </div>

@@ -1,5 +1,4 @@
 
-
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { ChartState, ChartConfig, Drawing } from '../types';
 import { loadMasterDrawingsStore, saveMasterDrawingsStore } from '../utils/storage';
@@ -16,7 +15,7 @@ interface UseSymbolPersistenceProps {
 
 export const useSymbolPersistence = ({
   symbol,
-  // filePath, // Unused variable
+  // filePath, // Unused
   onStateLoaded,
   drawings,
   config,
@@ -67,7 +66,7 @@ export const useSymbolPersistence = ({
     } finally {
       if (!cancelled) setIsHydrating(false);
     }
-  }, [symbol, electron]); // filePath usually static per electron instance or ignored if bridge available via symbol
+  }, [symbol, electron]); 
 
   // Load initial state
   useEffect(() => {
