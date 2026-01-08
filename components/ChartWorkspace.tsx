@@ -12,7 +12,7 @@ import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
-// Import the persistence hook which now exports rehydrate
+// Import the persistence hook
 import { useSymbolPersistence } from '../hooks/useChartPersistence';
 
 interface ChartWorkspaceProps {
@@ -77,9 +77,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   // Scoped Persistence Hook (Drawings/Config)
   // We use alias 'persistenceLoading' to avoid shadowing the prop 'isHydrating'
   const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
-  const { isHydrating: persistenceLoading, rehydrate } = useSymbolPersistence({
+  const { isHydrating: persistenceLoading } = useSymbolPersistence({
     symbol: sourceId,
-    filePath: tab.filePath,
     onStateLoaded: (state) => {
       if (state) {
         updateTab({

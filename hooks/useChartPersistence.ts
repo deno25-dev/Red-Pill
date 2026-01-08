@@ -6,7 +6,6 @@ import { debugLog } from '../utils/logger';
 
 interface UseSymbolPersistenceProps {
   symbol: string | null;
-  filePath?: string; // For electron bridge
   onStateLoaded: (state: ChartState | null) => void;
   drawings: Drawing[];
   config: ChartConfig;
@@ -15,7 +14,6 @@ interface UseSymbolPersistenceProps {
 
 export const useSymbolPersistence = ({
   symbol,
-  // filePath, // Unused
   onStateLoaded,
   drawings,
   config,
