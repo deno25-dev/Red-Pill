@@ -6,7 +6,7 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, OHLCV, ChartConfig } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, OHLCV } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
@@ -337,9 +337,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       onSaveHistory?.();
       const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
       onUpdateDrawings(newDrawings);
-      setDefaultDrawingProperties((prev: DrawingProperties) => ({ ...prev, ...updates }));
+      setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
     } else {
-      setDefaultDrawingProperties((prev: DrawingProperties) => ({ ...prev, ...updates }));
+      setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
     }
   };
 
@@ -354,7 +354,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const handleReplayPointSelect = (timeInMs: number) => {
       if (!tab.isReplaySelecting) return;
-      let idx = tab.data.findIndex((d: OHLCV) => d.time >= timeInMs);
+      let idx = tab.data.findIndex((d: any) => d.time >= timeInMs);
       if (idx === -1) idx = tab.data.length - 1;
       updateTab({
           isReplaySelecting: false,
@@ -482,7 +482,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
                 } else {
                     const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe);
-                    let nextIndex = tab.data.findIndex((d: OHLCV) => d.time >= nextTime);
+                    let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime);
                     if (nextIndex === -1) nextIndex = tab.data.length - 1;
                     updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
                 }
