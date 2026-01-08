@@ -1,4 +1,4 @@
-import { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
 
@@ -14,12 +14,14 @@ interface State {
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends Component<Props, State> {
-  // FIX: Initialized state as a class property to simplify and resolve binding issues.
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
+export class GlobalErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
@@ -41,7 +43,7 @@ export class GlobalErrorBoundary extends Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
-  // FIX: Converted to arrow function to bind `this` correctly.
+  // Use arrow function to automatically bind 'this'
   handleRetry = () => {
     debugLog('UI', 'User attempted Error Boundary retry');
     this.setState({ hasError: false, error: null });

@@ -12,7 +12,7 @@ import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog'
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration } from './utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
@@ -148,6 +148,7 @@ const App: React.FC = () => {
     return {
       id,
       title,
+      symbolId: getSymbolId(title),
       rawData: raw,
       data: raw.length > 0 ? resampleData(raw, detectedTf) : [],
       timeframe: detectedTf,
@@ -612,6 +613,7 @@ const App: React.FC = () => {
 
           const updates: Partial<TabSession> = {
               title: displayTitle,
+              symbolId: getSymbolId(displayTitle), // Ensure ID is updated with file load
               rawData: cleanRawData,
               data: displayData,
               timeframe: initialTf,
@@ -1223,6 +1225,9 @@ const App: React.FC = () => {
                         onBackToLibrary={() => setAppStatus('LIBRARY')}
                         isDrawingSyncEnabled={isDrawingSyncEnabled}
                         onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
+                        drawings={activeTab.drawings}
+                        onUpdateDrawings={(newDrawings) => updateActiveTab({ drawings: newDrawings })}
+                        isHydrating={false}
                     />
                 )}
             </div>
@@ -1266,6 +1271,9 @@ const App: React.FC = () => {
                             onBackToLibrary={() => setAppStatus('LIBRARY')}
                             isDrawingSyncEnabled={isDrawingSyncEnabled}
                             onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
+                            drawings={tab.drawings}
+                            onUpdateDrawings={(newDrawings) => updateTab(tab.id, { drawings: newDrawings })}
+                            isHydrating={false}
                         />
                     </div>
                 );
@@ -1440,6 +1448,9 @@ const App: React.FC = () => {
                                         isMagnetMode={false}
                                         favoriteTimeframes={favoriteTimeframes}
                                         onBackToLibrary={() => setAppStatus('LIBRARY')}
+                                        drawings={tab.drawings}
+                                        onUpdateDrawings={(newDrawings) => updateTab(tab.id, { drawings: newDrawings })}
+                                        isHydrating={false}
                                     />
                                 </Popout>
                             );

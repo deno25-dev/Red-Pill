@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
+
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { ChartState, ChartConfig, Drawing } from '../types';
 import { loadMasterDrawingsStore, saveMasterDrawingsStore } from '../utils/storage';
 import { debugLog } from '../utils/logger';
@@ -26,8 +27,7 @@ export const useSymbolPersistence = ({
 
   const electron = (window as any).electronAPI;
 
-  // Load initial state
-  useEffect(() => {
+  const loadState = useCallback(async () => {
     if (!symbol) {
       setIsHydrating(false);
       onStateLoadedRef.current(null);
@@ -37,41 +37,45 @@ export const useSymbolPersistence = ({
     setIsHydrating(true);
     let cancelled = false;
 
-    const loadState = async () => {
-      try {
-        let state: ChartState | null = null;
-        
-        if (electron && electron.loadMasterDrawings) {
-            const result = await electron.loadMasterDrawings();
-            if (result.success && result.data && result.data[symbol]) {
-                state = result.data[symbol];
-            }
-        } else {
-            const masterStore = await loadMasterDrawingsStore();
-            if (masterStore && masterStore[symbol]) {
-              state = masterStore[symbol];
-            }
-        }
-
-        if (!cancelled) {
-          debugLog('Data', `Persistence: Loaded state for ${symbol}`, state ? 'found' : 'not found');
-          onStateLoadedRef.current(state);
-        }
-      } catch (e: any) {
-        console.error("Failed to load chart state:", e);
-        debugLog('Data', `Persistence: Error loading state for ${symbol}`, e.message);
-        if (!cancelled) onStateLoadedRef.current(null);
-      } finally {
-        if (!cancelled) setIsHydrating(false);
+    try {
+      let state: ChartState | null = null;
+      
+      if (electron && electron.loadMasterDrawings) {
+          const result = await electron.loadMasterDrawings();
+          if (result.success && result.data && result.data[symbol]) {
+              state = result.data[symbol];
+          }
+      } else {
+          const masterStore = await loadMasterDrawingsStore();
+          if (masterStore && masterStore[symbol]) {
+            state = masterStore[symbol];
+          }
       }
-    };
 
+      if (!cancelled) {
+        debugLog('Data', `Persistence: Loaded state for ${symbol}`, state ? 'found' : 'not found');
+        if (state) {
+            console.log(`[RedPill] Loading ${state.drawings.length} drawings for Symbol: ${symbol}`);
+        }
+        onStateLoadedRef.current(state);
+      }
+    } catch (e: any) {
+      console.error("Failed to load chart state:", e);
+      debugLog('Data', `Persistence: Error loading state for ${symbol}`, e.message);
+      if (!cancelled) onStateLoadedRef.current(null);
+    } finally {
+      if (!cancelled) setIsHydrating(false);
+    }
+  }, [symbol, electron]); // filePath usually static per electron instance or ignored if bridge available via symbol
+
+  // Load initial state
+  useEffect(() => {
     loadState();
-
+    
     return () => {
-      cancelled = true;
+        // No clean cancellation for async, but we handle it via closure if needed
     };
-  }, [symbol, filePath, electron]);
+  }, [loadState]);
 
   // Save state on change (debounced)
   useEffect(() => {
@@ -109,5 +113,5 @@ export const useSymbolPersistence = ({
     };
   }, [symbol, drawings, config, visibleRange, isHydrating, electron]);
 
-  return { isHydrating };
+  return { isHydrating, rehydrate: loadState };
 };
