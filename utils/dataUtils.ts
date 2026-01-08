@@ -663,6 +663,23 @@ export const getBaseSymbolName = (filename: string): string => {
   return name.replace(/[_\-\s]+$/g, '').replace(/^[_\-\s]+/g, '').toUpperCase();
 };
 
+// New function for Namespace-Aware Symbol ID
+export const getSymbolId = (fileName: string, folderName?: string): string => {
+  const baseSymbol = getBaseSymbolName(fileName);
+  
+  // If a folder name is provided and it's meaningful (not root or generic), prepend it.
+  if (folderName && folderName !== '.' && folderName.toLowerCase() !== 'assets') {
+    // Clean up folder name (e.g., from path separators) and combine
+    const cleanFolder = folderName.split(/[\\/]/).pop()?.toUpperCase() || '';
+    if (cleanFolder && cleanFolder !== baseSymbol) {
+      return `${cleanFolder}_${baseSymbol}`;
+    }
+  }
+  
+  // Default to just the base symbol if no meaningful folder context.
+  return baseSymbol;
+};
+
 export const findFileForTimeframe = (files: any[], currentTitle: string, targetTf: Timeframe): any | null => {
   if (!files || files.length === 0) return null;
 

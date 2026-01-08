@@ -1,4 +1,5 @@
 
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 console.log('--- PRELOAD SCRIPT V2 EXECUTED ---');
@@ -16,10 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getInternalFolders: () => ipcRenderer.invoke('get-internal-folders'),
     getInternalLibrary: () => ipcRenderer.invoke('get-internal-folders'), // Alias for compatibility
     
-    // --- Chart State Persistence (Sidecar files) ---
-    loadMeta: (filePath) => ipcRenderer.invoke('meta:load', filePath),
-    saveMeta: (filePath, data) => ipcRenderer.invoke('meta:save', filePath, data),
-    deleteMeta: (filePath) => ipcRenderer.invoke('meta:delete', filePath),
+    // --- Master Drawing Store Persistence ---
+    loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
+    saveMasterDrawings: (data) => ipcRenderer.invoke('master-drawings:save', data),
     
     // --- Drawing State Sync ---
     getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -88,6 +89,7 @@ const App: React.FC = () => {
   const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); 
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
+  const [isDrawingSyncEnabled, setIsDrawingSyncEnabled] = useState(true);
   
   // Data Explorer (Files in the ad-hoc panel) - MANUAL
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
@@ -283,6 +285,7 @@ const App: React.FC = () => {
           }
           setIsFavoritesBarVisible(savedState.isFavoritesBarVisible ?? true);
           setIsStayInDrawingMode(savedState.isStayInDrawingMode ?? false);
+          setIsDrawingSyncEnabled(savedState.isDrawingSyncEnabled ?? true);
           setIsMagnetMode(savedState.isMagnetMode ?? false);
           setLayoutMode(savedState.layoutMode || 'single');
           setLayoutTabIds(savedState.layoutTabIds || []);
@@ -348,6 +351,7 @@ const App: React.FC = () => {
         favoriteTimeframes,
         isFavoritesBarVisible,
         isStayInDrawingMode,
+        isDrawingSyncEnabled,
         isMagnetMode,
         layoutMode,
         layoutTabIds,
@@ -364,7 +368,7 @@ const App: React.FC = () => {
     }, 1000); 
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isMagnetMode, appStatus, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
+  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isDrawingSyncEnabled, isMagnetMode, appStatus, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
 
 
   const updateTab = useCallback((id: string, updates: Partial<TabSession>) => {
@@ -981,6 +985,7 @@ const App: React.FC = () => {
             favoriteTimeframes,
             isFavoritesBarVisible,
             isStayInDrawingMode,
+            isDrawingSyncEnabled,
             isMagnetMode,
             layoutMode,
             layoutTabIds,
@@ -1009,7 +1014,7 @@ const App: React.FC = () => {
                 trades: t.trades
             })),
             activeTabId,
-            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode, favoriteTimeframes }
+            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode, favoriteTimeframes, isDrawingSyncEnabled }
         };
         const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1061,6 +1066,7 @@ const App: React.FC = () => {
                     setIsFavoritesBarVisible(imported.settings.favoritesVisible ?? true);
                     setIsMagnetMode(imported.settings.magnet ?? false);
                     setIsStayInDrawingMode(imported.settings.stayInDrawing ?? false);
+                    setIsDrawingSyncEnabled(imported.settings.isDrawingSyncEnabled ?? true);
                     if (imported.settings.favoriteTimeframes) setFavoriteTimeframes(imported.settings.favoriteTimeframes);
                 }
 
@@ -1215,6 +1221,8 @@ const App: React.FC = () => {
                         onVisibleRangeChange={handleVisibleRangeChange}
                         favoriteTimeframes={favoriteTimeframes}
                         onBackToLibrary={() => setAppStatus('LIBRARY')}
+                        isDrawingSyncEnabled={isDrawingSyncEnabled}
+                        onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                     />
                 )}
             </div>
@@ -1256,6 +1264,8 @@ const App: React.FC = () => {
                             onVisibleRangeChange={tab.id === activeTabId ? handleVisibleRangeChange : undefined}
                             favoriteTimeframes={favoriteTimeframes}
                             onBackToLibrary={() => setAppStatus('LIBRARY')}
+                            isDrawingSyncEnabled={isDrawingSyncEnabled}
+                            onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                         />
                     </div>
                 );

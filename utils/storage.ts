@@ -1,12 +1,14 @@
 
+import { ChartState } from '../types';
+
 const DB_NAME = 'RedPillChartingDB';
 const HANDLE_STORE = 'handles'; // Used for Data Explorer (Last location)
 const DB_HANDLE_KEY = 'databaseRoot'; // Key for the specific Database folder
 const STATE_STORE = 'appState';
 const RECENTS_STORE = 'recentFiles';
 const WATCHLIST_STORE = 'watchlist';
-const CHART_META_STORE = 'chartMeta'; // NEW: Scoped chart state
-const DB_VERSION = 5; // Incremented version
+const DRAWINGS_STORE = 'masterDrawingsStore'; // NEW: Single store for all drawings
+const DB_VERSION = 6; // Incremented version
 
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -17,29 +19,19 @@ export const initDB = (): Promise<IDBDatabase> => {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       
-      // Store for FileSystemHandles
-      if (!db.objectStoreNames.contains(HANDLE_STORE)) {
-        db.createObjectStore(HANDLE_STORE);
+      if (!db.objectStoreNames.contains(HANDLE_STORE)) db.createObjectStore(HANDLE_STORE);
+      if (!db.objectStoreNames.contains(STATE_STORE)) db.createObjectStore(STATE_STORE);
+      if (!db.objectStoreNames.contains(RECENTS_STORE)) db.createObjectStore(RECENTS_STORE, { keyPath: 'name' });
+      if (!db.objectStoreNames.contains(WATCHLIST_STORE)) db.createObjectStore(WATCHLIST_STORE, { keyPath: 'symbol' });
+      
+      // DEPRECATE old store
+      if (db.objectStoreNames.contains('chartMeta')) {
+        db.deleteObjectStore('chartMeta');
       }
-
-      // Store for App Session State
-      if (!db.objectStoreNames.contains(STATE_STORE)) {
-        db.createObjectStore(STATE_STORE);
-      }
-
-      // Store for Recently Accessed Files
-      if (!db.objectStoreNames.contains(RECENTS_STORE)) {
-        db.createObjectStore(RECENTS_STORE, { keyPath: 'name' });
-      }
-
-      // Store for Watchlist
-      if (!db.objectStoreNames.contains(WATCHLIST_STORE)) {
-        db.createObjectStore(WATCHLIST_STORE, { keyPath: 'symbol' });
-      }
-
-      // Store for Chart Metadata (Drawings, Config)
-      if (!db.objectStoreNames.contains(CHART_META_STORE)) {
-        db.createObjectStore(CHART_META_STORE, { keyPath: 'sourceId' });
+      
+      // NEW Master Store
+      if (!db.objectStoreNames.contains(DRAWINGS_STORE)) {
+        db.createObjectStore(DRAWINGS_STORE);
       }
     };
   });
@@ -219,37 +211,39 @@ export const getWatchlist = async () => {
     });
 };
 
-// --- Scoped Chart Metadata Persistence ---
+// --- MASTER DRAWING STORE PERSISTENCE ---
 
-export const saveChartMeta = async (data: any) => {
+export const saveMasterDrawingsStore = async (data: any) => {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(CHART_META_STORE, 'readwrite');
-    const store = tx.objectStore(CHART_META_STORE);
-    const req = store.put(data); // data must have sourceId
+    const tx = db.transaction(DRAWINGS_STORE, 'readwrite');
+    const store = tx.objectStore(DRAWINGS_STORE);
+    const req = store.put(data, 'master'); 
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
 };
 
-export const loadChartMeta = async (sourceId: string) => {
+export const loadMasterDrawingsStore = async () => {
   const db = await initDB();
   return new Promise<any>((resolve, reject) => {
-    const tx = db.transaction(CHART_META_STORE, 'readonly');
-    const store = tx.objectStore(CHART_META_STORE);
-    const req = store.get(sourceId);
+    const tx = db.transaction(DRAWINGS_STORE, 'readonly');
+    const store = tx.objectStore(DRAWINGS_STORE);
+    const req = store.get('master');
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 };
 
+// FIX: Implement missing chart metadata functions.
+export const saveChartMeta = async (chartState: ChartState) => {
+  const masterStore = (await loadMasterDrawingsStore()) || {};
+  masterStore[chartState.sourceId] = chartState;
+  await saveMasterDrawingsStore(masterStore);
+};
+
 export const deleteChartMeta = async (sourceId: string) => {
-  const db = await initDB();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(CHART_META_STORE, 'readwrite');
-    const store = tx.objectStore(CHART_META_STORE);
-    const req = store.delete(sourceId);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
+  const masterStore = (await loadMasterDrawingsStore()) || {};
+  delete masterStore[sourceId];
+  await saveMasterDrawingsStore(masterStore);
 };

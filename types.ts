@@ -6,6 +6,7 @@ export interface OHLCV {
   time: number; // Unix timestamp in seconds or milliseconds
   open: number;
   high: number;
+
   low: number;
   close: number;
   volume: number;
@@ -87,6 +88,7 @@ export interface Drawing {
   type: string;
   points: DrawingPoint[];
   properties: DrawingProperties;
+  creationTimeframe?: Timeframe;
 }
 
 export interface FileStreamState {
@@ -120,55 +122,48 @@ export interface WatchlistItem {
   addedAt: number;
 }
 
-// Snapshot of state for Undo/Redo
 export interface HistorySnapshot {
   drawings: Drawing[];
   visibleRange: { from: number; to: number } | null;
 }
 
-// Scoped Persistence State
+// FIX: Add ChartState interface for persistence.
 export interface ChartState {
   sourceId: string;
   timestamp: number;
   drawings: Drawing[];
-  config: Partial<ChartConfig>;
+  config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
 }
 
 export interface TabSession {
   id: string;
   title: string;
+  symbolId: string; // Namespace-aware ID (e.g., "FOREX_GOLD")
   rawData: OHLCV[];
   data: OHLCV[];
   timeframe: Timeframe;
   config: ChartConfig;
   
-  // File Streaming
   fileState?: FileStreamState;
-  filePath?: string; // Bridge: Absolute path to the source file
+  filePath?: string; 
 
-  // Replay state
   isReplayMode: boolean;
   isAdvancedReplayMode: boolean;
-  isReplaySelecting: boolean; // New state for picking start point
+  isReplaySelecting: boolean; 
   replayIndex: number;
-  replayGlobalTime: number | null; // The exact simulated timestamp in ms
-  simulatedPrice: number | null; // The specific price at the current replay step
+  replayGlobalTime: number | null; 
+  simulatedPrice: number | null; 
   isReplayPlaying: boolean;
-  replaySpeed: number; // Speed multiplier (1 = real time, 10 = 10x speed)
-  // Window state
+  replaySpeed: number; 
   isDetached: boolean;
   
-  // State
+  visibleRange: { from: number; to: number } | null;
+  trades: Trade[];
+  // FIX: Add missing properties for drawings and history.
   drawings: Drawing[];
-  visibleRange: { from: number; to: number } | null; // Store current scroll position
-
-  // History Stacks
   undoStack: HistorySnapshot[];
   redoStack: HistorySnapshot[];
-  
-  // Trades
-  trades: Trade[];
 }
 
 export interface SanitizationStats {

@@ -15,14 +15,11 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  // FIX: Replaced state class property with an explicit constructor to correctly initialize component state and props, resolving TypeScript errors.
-  constructor(props: Props) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
-  }
+  // FIX: Initialized state as a class property to simplify and resolve binding issues.
+  public state: State = {
+    hasError: false,
+    error: null,
+  };
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
@@ -44,6 +41,7 @@ export class GlobalErrorBoundary extends Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
+  // FIX: Converted to arrow function to bind `this` correctly.
   handleRetry = () => {
     debugLog('UI', 'User attempted Error Boundary retry');
     this.setState({ hasError: false, error: null });
@@ -89,6 +87,6 @@ export class GlobalErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return <>{this.props.children}</>;
+    return this.props.children;
   }
 }

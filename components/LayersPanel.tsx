@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { 
   X, 
@@ -10,7 +11,9 @@ import {
   Layers,
   FolderOpen,
   Folder,
-  List
+  List,
+  Link,
+  Unlink
 } from 'lucide-react';
 import { Drawing } from '../types';
 import { ALL_TOOLS_LIST } from '../constants';
@@ -24,6 +27,8 @@ interface LayersPanelProps {
   onClose: () => void;
   position?: { x: number; y: number };
   onHeaderMouseDown?: (e: React.MouseEvent) => void;
+  isDrawingSyncEnabled?: boolean;
+  onToggleDrawingSync?: () => void;
 }
 
 // --- Memoized Row Component ---
@@ -144,7 +149,9 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   onSelectDrawing,
   onClose,
   position,
-  onHeaderMouseDown
+  onHeaderMouseDown,
+  isDrawingSyncEnabled = true,
+  onToggleDrawingSync
 }) => {
   const [viewMode, setViewMode] = useState<'layers' | 'groups'>('layers');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -294,7 +301,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
         </div>
 
         {/* View Toggles */}
-        <div className="flex px-3 pb-3 gap-1">
+        <div className="flex px-3 pb-2 gap-1">
             <button
                 onClick={(e) => { e.stopPropagation(); setViewMode('layers'); }}
                 className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors ${viewMode === 'layers' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-500 hover:bg-[#334155]/50 hover:text-slate-300'}`}
@@ -306,6 +313,25 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                 className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors ${viewMode === 'groups' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-500 hover:bg-[#334155]/50 hover:text-slate-300'}`}
             >
                 <Folder size={12} /> Groups
+            </button>
+        </div>
+         {/* Sync Toggle */}
+        <div className="px-3 pb-2 border-t border-[#334155]/50 pt-2">
+            <button
+                onClick={(e) => { e.stopPropagation(); onToggleDrawingSync?.(); }}
+                className={`w-full flex items-center justify-between p-2 text-xs rounded transition-colors ${
+                    isDrawingSyncEnabled
+                    ? 'bg-blue-900/20 text-blue-300 hover:bg-blue-900/30'
+                    : 'bg-[#334155]/30 text-slate-400 hover:bg-[#334155]/60 hover:text-slate-200'
+                }`}
+            >
+                <span className="font-bold">Sync Drawings</span>
+                <div className="flex items-center gap-1">
+                    {isDrawingSyncEnabled ? <Link size={14} /> : <Unlink size={14} />}
+                    <span className={`font-mono text-[10px] ${isDrawingSyncEnabled ? 'text-emerald-400' : 'text-slate-500'}`}>
+                        {isDrawingSyncEnabled ? 'ON' : 'OFF'}
+                    </span>
+                </div>
             </button>
         </div>
       </div>

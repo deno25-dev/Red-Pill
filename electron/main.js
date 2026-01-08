@@ -1,4 +1,5 @@
 
+
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -249,46 +250,34 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- Sidecar Metadata Persistence ---
-const getMetaPath = (filePath) => `${filePath}.meta.json`;
+// --- Master Drawing Store Persistence ---
+const getMasterDrawingsPath = () => path.join(app.getPath('userData'), 'drawings_master.json');
 
-ipcMain.handle('meta:load', async (event, filePath) => {
+ipcMain.handle('master-drawings:load', async () => {
     try {
-        validatePath(filePath);
-        const metaPath = getMetaPath(filePath);
-        if (fs.existsSync(metaPath)) {
-            const data = fs.readFileSync(metaPath, 'utf8');
+        const dbPath = getMasterDrawingsPath();
+        if (fs.existsSync(dbPath)) {
+            const data = fs.readFileSync(dbPath, 'utf8');
             return { success: true, data: JSON.parse(data) };
         }
-        return { success: true, data: null };
+        return { success: true, data: null }; // No file is not an error
     } catch (e) {
+        console.error("Failed to load master drawings:", e);
         return { success: false, error: e.message };
     }
 });
 
-ipcMain.handle('meta:save', async (event, filePath, data) => {
+ipcMain.handle('master-drawings:save', async (event, data) => {
     try {
-        validatePath(filePath);
-        const metaPath = getMetaPath(filePath);
-        fs.writeFileSync(metaPath, JSON.stringify(data, null, 2));
+        const dbPath = getMasterDrawingsPath();
+        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
+        console.error("Failed to save master drawings:", e);
         return { success: false, error: e.message };
     }
 });
 
-ipcMain.handle('meta:delete', async (event, filePath) => {
-    try {
-        validatePath(filePath);
-        const metaPath = getMetaPath(filePath);
-        if (fs.existsSync(metaPath)) {
-            fs.unlinkSync(metaPath);
-        }
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
 
 // --- Trade Persistence ---
 const getTradesDbPath = () => path.join(app.getPath('userData'), 'trades_db.json');

@@ -7,13 +7,11 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Activity, Folder } from 'lucide-react';
+import { GripVertical, Settings, Check, Folder } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
-// FIX: Changed import path to the correct file.
-import { useSymbolPersistence } from '../hooks/useChartPersistence';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 
 interface ChartWorkspaceProps {
@@ -35,15 +33,18 @@ interface ChartWorkspaceProps {
   onToggleLayers?: () => void;
   isSyncing?: boolean;
   
-  // New handler for range history
   onVisibleRangeChange?: (range: { from: number; to: number }) => void;
   
-  // Timeframe favorites
   favoriteTimeframes?: string[];
   onBackToLibrary?: () => void;
 
   isDrawingSyncEnabled?: boolean;
   onToggleDrawingSync?: () => void;
+
+  // New props for global drawing state
+  drawings: Drawing[];
+  onUpdateDrawings: (newDrawings: Drawing[]) => void;
+  isHydrating: boolean;
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -68,39 +69,17 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onBackToLibrary,
   isDrawingSyncEnabled = true,
   onToggleDrawingSync,
+  drawings,
+  onUpdateDrawings,
+  isHydrating,
 }) => {
-  // Scoped Persistence Hook (Drawings/Config)
-  // FIX: Adapted call to use `useSymbolPersistence` to resolve module error.
-  const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
-  const { isHydrating } = useSymbolPersistence({
-    symbol: sourceId,
-    filePath: tab.filePath,
-    onStateLoaded: (state) => {
-      if (state) {
-        updateTab({
-          drawings: state.drawings,
-          config: { ...tab.config, ...state.config },
-          visibleRange: state.visibleRange,
-        });
-      } else {
-        // If no state is loaded (e.g., first time), ensure drawings are reset.
-        updateTab({ drawings: [] });
-      }
-    },
-    drawings: tab.drawings,
-    config: tab.config,
-    visibleRange: tab.visibleRange,
-  });
-  
-  // Trade Persistence Hook
-  // Uses filePath if available (Bridge mode), otherwise fallback to title/timeframe ID
+  // Trade Persistence Hook - Remains local to the workspace context, keyed by file/source ID
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
   const { trades } = useTradePersistence(tradeSourceId);
 
   // Sync loaded trades to Tab state so BottomPanel can see them
   useEffect(() => {
       if (trades && trades.length > 0) {
-          // Avoid infinite loops by checking length or content
           if (trades.length !== (tab.trades || []).length) {
              updateTab({ trades });
           }
@@ -110,12 +89,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
-  
-  // States for new Stats Panels
   const [showRecentData, setShowRecentData] = useState(true);
-
   const settingsRef = useRef<HTMLDivElement>(null);
-  
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({
     color: COLORS.line,
@@ -139,33 +114,24 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             setIsChartSettingsOpen(false);
         }
     };
-    if (isChartSettingsOpen) {
-        document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-    };
+    if (isChartSettingsOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isChartSettingsOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
-            if (activeToolId && activeToolId !== 'cross') {
-                onSelectTool?.('cross');
-            } else if (selectedDrawingId) {
-                setSelectedDrawingId(null);
-            }
+            if (activeToolId && activeToolId !== 'cross') onSelectTool?.('cross');
+            else if (selectedDrawingId) setSelectedDrawingId(null);
         }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeToolId, selectedDrawingId, onSelectTool]);
   
-  // Replay Data Slice Logic
   const displayedData = useMemo(() => {
     if (tab.isReplaySelecting) return tab.data;
     if (tab.isReplayMode || tab.isAdvancedReplayMode) {
-        // Robustness: ensure we don't slice with negative index, which would return empty or wrap
         const safeIndex = Math.max(0, tab.replayIndex);
         return tab.data.slice(0, safeIndex + 1);
     }
@@ -178,8 +144,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
 
   const currentPrice = useMemo(() => {
-      // If actively replaying, we might use simulated price, but displayedData only updates on pause
-      // so we use the last displayed candle's close
       if (displayedData.length === 0) return 0;
       return displayedData[displayedData.length - 1].close;
   }, [displayedData]);
@@ -203,6 +167,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     const win = (e.view as unknown as Window) || window;
     const handleMouseMove = (ev: MouseEvent) => {
       if (!isDraggingHeader.current) return;
+      // FIX: Define dx and dy from mouse event before using them.
       const dx = ev.clientX - headerDragStart.current.x;
       const dy = ev.clientY - headerDragStart.current.y;
       setHeaderPos({ x: Math.max(0, headerStartPos.current.x + dx), y: Math.max(0, headerStartPos.current.y + dy) });
@@ -346,11 +311,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleDrawingPropertyChange = (updates: Partial<DrawingProperties>) => {
-    if (!tab) return;
     if (selectedDrawingId) {
       onSaveHistory?.();
-      const newDrawings = tab.drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
-      updateTab({ drawings: newDrawings });
+      const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
+      onUpdateDrawings(newDrawings);
       setDefaultDrawingProperties(prev => ({ ...prev, ...updates }));
     } else {
       setDefaultDrawingProperties(prev => ({ ...prev, ...updates }));
@@ -358,11 +322,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const deleteSelectedDrawing = () => {
-    if (!tab) return;
     if (selectedDrawingId) {
       onSaveHistory?.();
-      const newDrawings = tab.drawings.filter(d => d.id !== selectedDrawingId);
-      updateTab({ drawings: newDrawings });
+      const newDrawings = drawings.filter(d => d.id !== selectedDrawingId);
+      onUpdateDrawings(newDrawings);
       setSelectedDrawingId(null);
     }
   };
@@ -382,7 +345,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       });
   };
   
-  // Callback when ReplayEngine updates state (Paused or Finished)
   const handleReplaySync = (index: number, time: number, price: number) => {
       updateTab({
           replayIndex: index,
@@ -397,20 +359,17 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const activeProperties = useMemo(() => {
     if (selectedDrawingId) {
-      const drawing = tab?.drawings.find(d => d.id === selectedDrawingId);
+      const drawing = drawings.find(d => d.id === selectedDrawingId);
       return drawing?.properties ?? defaultDrawingProperties;
     }
     return defaultDrawingProperties;
-  }, [selectedDrawingId, tab?.drawings, defaultDrawingProperties]);
+  }, [selectedDrawingId, drawings, defaultDrawingProperties]);
   
   const selectedDrawingType = useMemo(() => {
-      if (selectedDrawingId) return tab.drawings.find(d => d.id === selectedDrawingId)?.type;
+      if (selectedDrawingId) return drawings.find(d => d.id === selectedDrawingId)?.type;
       return activeToolId; 
-  }, [selectedDrawingId, tab.drawings, activeToolId]);
+  }, [selectedDrawingId, drawings, activeToolId]);
 
-  // Construct a unique key for the chart component to force remount on file change
-  // This ensures the lightweight-chart instance is fully destroyed and recreated
-  // preventing ghost drawings from previous files.
   const chartComponentKey = useMemo(() => {
       return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`;
   }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
@@ -480,8 +439,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== 0 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
         {isLayersPanelOpen && (
             <LayersPanel 
-                drawings={tab.drawings} 
-                onUpdateDrawings={(drawings) => { onSaveHistory?.(); updateTab({ drawings }); }} 
+                drawings={drawings} 
+                onUpdateDrawings={(newDrawings) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
                 selectedDrawingId={selectedDrawingId} 
                 onSelectDrawing={setSelectedDrawingId} 
                 onClose={onToggleLayers || (() => {})} 
@@ -529,8 +488,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           config={tab.config} 
           timeframe={tab.timeframe} 
           onConfigChange={(newConfig) => updateTab({ config: newConfig })} 
-          drawings={tab.drawings} 
-          onUpdateDrawings={(drawings) => updateTab({ drawings })} 
+          drawings={drawings} 
+          onUpdateDrawings={onUpdateDrawings} 
           activeToolId={activeToolId || 'cross'} 
           onToolComplete={handleToolComplete} 
           currentDefaultProperties={defaultDrawingProperties} 
@@ -543,40 +502,34 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           areDrawingsLocked={areDrawingsLocked} 
           isMagnetMode={isMagnetMode} 
           isSyncing={isSyncing}
-          // Pass range history props
           visibleRange={tab.visibleRange}
           onVisibleRangeChange={onVisibleRangeChange}
-          // Pass Replay Props to drive the new engine
           fullData={tab.data}
           replayIndex={tab.replayIndex}
           isPlaying={tab.isReplayPlaying}
           replaySpeed={tab.replaySpeed}
           onReplaySync={handleReplaySync}
           onReplayComplete={() => updateTab({ isReplayPlaying: false })}
-          isAdvancedReplay={tab.isAdvancedReplayMode} // NEW PROP
+          isAdvancedReplay={tab.isAdvancedReplayMode}
           trades={trades}
           isDrawingSyncEnabled={isDrawingSyncEnabled}
         />
         </div>
         
-        {/* Statistics Panels - Decoupled Data Source */}
-        <div className="flex flex-col overflow-y-auto max-h-[40vh] custom-scrollbar">
-            <GlobalErrorBoundary 
-                errorMessage="Market Data Unavailable"
-                fallback={
-                    <div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-4">
-                        <Activity size={16} />
-                        <span>Market data could not be loaded.</span>
-                    </div>
-                }
-            >
-                <RecentMarketDataPanel 
-                    currentSymbol={tab.title}
-                    isOpen={showRecentData} 
-                    onToggle={() => setShowRecentData(!showRecentData)} 
-                />
-            </GlobalErrorBoundary>
-        </div>
+        <GlobalErrorBoundary 
+            errorMessage="Market Data Unavailable"
+            fallback={
+                <div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-4">
+                    <span>Market data could not be loaded.</span>
+                </div>
+            }
+        >
+            <RecentMarketDataPanel 
+                currentSymbol={tab.title}
+                isOpen={showRecentData} 
+                onToggle={() => setShowRecentData(!showRecentData)} 
+            />
+        </GlobalErrorBoundary>
 
         <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={trades} />
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
@@ -587,7 +540,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span>
             </div>
             <div className="flex items-center gap-4">
-               <span className="hidden md:inline text-slate-600">Red Pill Charting v0.2.2 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
+               <span className="hidden md:inline text-slate-600">Red Pill Charting v1.0.0 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
                <div className="w-px h-3 bg-slate-700 hidden md:block"></div>
                <span className="font-mono text-slate-400 flex items-center gap-2">
                    <span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span>

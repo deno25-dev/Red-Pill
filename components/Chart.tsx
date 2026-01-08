@@ -22,7 +22,7 @@ import {
   Time,
   SeriesMarker
 } from 'lightweight-charts';
-import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Trade } from '../types';
+import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Trade, Timeframe } from '../types';
 import { COLORS } from '../constants';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
 import { debugLog } from '../utils/logger';
@@ -69,6 +69,7 @@ interface ChartProps {
   
   // Trades
   trades?: Trade[];
+  isDrawingSyncEnabled?: boolean;
 }
 
 const OFF_SCREEN = -10000;
@@ -132,9 +133,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         
         const timeScale = _chart.timeScale();
         const pointToScreen = (p: DrawingPoint) => {
-            // Guard: Sticky Left Recovery (Coordinate 0 / NaN fix)
             if (!p.time || p.time <= 0 || !Number.isFinite(p.time)) {
-                // Log silently to avoid console spam during drag, but this is a critical data check
                 return { x: OFF_SCREEN, y: OFF_SCREEN };
             }
 
@@ -144,25 +143,82 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 
                 let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
                 
-                // Fallback for timestamps outside of currently visible/indexed range
+                // --- HIGH-PRECISION COORDINATE MAPPING (INTERPOLATION & EXTRAPOLATION) ---
                 if (x === null) {
-                    const idx = _timeToIndex?.get(p.time);
-                    if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical);
-                    else if (this._source._lastTime !== null) {
-                         const tfMs = getTimeframeDuration(this._source._timeframe as any);
-                         const diff = p.time - this._source._lastTime;
-                         const bars = diff / tfMs;
-                         const targetLogical = this._source._lastIndex + bars;
-                         x = timeScale.logicalToCoordinate(targetLogical as Logical);
+                    const data = this._source._data;
+                    if (data && data.length > 0) {
+                        // Binary search to find index `i` such that data[i].time <= p.time
+                        let low = 0, high = data.length - 1, i = -1;
+                        while (low <= high) {
+                            const mid = Math.floor((low + high) / 2);
+                            if (data[mid].time <= p.time) {
+                                i = mid;
+                                low = mid + 1;
+                            } else {
+                                high = mid - 1;
+                            }
+                        }
+
+                        if (i === -1 && data.length > 1) {
+                            // Case 1: Point is BEFORE the first candle. Extrapolate backwards.
+                            const t1 = data[0].time;
+                            const t2 = data[1].time;
+                            const timeDiff = t2 - t1;
+                            if (timeDiff > 0) {
+                                const logical1 = this._source._timeToIndex?.get(t1);
+                                const logical2 = this._source._timeToIndex?.get(t2);
+                                if (logical1 !== undefined && logical2 !== undefined) {
+                                    const x1 = timeScale.logicalToCoordinate(logical1 as Logical);
+                                    const x2 = timeScale.logicalToCoordinate(logical2 as Logical);
+                                    if (x1 !== null && x2 !== null) {
+                                        const barsDiff = (p.time - t1) / timeDiff; // Will be negative
+                                        x = x1 + barsDiff * (x2 - x1);
+                                    }
+                                }
+                            }
+                        } else if (i !== -1 && i < data.length - 1) {
+                            // Case 2: Point is BETWEEN two candles. Interpolate.
+                            const t0 = data[i].time;
+                            const t1 = data[i+1].time;
+                            const timeDiff = t1 - t0;
+                            if (timeDiff > 0) {
+                                const logical0 = this._source._timeToIndex?.get(t0);
+                                const logical1 = this._source._timeToIndex?.get(t1);
+                                if (logical0 !== undefined && logical1 !== undefined) {
+                                    const x0 = timeScale.logicalToCoordinate(logical0 as Logical);
+                                    const x1 = timeScale.logicalToCoordinate(logical1 as Logical);
+                                    if (x0 !== null && x1 !== null) {
+                                        const progress = (p.time - t0) / timeDiff;
+                                        x = x0 + progress * (x1 - x0);
+                                    }
+                                }
+                            }
+                        } else if (i === data.length - 1) {
+                            // Case 3: Point is AFTER the last candle. Extrapolate forwards.
+                            const t_last = data[data.length - 1].time;
+                            const t_prev = data.length > 1 ? data[data.length - 2].time : t_last - getTimeframeDuration(this._source._timeframe as any);
+                            const timeDiff = t_last - t_prev;
+                            if (timeDiff > 0) {
+                                const logical_last = this._source._timeToIndex?.get(t_last);
+                                const logical_prev = this._source._timeToIndex?.get(t_prev);
+                                if (logical_last !== undefined && logical_prev !== undefined) {
+                                    const x_last = timeScale.logicalToCoordinate(logical_last as Logical);
+                                    const x_prev = timeScale.logicalToCoordinate(logical_prev as Logical);
+                                    if (x_last !== null && x_prev !== null) {
+                                        const barsDiff = (p.time - t_last) / timeDiff; // Will be positive
+                                        x = x_last + barsDiff * (x_last - x_prev);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 
-                // Final Guard: If X is still invalid or explicitly NaN (some logic errors), or incorrectly 0 for non-start data
                 if (x === null || !Number.isFinite(x)) {
                     return { x: OFF_SCREEN, y: OFF_SCREEN };
                 }
 
-                return { x: (x !== null) ? x : OFF_SCREEN, y: price };
+                return { x, y: price };
             } catch { return { x: OFF_SCREEN, y: OFF_SCREEN }; }
         };
         target.save();
@@ -320,14 +376,16 @@ class DrawingsPrimitive implements ISeriesPrimitive {
     _timeframe: string = '1h'; 
     _lastTime: number | null = null;
     _lastIndex: number = 0;
+    _data: OHLCV[] = [];
     _paneViews: DrawingsPaneView[]; _priceAxisViews: DrawingsPriceAxisPaneView[];
     constructor(chart: IChartApi, series: ISeriesApi<any>, interactionStateRef: React.MutableRefObject<any>, defaults: DrawingProperties, timeframe: string) {
         this._chart = chart; this._series = series; this._interactionStateRef = interactionStateRef; this._currentDefaultProperties = defaults;
         this._timeframe = timeframe; this._paneViews = [new DrawingsPaneView(this)]; this._priceAxisViews = [new DrawingsPriceAxisPaneView(this)];
     }
-    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, timeframe: string, lastTime: number | null, lastIndex: number) {
+    update(drawings: Drawing[], timeToIndex: Map<number, number>, defaults: DrawingProperties, selectedId: string | null, timeframe: string, lastTime: number | null, lastIndex: number, data: OHLCV[]) {
         this._drawings = drawings; this._timeToIndex = timeToIndex; this._currentDefaultProperties = defaults; this._selectedDrawingId = selectedId; this._timeframe = timeframe;
         this._lastTime = lastTime; this._lastIndex = lastIndex;
+        this._data = data;
     }
     paneViews() { return this._paneViews; }
     priceAxisPaneViews() { return this._priceAxisViews as any; }
@@ -370,7 +428,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onReplaySync,
     onReplayComplete,
     isAdvancedReplay = false,
-    trades = []
+    trades = [],
+    isDrawingSyncEnabled = true,
   } = props;
 
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
@@ -399,6 +458,18 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   // --- REGISTRY HOOK ---
   const { register, forceClear } = useDrawingRegistry(chartRef, seriesRef);
+
+  const visibleDrawings = useMemo(() => {
+    if (isDrawingSyncEnabled) {
+      return drawings;
+    }
+    return drawings.filter(d => !d.creationTimeframe || d.creationTimeframe === timeframe);
+  }, [drawings, timeframe, isDrawingSyncEnabled]);
+
+  const visibleDrawingsRef = useRef(visibleDrawings);
+  useEffect(() => {
+    visibleDrawingsRef.current = visibleDrawings;
+  }, [visibleDrawings]);
 
   // Listen for force clear event
   useEffect(() => {
@@ -504,11 +575,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => { 
       if (drawingsPrimitiveRef.current) {
           const lastCandle = data.length > 0 ? data[data.length - 1] : null;
-          drawingsPrimitiveRef.current.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
+          drawingsPrimitiveRef.current.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data);
           
           requestDraw(); 
       }
-  }, [drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
+  }, [visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
 
   // Trade Markers Sync
   useEffect(() => {
@@ -800,7 +871,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     seriesRef.current = newSeries; newSeries.setData(processedData);
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;
-    primitive.update(drawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1);
+    primitive.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data);
     
     // REGISTRY: Register the primitive so it can be cleared externally
     register('drawings-primitive', primitive);
@@ -980,16 +1051,17 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   const getHitObject = (x: number, y: number) => {
     let hitHandle: { id: string; index: number } | null = null; let hitDrawing: Drawing | null = null;
-    const { drawings, selectedDrawingId } = propsRef.current;
+    const { selectedDrawingId } = propsRef.current;
+    const currentVisibleDrawings = visibleDrawingsRef.current;
     if (selectedDrawingId) {
-        const d = drawings.find(dr => dr.id === selectedDrawingId);
+        const d = currentVisibleDrawings.find(dr => dr.id === selectedDrawingId);
         if (d && !d.properties.locked && d.properties.visible !== false) {
              const screenPoints = d.points.map(pointToScreen);
              for(let i=0; i<screenPoints.length; i++) { const p = screenPoints[i]; if (p.x !== OFF_SCREEN && Math.hypot(p.x - x, p.y - y) < 8) { return { hitHandle: { id: d.id, index: i }, hitDrawing: d }; } }
         }
     }
-    for (let i = drawings.length - 1; i >= 0; i--) {
-        const d = drawings[i]; if (d.properties.visible === false) continue;
+    for (let i = currentVisibleDrawings.length - 1; i >= 0; i--) {
+        const d = currentVisibleDrawings[i]; if (d.properties.visible === false) continue;
         const screenPoints = d.points.map(pointToScreen); if (screenPoints.every(p => p.x === OFF_SCREEN)) continue;
         let hit = false;
         if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') { const p1 = screenPoints[0], p2 = screenPoints[1]; if (p1.x !== OFF_SCREEN && p2.x !== OFF_SCREEN && pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) hit = true; }
@@ -1168,7 +1240,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                     id: crypto.randomUUID(), 
                     type: activeToolId, 
                     points: smoothPoints(interactionState.current.creatingPoints, currentDefaultProperties.smoothing || 0), 
-                    properties: currentDefaultProperties 
+                    properties: currentDefaultProperties,
+                    creationTimeframe: timeframe as Timeframe
                 }
             ]);
             
@@ -1199,7 +1272,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         } else {
             const step = interactionState.current.creationStep;
             if (step < interactionState.current.creatingPoints.length - 1) { interactionState.current.creationStep = step + 1; interactionState.current.creatingPoints[step + 1] = interactionState.current.creatingPoints[step]; requestDraw(); return; }
-            onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: interactionState.current.creatingPoints, properties: currentDefaultProperties }]); interactionState.current.isCreating = false; 
+            onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: interactionState.current.creatingPoints, properties: currentDefaultProperties, creationTimeframe: timeframe as Timeframe }]); interactionState.current.isCreating = false; 
             
             // Handle Persistent Mode for other tools if requested
             if (propsRef.current.isStayInDrawingMode) {
@@ -1283,7 +1356,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                 id: crypto.randomUUID(), 
                 type: 'text', 
                 points: [textInputState.point], 
-                properties: { ...propsRef.current.currentDefaultProperties, text: textInputState.text || "Label" } 
+                properties: { ...propsRef.current.currentDefaultProperties, text: textInputState.text || "Label" },
+                creationTimeframe: propsRef.current.timeframe as Timeframe
             }
           ]);
           propsRef.current.onToolComplete();
