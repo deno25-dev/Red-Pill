@@ -139,7 +139,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
 
       const processed: AssetSymbol[] = Object.entries(grouped).map(([name, assetFiles]) => ({
           name,
-          files: assetFiles.sort((a, b) => a.name.localeCompare(b.name)),
+          files: assetFiles.sort((a: any, b: any) => a.name.localeCompare(b.name)),
           isFavorite: favorites.includes(name)
       }));
       

@@ -1,5 +1,4 @@
 
-
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -241,14 +240,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
                     {Object.values(Timeframe).map((tf) => (
                         <button
-                            key={tf}
-                            onClick={() => onToggleFavoriteTimeframe?.(tf)}
+                            key={tf as string}
+                            onClick={() => onToggleFavoriteTimeframe?.(tf as string)}
                             className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors group"
                         >
-                            <span>{tf}</span>
+                            <span>{tf as string}</span>
                             <Star 
                                 size={14} 
-                                className={`transition-colors ${favoriteTimeframes.includes(tf) ? 'text-amber-400 fill-amber-400' : 'text-slate-600 group-hover:text-slate-400'}`} 
+                                className={`transition-colors ${favoriteTimeframes.includes(tf as string) ? 'text-amber-400 fill-amber-400' : 'text-slate-600 group-hover:text-slate-400'}`} 
                             />
                         </button>
                     ))}
