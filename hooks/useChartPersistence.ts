@@ -1,4 +1,5 @@
 
+
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { ChartState, ChartConfig, Drawing } from '../types';
 import { loadMasterDrawingsStore, saveMasterDrawingsStore } from '../utils/storage';
@@ -15,7 +16,7 @@ interface UseSymbolPersistenceProps {
 
 export const useSymbolPersistence = ({
   symbol,
-  filePath,
+  // filePath, // Unused variable
   onStateLoaded,
   drawings,
   config,

@@ -20,7 +20,8 @@ import {
   MouseEventParams,
   LogicalRange,
   Time,
-  SeriesMarker
+  SeriesMarker,
+  Coordinate
 } from 'lightweight-charts';
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Trade, Timeframe } from '../types';
 import { COLORS } from '../constants';
@@ -72,7 +73,7 @@ interface ChartProps {
   isDrawingSyncEnabled?: boolean;
 }
 
-const OFF_SCREEN = -10000;
+const OFF_SCREEN = -10000 as Coordinate;
 
 function pDistance(x: number, y: number, x1: number, y1: number, x2: number, y2: number) {
   var A = x - x1; var B = y - y1; var C = x2 - x1; var D = y2 - y1;
@@ -172,7 +173,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                                     const x2 = timeScale.logicalToCoordinate(logical2 as Logical);
                                     if (x1 !== null && x2 !== null) {
                                         const barsDiff = (p.time - t1) / timeDiff; // Will be negative
-                                        x = x1 + barsDiff * (x2 - x1);
+                                        x = (x1 + barsDiff * (x2 - x1)) as Coordinate;
                                     }
                                 }
                             }
@@ -189,7 +190,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                                     const x1 = timeScale.logicalToCoordinate(logical1 as Logical);
                                     if (x0 !== null && x1 !== null) {
                                         const progress = (p.time - t0) / timeDiff;
-                                        x = x0 + progress * (x1 - x0);
+                                        x = (x0 + progress * (x1 - x0)) as Coordinate;
                                     }
                                 }
                             }
@@ -206,7 +207,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                                     const x_prev = timeScale.logicalToCoordinate(logical_prev as Logical);
                                     if (x_last !== null && x_prev !== null) {
                                         const barsDiff = (p.time - t_last) / timeDiff; // Will be positive
-                                        x = x_last + barsDiff * (x_last - x_prev);
+                                        x = (x_last + barsDiff * (x_last - x_prev)) as Coordinate;
                                     }
                                 }
                             }
