@@ -101,28 +101,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     smoothing: 0 
   });
 
-  // --- INTELLIGENT REPLAY AUTO-SCROLL ---
-  useEffect(() => {
-    // Only engage auto-scroll if actively playing.
-    // This allows the user to pause and manually scroll back to inspect history without fighting the engine.
-    if (tab.isReplayPlaying && tab.data && tab.data.length > 0) {
-        const currentIdx = tab.replayIndex;
-        
-        // Safety check for valid index
-        if (typeof currentIdx !== 'number' || currentIdx < 0) return;
-
-        // Configuration for the "Follow Mode" view
-        const historyBuffer = 50; // How many candles to show behind the current price
-        const rightMargin = 5;    // How many empty bar spaces to leave on the right
-
-        const to = currentIdx + rightMargin;
-        const from = currentIdx - historyBuffer;
-
-        // Trigger the viewport update via the centralized handler
-        onVisibleRangeChange?.({ from, to });
-    }
-  }, [tab.replayIndex, tab.isReplayPlaying, tab.data, onVisibleRangeChange]);
-
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
     return () => clearInterval(timer);
