@@ -6,7 +6,7 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, OHLCV } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, OHLCV, ChartConfig } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
@@ -337,9 +337,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       onSaveHistory?.();
       const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
       onUpdateDrawings(newDrawings);
-      setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
+      setDefaultDrawingProperties((prev: DrawingProperties) => ({ ...prev, ...updates }));
     } else {
-      setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
+      setDefaultDrawingProperties((prev: DrawingProperties) => ({ ...prev, ...updates }));
     }
   };
 
@@ -354,7 +354,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const handleReplayPointSelect = (timeInMs: number) => {
       if (!tab.isReplaySelecting) return;
-      let idx = tab.data.findIndex((d: any) => d.time >= timeInMs);
+      let idx = tab.data.findIndex((d: OHLCV) => d.time >= timeInMs);
       if (idx === -1) idx = tab.data.length - 1;
       updateTab({
           isReplaySelecting: false,
@@ -403,10 +403,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
               {Object.values(Timeframe)
-                .filter((tf: any) => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf as string))
-                .map((tf: any) => (
-              <button key={tf as string} onClick={() => onTimeframeChange(tf)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
-                  {tf as string}
+                .filter((tf: string) => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf))
+                .map((tf: string) => (
+              <button key={tf} onClick={() => onTimeframeChange(tf as Timeframe)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
+                  {tf}
               </button>
               ))}
           </div>
@@ -449,11 +449,11 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <div ref={favBarRef} onMouseDown={handleFavMouseDown} style={{ left: favBarPos.x, top: favBarPos.y }} className="absolute z-30 bg-[#1e293b] border border-[#334155] rounded-full shadow-xl shadow-black/50 backdrop-blur-md flex items-center p-1 gap-1 cursor-move animate-in fade-in zoom-in-95 duration-200">
                 <div className="pl-2 pr-1 text-slate-500 cursor-move hover:text-slate-300 transition-colors"><GripVertical size={14} /></div>
                 <div className="w-px h-4 bg-[#334155] mx-1"></div>
-                {favoriteTools.map((toolId: any) => {
+                {favoriteTools.map((toolId: string) => {
                     const tool = ALL_TOOLS_LIST.find((t: any) => t.id === toolId);
                     if (!tool) return null;
                     return (
-                        <button key={toolId} onClick={(e: any) => { e.stopPropagation(); onSelectTool?.(toolId); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${activeToolId === toolId ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} onMouseDown={(e) => e.stopPropagation()} title={tool.label}><tool.icon size={18} /></button>
+                        <button key={toolId} onClick={(e) => { e.stopPropagation(); onSelectTool?.(toolId); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${activeToolId === toolId ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} onMouseDown={(e) => e.stopPropagation()} title={tool.label}><tool.icon size={18} /></button>
                     );
                 })}
             </div>
@@ -462,7 +462,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={drawings} 
-                onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
+                onUpdateDrawings={(newDrawings: Drawing[]) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
                 selectedDrawingId={selectedDrawingId} 
                 onSelectDrawing={setSelectedDrawingId} 
                 onClose={onToggleLayers || (() => {})} 
@@ -477,23 +477,30 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
               isPlaying={tab.isReplayPlaying} 
               onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} 
               onStepForward={() => {
+                // Safety Guard for empty data
+                if (tab.data.length === 0) return;
+
                 if (tab.isReplayMode) {
                    const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1);
                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
                 } else {
-                    const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe);
-                    let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime);
+                    const currentRefTime = tab.replayGlobalTime || (tab.data[tab.replayIndex] ? tab.data[tab.replayIndex].time : 0);
+                    const nextTime = currentRefTime + getTimeframeDuration(tab.timeframe);
+                    let nextIndex = tab.data.findIndex((d: OHLCV) => d.time >= nextTime);
                     if (nextIndex === -1) nextIndex = tab.data.length - 1;
                     updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
                 }
               }} 
               onReset={() => {
                 const newIdx = Math.max(0, tab.data.length - 100);
-                updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open })
+                // Guard against empty data
+                if (tab.data.length > 0 && tab.data[newIdx]) {
+                    updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open });
+                }
               }} 
               onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} 
               speed={tab.replaySpeed} 
-              onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} 
+              onSpeedChange={(speed: number) => updateTab({ replaySpeed: speed })} 
               progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} 
               position={replayPos.x !== 0 ? replayPos : undefined} 
               onHeaderMouseDown={handleReplayMouseDown} 
@@ -509,9 +516,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           smaData={smaData} 
           config={tab.config} 
           timeframe={tab.timeframe} 
-          onConfigChange={(newConfig: any) => updateTab({ config: newConfig })} 
+          onConfigChange={(newConfig: ChartConfig) => updateTab({ config: newConfig })} 
           drawings={drawings} 
-          onUpdateDrawings={(newDrawings: any) => onUpdateDrawings(newDrawings)} 
+          onUpdateDrawings={(newDrawings: Drawing[]) => onUpdateDrawings(newDrawings)} 
           activeToolId={activeToolId || 'cross'} 
           onToolComplete={handleToolComplete} 
           currentDefaultProperties={defaultDrawingProperties} 
