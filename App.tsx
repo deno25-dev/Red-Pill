@@ -56,6 +56,7 @@ const App: React.FC = () => {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [isAssetLibraryOpen, setIsAssetLibraryOpen] = useState(false);
   const [isTradingPanelOpen, setIsTradingPanelOpen] = useState(false);
+  const [isLayersPanelOpen, setIsLayersPanelOpen] = useState(false);
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('single');
   
@@ -1209,6 +1210,8 @@ const App: React.FC = () => {
                         areDrawingsLocked={areDrawingsLocked}
                         isMagnetMode={isMagnetMode}
                         isStayInDrawingMode={isStayInDrawingMode}
+                        isLayersPanelOpen={isLayersPanelOpen}
+                        onToggleLayers={() => setIsLayersPanelOpen(false)}
                         onVisibleRangeChange={handleVisibleRangeChange}
                         favoriteTimeframes={favoriteTimeframes}
                         onBackToLibrary={() => setAppStatus('LIBRARY')}
@@ -1247,6 +1250,8 @@ const App: React.FC = () => {
                             areDrawingsLocked={areDrawingsLocked}
                             isMagnetMode={isMagnetMode}
                             isStayInDrawingMode={isStayInDrawingMode}
+                            isLayersPanelOpen={tab.id === activeTabId ? isLayersPanelOpen : false}
+                            onToggleLayers={tab.id === activeTabId ? () => setIsLayersPanelOpen(false) : undefined}
                             isSyncing={isCrosshairSync || isTimeSync}
                             onVisibleRangeChange={tab.id === activeTabId ? handleVisibleRangeChange : undefined}
                             favoriteTimeframes={favoriteTimeframes}
@@ -1353,6 +1358,8 @@ const App: React.FC = () => {
                         isTradingPanelOpen={isTradingPanelOpen}
                         isLibraryOpen={isLibraryOpen}
                         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
+                        onToggleLayers={() => setIsLayersPanelOpen(!isLayersPanelOpen)}
+                        isLayersOpen={isLayersPanelOpen}
                         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
                         onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
                         tickerSymbol={currentSymbolName}

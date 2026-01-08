@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { 
   X, 
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Drawing } from '../types';
 import { ALL_TOOLS_LIST } from '../constants';
+import { debugLog } from '../utils/logger';
 
 interface LayersPanelProps {
   drawings: Drawing[];
@@ -166,19 +166,31 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   const handleToggleVisible = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const currentDrawings = drawingsRef.current;
-    const newDrawings = currentDrawings.map(d => 
-      d.id === id ? { ...d, properties: { ...d.properties, visible: !(d.properties.visible ?? true) } } : d
-    );
+    let visibility;
+    const newDrawings = currentDrawings.map(d => {
+      if (d.id === id) {
+        visibility = !(d.properties.visible ?? true);
+        return { ...d, properties: { ...d.properties, visible: visibility } };
+      }
+      return d;
+    });
     onUpdateRef.current(newDrawings);
+    debugLog('UI', `Drawing [${id}] visibility changed to [${visibility}]`);
   }, []);
 
   const handleToggleLock = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const currentDrawings = drawingsRef.current;
-    const newDrawings = currentDrawings.map(d => 
-      d.id === id ? { ...d, properties: { ...d.properties, locked: !d.properties.locked } } : d
-    );
+    let lockState;
+    const newDrawings = currentDrawings.map(d => {
+      if (d.id === id) {
+        lockState = !d.properties.locked;
+        return { ...d, properties: { ...d.properties, locked: lockState } };
+      }
+      return d;
+    });
     onUpdateRef.current(newDrawings);
+    debugLog('UI', `Drawing [${id}] lock state changed to [${lockState ? 'Locked' : 'Unlocked'}]`);
   }, []);
 
   const handleDelete = useCallback((e: React.MouseEvent, id: string) => {

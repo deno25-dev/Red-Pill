@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -452,7 +451,15 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         )}
         <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== 0 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
         {isLayersPanelOpen && (
-            <LayersPanel drawings={tab.drawings} onUpdateDrawings={(drawings) => { onSaveHistory?.(); updateTab({ drawings }); }} selectedDrawingId={selectedDrawingId} onSelectDrawing={setSelectedDrawingId} onClose={onToggleLayers || (() => {})} position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} onHeaderMouseDown={handleLayersMouseDown} />
+            <LayersPanel 
+                drawings={tab.drawings} 
+                onUpdateDrawings={(drawings) => { onSaveHistory?.(); updateTab({ drawings }); }} 
+                selectedDrawingId={selectedDrawingId} 
+                onSelectDrawing={setSelectedDrawingId} 
+                onClose={onToggleLayers || (() => {})} 
+                position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 
+                onHeaderMouseDown={handleLayersMouseDown} 
+            />
         )}
         {(tab.isReplayMode || tab.isAdvancedReplayMode) && (
             <ReplayControls 
