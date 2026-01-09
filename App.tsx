@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -21,7 +22,7 @@ import { DeveloperTools } from './components/DeveloperTools';
 import { debugLog } from './utils/logger';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useTradePersistence } from './hooks/useTradePersistence';
-import { useSymbolPersistence } from './hooks/useChartPersistence';
+import { useSymbolPersistence } from './hooks/useSymbolPersistence';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -249,20 +250,23 @@ const App: React.FC = () => {
           debugLog('Data', `Executing NUCLEAR CLEAR for ${tab.sourceId}`);
 
           try {
-              // 1. Clear IndexedDB Entry
-              await deleteChartMeta(tab.sourceId);
-              
-              // 2. Clear Electron Sidecar (if applicable)
+              // 1. Clear Backend via Dedicated Endpoint (Mandate 12.3)
               const electron = (window as any).electronAPI;
-              if (electron && electron.saveMasterDrawings) {
-                  // If we use master store file, load, remove key, save.
+              
+              if (electron && electron.deleteAllDrawings) {
+                  await electron.deleteAllDrawings(tab.sourceId);
+              } else if (electron && electron.saveMasterDrawings) {
+                  // Fallback for older electron bridge
                   const res = await electron.loadMasterDrawings();
                   const master = res?.data || {};
                   delete master[tab.sourceId];
                   await electron.saveMasterDrawings(master);
+              } else {
+                  // Web Fallback
+                  await deleteChartMeta(tab.sourceId);
               }
 
-              // 3. Clear Active Tab State
+              // 2. Clear Active Tab State
               updateTab(activeTabId, { drawings: [], folders: [] });
               
               alert("Chart metadata completely purged.");
@@ -1141,8 +1145,10 @@ const App: React.FC = () => {
             // Mandate 12.3: Nuclear Clear Backend Call
             const electron = (window as any).electronAPI;
             
-            // Prefer dedicated clear command if available (Stubbed here as save empty state)
-            if (electron && electron.saveMasterDrawings) {
+            // Prefer dedicated clear command if available
+            if (electron && electron.deleteAllDrawings) {
+                await electron.deleteAllDrawings(sourceId);
+            } else if (electron && electron.saveMasterDrawings) {
                 const res = await electron.loadMasterDrawings();
                 const master = res?.data || {};
                 // Actually remove the key entirely as per "Nuclear" requirement

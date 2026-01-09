@@ -916,7 +916,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (canvasRef.current) {
-        const isDrawingTool = !['cross', 'arrow', 'cursor', 'dot'].includes(activeToolId);
+        const isDrawingTool = !['cross'].includes(activeToolId);
         const isInteractive = isDrawingTool || isReplaySelecting;
         
         if (config.showCrosshair === false) {
@@ -1128,7 +1128,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const rect = canvasRef.current!.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
     if (isReplaySelecting) { const p = screenToPoint(x, y, true); if (p && onReplayPointSelect) onReplayPointSelect(p.time); return; }
     const { hitHandle, hitDrawing } = getHitObject(x, y);
-    const isDrawingTool = !['cross', 'arrow', 'cursor', 'dot'].includes(activeToolId);
+    const isDrawingTool = !['cross'].includes(activeToolId);
     
     if (isDrawingTool) {
         onActionStart?.(); const p = screenToPoint(x, y, activeToolId !== 'brush' && activeToolId !== 'text');
