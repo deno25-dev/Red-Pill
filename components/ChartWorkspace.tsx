@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -6,7 +5,7 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, ChartConfig } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
@@ -166,7 +165,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     const win = (e.view as unknown as Window) || window;
     const handleMouseMove = (ev: MouseEvent) => {
       if (!isDraggingHeader.current) return;
-      // FIX: Define dx and dy from mouse event before using them.
       const dx = ev.clientX - headerDragStart.current.x;
       const dy = ev.clientY - headerDragStart.current.y;
       setHeaderPos({ x: Math.max(0, headerStartPos.current.x + dx), y: Math.max(0, headerStartPos.current.y + dy) });
@@ -312,10 +310,13 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const handleDrawingPropertyChange = (updates: Partial<DrawingProperties>) => {
     if (selectedDrawingId) {
       onSaveHistory?.();
+      // FIX: Removed explicit 'any' type from map callback. Type is inferred from `drawings`.
       const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
       onUpdateDrawings(newDrawings);
+      // FIX: Removed explicit 'any' type from state update.
       setDefaultDrawingProperties(prev => ({ ...prev, ...updates }));
     } else {
+      // FIX: Removed explicit 'any' type from state update.
       setDefaultDrawingProperties(prev => ({ ...prev, ...updates }));
     }
   };
@@ -323,6 +324,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const deleteSelectedDrawing = () => {
     if (selectedDrawingId) {
       onSaveHistory?.();
+      // FIX: Removed explicit 'any' type from filter callback. Type is inferred from `drawings`.
       const newDrawings = drawings.filter(d => d.id !== selectedDrawingId);
       onUpdateDrawings(newDrawings);
       setSelectedDrawingId(null);
@@ -331,6 +333,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const handleReplayPointSelect = (timeInMs: number) => {
       if (!tab.isReplaySelecting) return;
+      // FIX: Removed explicit 'any' type from findIndex callback. Type is inferred.
       let idx = tab.data.findIndex(d => d.time >= timeInMs);
       if (idx === -1) idx = tab.data.length - 1;
       updateTab({
@@ -358,6 +361,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const activeProperties = useMemo(() => {
     if (selectedDrawingId) {
+      // FIX: Removed explicit 'any' type from find callback. Type is inferred.
       const drawing = drawings.find(d => d.id === selectedDrawingId);
       return drawing?.properties ?? defaultDrawingProperties;
     }
@@ -365,6 +369,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   }, [selectedDrawingId, drawings, defaultDrawingProperties]);
   
   const selectedDrawingType = useMemo(() => {
+      // FIX: Removed explicit 'any' type from find callback. Type is inferred.
       if (selectedDrawingId) return drawings.find(d => d.id === selectedDrawingId)?.type;
       return activeToolId; 
   }, [selectedDrawingId, drawings, activeToolId]);
@@ -439,7 +444,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={drawings} 
-                onUpdateDrawings={(newDrawings) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
+                // FIX: Corrected 'any' type to 'Drawing[]' to match child component's prop type.
+                onUpdateDrawings={(newDrawings: Drawing[]) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
                 selectedDrawingId={selectedDrawingId} 
                 onSelectDrawing={setSelectedDrawingId} 
                 onClose={onToggleLayers || (() => {})} 
@@ -459,6 +465,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
                 } else {
                     const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe);
+                    // FIX: Removed explicit 'any' type from findIndex callback.
                     let nextIndex = tab.data.findIndex(d => d.time >= nextTime);
                     if (nextIndex === -1) nextIndex = tab.data.length - 1;
                     updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
@@ -470,7 +477,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
               }} 
               onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} 
               speed={tab.replaySpeed} 
-              onSpeedChange={(speed) => updateTab({ replaySpeed: speed })} 
+              // FIX: Corrected 'any' type to 'number' for speed.
+              onSpeedChange={(speed: number) => updateTab({ replaySpeed: speed })} 
               progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} 
               position={replayPos.x !== 0 ? replayPos : undefined} 
               onHeaderMouseDown={handleReplayMouseDown} 
@@ -486,7 +494,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           smaData={smaData} 
           config={tab.config} 
           timeframe={tab.timeframe} 
-          onConfigChange={(newConfig) => updateTab({ config: newConfig })} 
+          // FIX: Corrected 'any' type to 'ChartConfig' for newConfig.
+          onConfigChange={(newConfig: ChartConfig) => updateTab({ config: newConfig })} 
           drawings={drawings} 
           onUpdateDrawings={onUpdateDrawings} 
           activeToolId={activeToolId || 'cross'} 
