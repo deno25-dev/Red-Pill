@@ -975,12 +975,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (applyMagnet && propsRef.current.isMagnetMode) { const snapped = snapToCandle(x, y); if (snapped) return snapped; }
     try {
         const timeScale = chartRef.current.timeScale(); 
-        const timeSeconds = timeScale.coordinateToTime(x) as number; 
+        const timeSeconds = timeScale.coordinateToTime(x); 
         const price = seriesRef.current.coordinateToPrice(y);
         
         // Robustness: Handle lightweight-charts edge cases where coordinateToTime returns null
         // or unexpected values at the chart edges.
-        if (timeSeconds === null || price === null || !Number.isFinite(timeSeconds) || !Number.isFinite(price)) {
+        if (timeSeconds === null || price === null || !Number.isFinite(timeSeconds as number) || !Number.isFinite(price)) {
             const logical = timeScale.coordinateToLogical(x);
             // Verify data exists to prevent crashes on empty charts
             if (logical !== null && propsRef.current.data.length > 0) {
@@ -999,7 +999,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             }
             return null;
         }
-        return { time: timeSeconds * 1000, price };
+        return { time: (timeSeconds as number) * 1000, price };
     // FIX: Changed return type on error to be consistent with other failure paths in the function.
     // This resolves multiple downstream type errors where a DrawingPoint was expected but {x, y} was received.
     } catch (e) { return null; }
