@@ -6,7 +6,7 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, ChartConfig, OHLCV } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, OHLCV } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
@@ -74,9 +74,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   isHydrating,
 }) => {
   // Scoped Persistence Hook (Drawings/Config)
-  // We use alias 'persistenceLoading' to avoid shadowing the prop 'isHydrating'
   const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
-  const { isHydrating: persistenceLoading } = useSymbolPersistence({
+  useSymbolPersistence({
     symbol: sourceId,
     onStateLoaded: (state) => {
       if (state) {
@@ -334,7 +333,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const handleDrawingPropertyChange = (updates: Partial<DrawingProperties>) => {
     if (selectedDrawingId) {
       onSaveHistory?.();
-      const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
+      const newDrawings = drawings.map((d: any) => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
       onUpdateDrawings(newDrawings);
       setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
     } else {
@@ -345,7 +344,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const deleteSelectedDrawing = () => {
     if (selectedDrawingId) {
       onSaveHistory?.();
-      const newDrawings = drawings.filter(d => d.id !== selectedDrawingId);
+      const newDrawings = drawings.filter((d: any) => d.id !== selectedDrawingId);
       onUpdateDrawings(newDrawings);
       setSelectedDrawingId(null);
     }
@@ -380,14 +379,14 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const activeProperties = useMemo(() => {
     if (selectedDrawingId) {
-      const drawing = drawings.find(d => d.id === selectedDrawingId);
+      const drawing = drawings.find((d: any) => d.id === selectedDrawingId);
       return drawing?.properties ?? defaultDrawingProperties;
     }
     return defaultDrawingProperties;
   }, [selectedDrawingId, drawings, defaultDrawingProperties]);
   
   const selectedDrawingType = useMemo(() => {
-      if (selectedDrawingId) return drawings.find(d => d.id === selectedDrawingId)?.type;
+      if (selectedDrawingId) return drawings.find((d: any) => d.id === selectedDrawingId)?.type;
       return activeToolId; 
   }, [selectedDrawingId, drawings, activeToolId]);
 
@@ -402,10 +401,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
               {Object.values(Timeframe)
-                .filter((tf: any) => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf))
+                .filter((tf: any) => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf as string))
                 .map((tf: any) => (
-              <button key={String(tf)} onClick={() => onTimeframeChange(tf)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
-                  {tf}
+              <button key={String(tf)} onClick={() => onTimeframeChange(tf as Timeframe)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
+                  {String(tf)}
               </button>
               ))}
           </div>
@@ -449,7 +448,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 <div className="pl-2 pr-1 text-slate-500 cursor-move hover:text-slate-300 transition-colors"><GripVertical size={14} /></div>
                 <div className="w-px h-4 bg-[#334155] mx-1"></div>
                 {favoriteTools.map(toolId => {
-                    const tool = ALL_TOOLS_LIST.find(t => t.id === toolId);
+                    const tool = ALL_TOOLS_LIST.find((t: any) => t.id === toolId);
                     if (!tool) return null;
                     return (
                         <button key={toolId} onClick={(e) => { e.stopPropagation(); onSelectTool?.(toolId); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${activeToolId === toolId ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} onMouseDown={(e) => e.stopPropagation()} title={tool.label}><tool.icon size={18} /></button>
@@ -481,7 +480,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
                 } else {
                     const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe);
-                    let nextIndex = tab.data.findIndex(d => d.time >= nextTime);
+                    let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime);
                     if (nextIndex === -1) nextIndex = tab.data.length - 1;
                     updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
                 }
@@ -510,7 +509,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           timeframe={tab.timeframe} 
           onConfigChange={(newConfig: any) => updateTab({ config: newConfig })} 
           drawings={drawings} 
-          onUpdateDrawings={(newDrawings: any) => onUpdateDrawings(newDrawings)} 
+          onUpdateDrawings={onUpdateDrawings} 
           activeToolId={activeToolId || 'cross'} 
           onToolComplete={handleToolComplete} 
           currentDefaultProperties={defaultDrawingProperties} 
