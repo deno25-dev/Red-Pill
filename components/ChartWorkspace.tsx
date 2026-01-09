@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -5,10 +6,10 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, Folder } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Folder } from 'lucide-react';
+import { GripVertical, Settings, Check, Folder as FolderIcon } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 
@@ -101,6 +102,25 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     smoothing: 0 
   });
   const workspaceRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleLockAll = () => {
+        onSaveHistory?.();
+        const areAllCurrentlyLocked = drawings.length > 0 && drawings.every(d => d.properties.locked);
+        onUpdateDrawings(drawings.map(d => ({ ...d, properties: { ...d.properties, locked: !areAllCurrentlyLocked } })));
+    };
+    const handleHideAll = () => {
+        onSaveHistory?.();
+        const areAllCurrentlyHidden = drawings.length > 0 && drawings.every(d => !(d.properties.visible ?? true));
+        onUpdateDrawings(drawings.map(d => ({ ...d, properties: { ...d.properties, visible: areAllCurrentlyHidden } })));
+    };
+    window.addEventListener('redpill-lock-all', handleLockAll);
+    window.addEventListener('redpill-hide-all', handleHideAll);
+    return () => {
+        window.removeEventListener('redpill-lock-all', handleLockAll);
+        window.removeEventListener('redpill-hide-all', handleHideAll);
+    };
+  }, [drawings, onUpdateDrawings, onSaveHistory]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
@@ -443,7 +463,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                     title="Back to Library (Closes Chart)"
                     onMouseDown={(e) => e.stopPropagation()}
                 >
-                    <Folder size={14} />
+                    <FolderIcon size={14} />
                 </button>
               </>
           )}
@@ -473,6 +493,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 onHeaderMouseDown={handleLayersMouseDown} 
                 isDrawingSyncEnabled={isDrawingSyncEnabled}
                 onToggleDrawingSync={onToggleDrawingSync}
+                folders={tab.folders}
+                onUpdateFolders={(folders: Folder[]) => updateTab({ folders })}
             />
         )}
         {(tab.isReplayMode || tab.isAdvancedReplayMode) && (

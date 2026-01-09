@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -12,7 +11,7 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, Folder } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
@@ -88,7 +87,6 @@ const App: React.FC = () => {
   ]);
   
   // Global Drawing Modes
-  const [areDrawingsLocked, setAreDrawingsLocked] = useState(false); 
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [isStayInDrawingMode, setIsStayInDrawingMode] = useState(false);
   const [isDrawingSyncEnabled, setIsDrawingSyncEnabled] = useState(true);
@@ -132,7 +130,8 @@ const App: React.FC = () => {
           // Load Drawing States
           if (electron.getDrawingsState) {
               electron.getDrawingsState().then((state: any) => {
-                  if (state.areLocked !== undefined) setAreDrawingsLocked(state.areLocked);
+                  // The global lock state is now derived from active tab's drawings.
+                  // This avoids stale state from a JSON file.
               });
           }
       }
@@ -176,7 +175,8 @@ const App: React.FC = () => {
       replaySpeed: 1, 
       isDetached: false,
       drawings: [],
-      visibleRange: null, // Initialize with null, chart will set it
+      folders: [], // Explicitly empty folders
+      visibleRange: null, 
       undoStack: [],
       redoStack: [],
       trades: []
@@ -251,12 +251,16 @@ const App: React.FC = () => {
               
               // 2. Clear Electron Sidecar (if applicable)
               const electron = (window as any).electronAPI;
-              if (electron && tab.filePath) {
-                  await electron.deleteMeta(tab.filePath);
+              if (electron && electron.saveMasterDrawings) {
+                  // If we use master store file, load, remove key, save.
+                  const res = await electron.loadMasterDrawings();
+                  const master = res?.data || {};
+                  delete master[tab.sourceId];
+                  await electron.saveMasterDrawings(master);
               }
 
               // 3. Clear Active Tab State
-              updateTab(activeTabId, { drawings: [] });
+              updateTab(activeTabId, { drawings: [], folders: [] });
               
               alert("Chart metadata completely purged.");
           } catch (e: any) {
@@ -287,16 +291,19 @@ const App: React.FC = () => {
     if (loadedState && activeTabId) {
         updateTab(activeTabId, {
             drawings: loadedState.drawings || [],
+            folders: loadedState.folders || [],
             config: { ...(tabs.find(t=>t.id === activeTabId)?.config || {}), ...loadedState.config },
             visibleRange: loadedState.visibleRange || null,
         });
     }
   }, [activeTabId, updateTab, tabs]);
   
+  // FIX: Destructure 'isHydrating' from the hook to make it available in the component scope.
   const { isHydrating } = useSymbolPersistence({
       symbol: activeSourceId,
       onStateLoaded: handleStateLoaded,
       drawings: activeTab?.drawings || [],
+      folders: activeTab?.folders || [],
       config: activeTab?.config,
       visibleRange: activeTab?.visibleRange || null,
   });
@@ -416,6 +423,7 @@ const App: React.FC = () => {
     
     const currentSnapshot: HistorySnapshot = {
         drawings: activeTab.drawings,
+        folders: activeTab.folders,
         visibleRange: activeTab.visibleRange
     };
 
@@ -440,6 +448,7 @@ const App: React.FC = () => {
 
       const snapshot: HistorySnapshot = {
           drawings: activeTab.drawings,
+          folders: activeTab.folders,
           visibleRange: prevRange
       };
 
@@ -459,11 +468,13 @@ const App: React.FC = () => {
      
      const currentSnapshot: HistorySnapshot = {
          drawings: activeTab.drawings,
+         folders: activeTab.folders,
          visibleRange: activeTab.visibleRange
      };
 
      updateActiveTab({
          drawings: previousSnapshot.drawings,
+         folders: previousSnapshot.folders,
          visibleRange: previousSnapshot.visibleRange,
          undoStack: newUndoStack,
          redoStack: [...activeTab.redoStack, currentSnapshot]
@@ -479,11 +490,13 @@ const App: React.FC = () => {
 
      const currentSnapshot: HistorySnapshot = {
          drawings: activeTab.drawings,
+         folders: activeTab.folders,
          visibleRange: activeTab.visibleRange
      };
 
      updateActiveTab({
          drawings: nextSnapshot.drawings,
+         folders: nextSnapshot.folders,
          visibleRange: nextSnapshot.visibleRange,
          undoStack: [...activeTab.undoStack, currentSnapshot],
          redoStack: newRedoStack
@@ -646,6 +659,7 @@ const App: React.FC = () => {
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
               replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
               drawings: [],
+              folders: [],
               visibleRange: null
           };
 
@@ -1019,6 +1033,7 @@ const App: React.FC = () => {
                 timeframe: t.timeframe,
                 config: t.config,
                 drawings: t.drawings,
+                folders: t.folders,
                 trades: t.trades
             })),
             activeTabId,
@@ -1100,21 +1115,40 @@ const App: React.FC = () => {
         return;
     }
     
-    updateActiveTab({ drawings: [] });
+    // Clear UI state immediately
+    updateActiveTab({ drawings: [], folders: [] });
     
+    // Send event to clean chart
     window.dispatchEvent(new CustomEvent('redpill-force-clear'));
 
     const sourceId = activeTab.sourceId;
     if (sourceId) {
+        // Prepare empty state
         const clearedState: ChartState = {
             sourceId,
             timestamp: Date.now(),
             drawings: [],
+            folders: [],
             config: activeTab.config,
             visibleRange: activeTab.visibleRange
         };
+        
         try {
-            await saveChartMeta(clearedState);
+            // Mandate 12.3: Nuclear Clear Backend Call
+            const electron = (window as any).electronAPI;
+            
+            // Prefer dedicated clear command if available (Stubbed here as save empty state)
+            if (electron && electron.saveMasterDrawings) {
+                const res = await electron.loadMasterDrawings();
+                const master = res?.data || {};
+                // Actually remove the key entirely as per "Nuclear" requirement
+                delete master[sourceId];
+                await electron.saveMasterDrawings(master);
+            } else {
+                // Fallback for web
+                await deleteChartMeta(sourceId);
+            }
+            
             debugLog('Data', `Drawings permanently cleared for ${sourceId}`);
         } catch (e: any) {
             console.error("Failed to clear persisted drawings:", e);
@@ -1177,6 +1211,16 @@ const App: React.FC = () => {
   const currentSymbolName = getBaseSymbolName(activeTab?.title || '');
   const activeDataSource = activeTab?.fileState ? (activeTab.fileState.file?.name || activeTab.fileState.path || 'Unknown Source') : (activeTab?.data?.length > 0 ? 'Mock Data' : 'None');
 
+  const areAllDrawingsLocked = useMemo(() => {
+    if (!activeTab || !activeTab.drawings || activeTab.drawings.length === 0) return false;
+    return activeTab.drawings.every(d => d.properties.locked);
+  }, [activeTab]);
+
+  const areAllDrawingsHidden = useMemo(() => {
+      if (!activeTab || !activeTab.drawings || activeTab.drawings.length === 0) return false;
+      return activeTab.drawings.every(d => !(d.properties.visible ?? true));
+  }, [activeTab]);
+
   const renderLayout = () => {
     if (!activeTab) return null;
 
@@ -1210,7 +1254,7 @@ const App: React.FC = () => {
                         isFavoritesBarVisible={isFavoritesBarVisible}
                         onSaveHistory={handleSaveHistory}
                         onRequestHistory={() => handleRequestHistory(activeTab.id)}
-                        areDrawingsLocked={areDrawingsLocked}
+                        areDrawingsLocked={areAllDrawingsLocked}
                         isMagnetMode={isMagnetMode}
                         isStayInDrawingMode={isStayInDrawingMode}
                         isLayersPanelOpen={isLayersPanelOpen}
@@ -1222,7 +1266,7 @@ const App: React.FC = () => {
                         onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                         drawings={activeTab.drawings}
                         onUpdateDrawings={(newDrawings) => updateActiveTab({ drawings: newDrawings })}
-                        isHydrating={isHydrating}
+                        isHydrating={loading || isHydrating}
                     />
                 )}
             </div>
@@ -1256,7 +1300,7 @@ const App: React.FC = () => {
                             isFavoritesBarVisible={tab.id === activeTabId ? isFavoritesBarVisible : false}
                             onSaveHistory={tab.id === activeTabId ? handleSaveHistory : undefined}
                             onRequestHistory={() => handleRequestHistory(tab.id)}
-                            areDrawingsLocked={areDrawingsLocked}
+                            areDrawingsLocked={areAllDrawingsLocked}
                             isMagnetMode={isMagnetMode}
                             isStayInDrawingMode={isStayInDrawingMode}
                             isLayersPanelOpen={tab.id === activeTabId ? isLayersPanelOpen : false}
@@ -1384,6 +1428,8 @@ const App: React.FC = () => {
                         onToggleFavoriteTimeframe={toggleFavoriteTimeframe}
                         showGridlines={activeTab.config.showGridlines ?? true}
                         onToggleGridlines={toggleGridlines}
+                        showCrosshair={activeTab.config.showCrosshair ?? true}
+                        onToggleCrosshair={() => updateActiveTab({ config: { ...activeTab.config, showCrosshair: !(activeTab.config.showCrosshair ?? true) } })}
                     />
 
                     <div className="flex flex-1 overflow-hidden relative">
@@ -1394,8 +1440,8 @@ const App: React.FC = () => {
                         onToggleFavorite={toggleFavorite}
                         isFavoritesBarVisible={isFavoritesBarVisible}
                         onToggleFavoritesBar={() => setIsFavoritesBarVisible(!isFavoritesBarVisible)}
-                        areDrawingsLocked={areDrawingsLocked}
-                        onToggleDrawingsLock={() => setAreDrawingsLocked(!areDrawingsLocked)}
+                        areAllDrawingsLocked={areAllDrawingsLocked}
+                        areAllDrawingsHidden={areAllDrawingsHidden}
                         isMagnetMode={isMagnetMode}
                         onToggleMagnet={() => setIsMagnetMode(!isMagnetMode)}
                         isStayInDrawingMode={isStayInDrawingMode}

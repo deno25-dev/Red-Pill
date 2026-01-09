@@ -557,8 +557,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   }, []);
 
   const processedData = useMemo(() => {
-    return data.map(d => ({ time: (d.time / 1000) as Time, open: d.open, high: d.high, low: d.low, close: d.close, value: d.close }));
-  }, [data]);
+    if (config.chartType === 'line' || config.chartType === 'area') {
+      return data.map(d => ({ time: (d.time / 1000) as Time, value: d.close }));
+    }
+    return data.map(d => ({ time: (d.time / 1000) as Time, open: d.open, high: d.high, low: d.low, close: d.close }));
+  }, [data, config.chartType]);
 
   const timeToIndex = useMemo(() => {
       const map = new Map<number, number>();
@@ -768,20 +771,30 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     };
   }, []);
 
-  // Effect to toggle crosshair based on tool
+  // Effect to toggle crosshair based on tool and global config
   useEffect(() => {
     if (!chartRef.current) return;
-    const isArrow = activeToolId === 'arrow';
-    const isDot = activeToolId === 'dot';
-    const hideCrosshair = isArrow || isDot;
+
+    // DIRECT MANIPULATION: Apply Crosshair Mode immediately
+    const mode = config.showCrosshair !== false ? CrosshairMode.Normal : CrosshairMode.Hidden;
     chartRef.current.applyOptions({
-        crosshair: {
-            mode: CrosshairMode.Normal,
-            vertLine: { visible: !hideCrosshair, labelVisible: !hideCrosshair },
-            horzLine: { visible: !hideCrosshair, labelVisible: !hideCrosshair },
-        }
+        crosshair: { mode }
     });
-  }, [activeToolId]);
+
+    // Handle per-tool overrides only if global showCrosshair is true
+    if (config.showCrosshair !== false) {
+        const isArrow = activeToolId === 'arrow';
+        const isDot = activeToolId === 'dot';
+        const hideLines = isArrow || isDot;
+        
+        chartRef.current.applyOptions({
+            crosshair: {
+                vertLine: { visible: !hideLines, labelVisible: !hideLines },
+                horzLine: { visible: !hideLines, labelVisible: !hideLines },
+            }
+        });
+    }
+  }, [activeToolId, config.showCrosshair]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -818,8 +831,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     
     const borderColor = config.theme === 'light' ? '#CBD5E1' : '#334155';
 
-    // FIX: 'watermark' does not exist in type 'DeepPartial<TimeChartOptions>'.
-    // Removing property as it's not supported for dynamic updates this way.
     chartRef.current.applyOptions({ 
         layout: { 
             background, 
@@ -913,9 +924,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         const isDrawingTool = !['cross', 'arrow', 'cursor', 'dot'].includes(activeToolId);
         const isInteractive = isDrawingTool || isReplaySelecting;
         
+        if (config.showCrosshair === false) {
+            document.body.style.cursor = 'default';
+            canvasRef.current.style.pointerEvents = isInteractive ? 'auto' : 'none';
+            return;
+        }
+
         if (isInteractive) { 
             canvasRef.current.style.pointerEvents = 'auto'; 
-            if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair'; 
+            if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZHTgxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair'; 
             else document.body.style.cursor = 'crosshair'; 
         }
         else { 
@@ -925,7 +942,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             else document.body.style.cursor = 'crosshair'; 
         }
     }
-  }, [activeToolId, isReplaySelecting]);
+  }, [activeToolId, isReplaySelecting, config.showCrosshair]);
 
   const pointToScreen = (p: DrawingPoint) => {
     if (!chartRef.current || !seriesRef.current) return { x: OFF_SCREEN, y: OFF_SCREEN };
@@ -996,8 +1013,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             return null;
         }
         return { time: (timeSeconds as number) * 1000, price };
-    // FIX: Changed return type on error to be consistent with other failure paths in the function.
-    // This resolves multiple downstream type errors where a DrawingPoint was expected but {x, y} was received.
     } catch (e) { return null; }
   };
 
@@ -1096,6 +1111,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (chartContainerRef.current && canvasRef.current) {
           const rect = chartContainerRef.current.getBoundingClientRect();
           const { hitHandle, hitDrawing } = getHitObject(e.clientX - rect.left, e.clientY - rect.top);
+          
+          if (propsRef.current.config.showCrosshair === false) {
+              document.body.style.cursor = 'default';
+              canvasRef.current.style.pointerEvents = (hitHandle || hitDrawing) ? 'auto' : 'none';
+              return;
+          }
+
           if ((hitHandle || hitDrawing) && !areDrawingsLocked) { 
               document.body.style.cursor = hitDrawing?.properties.locked ? 'not-allowed' : hitHandle ? 'grab' : 'move'; 
               canvasRef.current.style.pointerEvents = 'auto'; 
@@ -1103,7 +1125,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           else { 
             // If arrow, force default cursor. If cross, force crosshair. If dot, force dot.
             if (activeToolId === 'arrow') document.body.style.cursor = 'default';
-            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
+            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZHTgxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
             else document.body.style.cursor = 'crosshair'; 
             canvasRef.current.style.pointerEvents = 'none'; 
           }
@@ -1276,8 +1298,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     interactionState.current.isDragging = false; 
     interactionState.current.dragDrawingId = null; 
     
+    if (propsRef.current.config.showCrosshair === false) {
+        document.body.style.cursor = 'default';
+        return;
+    }
     // Restore Cursor based on active tool
-    if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
+    if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZHTgxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
     else if (activeToolId === 'arrow') document.body.style.cursor = 'default';
     else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
     else document.body.style.cursor = 'crosshair';

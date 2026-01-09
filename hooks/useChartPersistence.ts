@@ -1,6 +1,6 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { ChartState, ChartConfig, Drawing } from '../types';
+import { ChartState, ChartConfig, Drawing, Folder } from '../types';
 import { loadMasterDrawingsStore, saveMasterDrawingsStore } from '../utils/storage';
 import { debugLog } from '../utils/logger';
 
@@ -8,6 +8,7 @@ interface UseSymbolPersistenceProps {
   symbol: string | null;
   onStateLoaded: (state: ChartState | null) => void;
   drawings: Drawing[];
+  folders?: Folder[];
   config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
 }
@@ -16,6 +17,7 @@ export const useSymbolPersistence = ({
   symbol,
   onStateLoaded,
   drawings,
+  folders,
   config,
   visibleRange,
 }: UseSymbolPersistenceProps) => {
@@ -84,6 +86,7 @@ export const useSymbolPersistence = ({
         sourceId: symbol,
         timestamp: Date.now(),
         drawings,
+        folders,
         config,
         visibleRange,
       };
@@ -109,7 +112,7 @@ export const useSymbolPersistence = ({
     return () => {
       clearTimeout(handler);
     };
-  }, [symbol, drawings, config, visibleRange, isHydrating, electron]);
+  }, [symbol, drawings, folders, config, visibleRange, isHydrating, electron]);
 
   return { isHydrating, rehydrate: loadState };
 };

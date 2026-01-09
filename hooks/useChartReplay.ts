@@ -1,5 +1,4 @@
 
-
 import React, { useEffect, useRef, useCallback } from 'react';
 import { ISeriesApi, Time } from 'lightweight-charts';
 import { OHLCV } from '../types';
@@ -28,6 +27,11 @@ export const useChartReplay = ({
   
   const replayBufferRef = useRef<OHLCV[]>([]);
   const bufferCursorRef = useRef<number>(0);
+  
+  // Track current state in refs to sync on pause (State Deferral)
+  const currentIndexRef = useRef<number>(startIndex);
+  const currentPriceRef = useRef<number>(0);
+  const currentTimeRef = useRef<number>(0);
 
   // NUCLEAR RESET LISTENER
   useEffect(() => {
@@ -70,11 +74,26 @@ export const useChartReplay = ({
             replayBufferRef.current = [];
         }
         
-        // 4. RESET CURSOR: Start replay from the beginning of the buffer.
+        // 4. RESET CURSOR
         bufferCursorRef.current = 0;
         lastFrameTimeRef.current = 0;
+        currentIndexRef.current = startIndex;
+        
+        // Init refs for sync
+        if (fullData[startIndex]) {
+            currentTimeRef.current = fullData[startIndex].time;
+            currentPriceRef.current = fullData[startIndex].close;
+        }
     }
-  }, [fullData, startIndex, isPlaying, seriesRef]);
+  }, [fullData, startIndex, isPlaying, seriesRef]); 
+
+  // Sync on Pause/Stop - MANDATE 15.2 State Deferral
+  useEffect(() => {
+      if (!isPlaying && onSyncState && currentIndexRef.current !== startIndex) {
+          // Sync state back to React ONLY when playback stops
+          onSyncState(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
+      }
+  }, [isPlaying, onSyncState, startIndex]);
 
   const animate = useCallback((time: number) => {
     if (!seriesRef.current || replayBufferRef.current.length === 0) return;
@@ -96,10 +115,12 @@ export const useChartReplay = ({
     const floorPrev = Math.floor(prevCursor);
     const floorNext = Math.floor(nextCursor);
 
+    // Apply fully completed candles
     if (floorNext > floorPrev) {
         for (let i = floorPrev; i < floorNext; i++) {
             if (i < replayBufferRef.current.length) {
                 const candle = replayBufferRef.current[i];
+                // Direct Manipulation: series.update() without triggering React state
                 seriesRef.current.update({
                     time: (candle.time / 1000) as Time,
                     open: candle.open,
@@ -107,10 +128,16 @@ export const useChartReplay = ({
                     low: candle.low,
                     close: candle.close
                 });
+                
+                // Update refs
+                currentIndexRef.current = startIndex + 1 + i;
+                currentTimeRef.current = candle.time;
+                currentPriceRef.current = candle.close;
             }
         }
     }
 
+    // Interpolate current forming candle (Tick simulation)
     if (floorNext < replayBufferRef.current.length) {
         const targetCandle = replayBufferRef.current[floorNext];
         const progress = nextCursor - floorNext;
@@ -143,10 +170,14 @@ export const useChartReplay = ({
             low: simulatedLow,
             close: simulatedPrice
         });
+        
+        // Update refs for interpolation
+        currentPriceRef.current = simulatedPrice;
     }
 
     if (floorNext >= replayBufferRef.current.length) {
         if (onComplete) onComplete();
+        // Final sync allowed on complete
         if (onSyncState && fullData && fullData.length > 0) {
              const lastIdx = fullData.length - 1;
              onSyncState(lastIdx, fullData[lastIdx].time, fullData[lastIdx].close);
@@ -154,13 +185,7 @@ export const useChartReplay = ({
         return;
     }
 
-    // Sync state mid-flight
-    if (onSyncState && fullData) {
-        const globalIndex = startIndex + floorNext + 1;
-        if (globalIndex < fullData.length) {
-            onSyncState(globalIndex, fullData[globalIndex].time, fullData[globalIndex].close);
-        }
-    }
+    // Do NOT call onSyncState here (State Deferral)
 
     requestRef.current = requestAnimationFrame(animate);
   }, [speed, onComplete, onSyncState, seriesRef, fullData, startIndex]);

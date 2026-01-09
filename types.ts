@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 
 export interface OHLCV {
@@ -23,6 +22,7 @@ export interface ChartConfig {
   priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
   autoScale?: boolean;
   showGridlines?: boolean;
+  showCrosshair?: boolean;
   // Color overrides
   upColor?: string;
   downColor?: string;
@@ -89,6 +89,13 @@ export interface Drawing {
   points: DrawingPoint[];
   properties: DrawingProperties;
   creationTimeframe?: Timeframe;
+  folderId?: string | null;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  isExpanded: boolean;
 }
 
 export interface FileStreamState {
@@ -124,14 +131,15 @@ export interface WatchlistItem {
 
 export interface HistorySnapshot {
   drawings: Drawing[];
+  folders: Folder[];
   visibleRange: { from: number; to: number } | null;
 }
 
-// FIX: Add ChartState interface for persistence.
 export interface ChartState {
   sourceId: string;
   timestamp: number;
   drawings: Drawing[];
+  folders?: Folder[];
   config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
 }
@@ -161,8 +169,8 @@ export interface TabSession {
   
   visibleRange: { from: number; to: number } | null;
   trades: Trade[];
-  // FIX: Add missing properties for drawings and history.
   drawings: Drawing[];
+  folders: Folder[];
   undoStack: HistorySnapshot[];
   redoStack: HistorySnapshot[];
 }

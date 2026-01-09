@@ -1,5 +1,4 @@
 
-
 import React, { useEffect, useRef, useCallback } from 'react';
 import { ISeriesApi, Time } from 'lightweight-charts';
 import { OHLCV } from '../types';
@@ -27,8 +26,12 @@ export const useAdvancedReplay = ({
 }: UseAdvancedReplayProps) => {
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
-  const currentIndexRef = useRef<number>(startIndex);
   const virtualNowRef = useRef<number>(0);
+  
+  // State Deferral Refs
+  const currentIndexRef = useRef<number>(startIndex);
+  const currentPriceRef = useRef<number>(0);
+  const currentTimeRef = useRef<number>(0);
 
   // NUCLEAR RESET LISTENER
   useEffect(() => {
@@ -47,9 +50,8 @@ export const useAdvancedReplay = ({
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
-    // This effect runs when the replay mode is activated or the start index changes.
     if (isActive) {
-      // 1. SLICE: Get the historical data up to the start point.
+      // 1. SLICE
       const initialSlice = fullData.slice(0, startIndex + 1);
       const seriesData = initialSlice.map(d => ({
           time: (d.time / 1000) as Time,
@@ -59,15 +61,21 @@ export const useAdvancedReplay = ({
           close: d.close,
       }));
       
-      // 2. SET: Apply the historical slice to the chart.
+      // 2. SET
       seriesRef.current.setData(seriesData);
       
-      // 3. RESET: Initialize internal state for the animation loop.
+      // 3. RESET
       currentIndexRef.current = startIndex;
       virtualNowRef.current = 0;
       lastFrameTimeRef.current = 0;
+      
+      // Init Sync Refs
+      if (fullData[startIndex]) {
+          currentTimeRef.current = fullData[startIndex].time;
+          currentPriceRef.current = fullData[startIndex].close;
+      }
     } else {
-        // When replay is deactivated, restore the full chart data.
+        // Restore full data
         const fullSeriesData = fullData.map(d => ({
             time: (d.time / 1000) as Time,
             open: d.open,
@@ -78,6 +86,13 @@ export const useAdvancedReplay = ({
         seriesRef.current.setData(fullSeriesData);
     }
   }, [isActive, startIndex, fullData, seriesRef]);
+
+  // Sync on Pause/Stop - MANDATE 15.2
+  useEffect(() => {
+      if (!isPlaying && isActive && onSyncState && currentIndexRef.current !== startIndex) {
+          onSyncState(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
+      }
+  }, [isPlaying, isActive, onSyncState, startIndex]);
 
   const animate = useCallback((time: number) => {
     if (!isActive || !seriesRef.current || !fullData || fullData.length === 0) return;
@@ -110,6 +125,7 @@ export const useAdvancedReplay = ({
     
     if (duration <= 0) duration = 60000;
     
+    // Check if current virtual candle is complete
     if (virtualNowRef.current >= duration) {
         seriesRef.current.update({
             time: (targetCandle.time / 1000) as Time,
@@ -123,11 +139,12 @@ export const useAdvancedReplay = ({
         currentIndexRef.current = nextIndex;
         virtualNowRef.current = virtualNowRef.current - duration;
         
-        if (onSyncState) {
-            onSyncState(nextIndex, targetCandle.time, targetCandle.close);
-        }
+        // Store for deferred sync
+        currentTimeRef.current = targetCandle.time;
+        currentPriceRef.current = targetCandle.close;
 
     } else {
+        // Interpolate within the candle
         const progress = virtualNowRef.current / duration;
         
         let simulatedPrice = targetCandle.open;
@@ -159,9 +176,9 @@ export const useAdvancedReplay = ({
             close: simulatedPrice
         });
 
-        if (onSyncState) {
-            onSyncState(currentIdx, targetCandle.time, simulatedPrice);
-        }
+        // Store for deferred sync
+        currentTimeRef.current = targetCandle.time;
+        currentPriceRef.current = simulatedPrice;
     }
 
     requestRef.current = requestAnimationFrame(animate);

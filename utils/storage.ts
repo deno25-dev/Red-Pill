@@ -1,4 +1,3 @@
-
 import { ChartState } from '../types';
 
 const DB_NAME = 'RedPillChartingDB';
@@ -235,7 +234,6 @@ export const loadMasterDrawingsStore = async () => {
   });
 };
 
-// FIX: Implement missing chart metadata functions.
 export const saveChartMeta = async (chartState: ChartState) => {
   const masterStore = (await loadMasterDrawingsStore()) || {};
   masterStore[chartState.sourceId] = chartState;

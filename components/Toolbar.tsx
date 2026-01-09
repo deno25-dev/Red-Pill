@@ -35,7 +35,8 @@ import {
   ArrowRightLeft,
   Star,
   FolderOpen,
-  Grid
+  Grid,
+  Crosshair
 } from 'lucide-react';
 import { Timeframe } from '../types';
 
@@ -75,6 +76,8 @@ interface ToolbarProps {
   onToggleFavoriteTimeframe?: (tf: string) => void;
   showGridlines?: boolean;
   onToggleGridlines?: () => void;
+  showCrosshair?: boolean;
+  onToggleCrosshair?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -112,7 +115,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   favoriteTimeframes = [],
   onToggleFavoriteTimeframe,
   showGridlines,
-  onToggleGridlines
+  onToggleGridlines,
+  showCrosshair,
+  onToggleCrosshair
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -460,6 +465,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <button onClick={() => { toggleTheme(); setIsSettingsOpen(false); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3">
                         {isDark ? <Sun size={16} className="text-amber-400" /> : <Moon size={16} className="text-purple-400" />}
                         <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
+                    </button>
+                    <button 
+                        onClick={() => { onToggleCrosshair?.(); setIsSettingsOpen(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"
+                    >
+                        <div className="flex items-center gap-3">
+                            <Crosshair size={16} className="text-slate-400" />
+                            <span>Crosshair</span>
+                        </div>
+                        {(showCrosshair ?? true) && <Check size={14} className="text-emerald-400" />}
                     </button>
                     <button 
                         onClick={() => { onOpenCandleSettings?.(); setIsSettingsOpen(false); }}

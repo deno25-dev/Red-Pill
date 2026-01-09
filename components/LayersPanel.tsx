@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { 
   X, 
@@ -14,9 +13,12 @@ import {
   Folder,
   List,
   Link,
-  Unlink
+  Unlink,
+  ChevronDown,
+  ChevronRight,
+  FolderPlus
 } from 'lucide-react';
-import { Drawing } from '../types';
+import { Drawing, type Folder as FolderType } from '../types';
 import { ALL_TOOLS_LIST } from '../constants';
 import { debugLog } from '../utils/logger';
 
@@ -30,6 +32,8 @@ interface LayersPanelProps {
   onHeaderMouseDown?: (e: React.MouseEvent) => void;
   isDrawingSyncEnabled?: boolean;
   onToggleDrawingSync?: () => void;
+  folders?: FolderType[];
+  onUpdateFolders?: (folders: FolderType[]) => void;
 }
 
 // --- Memoized Row Component ---
@@ -152,7 +156,9 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   position,
   onHeaderMouseDown,
   isDrawingSyncEnabled = true,
-  onToggleDrawingSync
+  onToggleDrawingSync,
+  folders,
+  onUpdateFolders
 }) => {
   const [viewMode, setViewMode] = useState<'layers' | 'groups'>('layers');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -258,154 +264,133 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
     [...drawings].reverse().forEach(d => {
         const tool = ALL_TOOLS_LIST.find(t => t.id === d.type);
         const label = tool ? tool.label : 'Other';
-        // Pluralize simple heuristic
-        const groupName = label.endsWith('s') ? label : label + 's';
-        
-        if (!groups[groupName]) groups[groupName] = [];
-        groups[groupName].push(d);
+        if (!groups[label]) {
+            groups[label] = [];
+        }
+        groups[label].push(d);
     });
 
-    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [drawings, viewMode]);
+    return groups;
+  }, [viewMode, drawings]);
 
-  const toggleGroup = (groupName: string) => {
-      setCollapsedGroups(prev => {
-          const next = new Set(prev);
-          if (next.has(groupName)) next.delete(groupName);
-          else next.add(groupName);
-          return next;
-      });
-  };
-
-  // Render list in reverse order (Top layers at top of list) for Flat View
-  const reversedDrawings = useMemo(() => [...drawings].reverse(), [drawings]);
+  const handleCreateFolder = useCallback(() => {
+      if (onUpdateFolders) {
+          const newFolder: FolderType = {
+              id: crypto.randomUUID(),
+              name: `Folder ${(folders?.length || 0) + 1}`,
+              isExpanded: true
+          };
+          onUpdateFolders([...(folders || []), newFolder]);
+      }
+  }, [folders, onUpdateFolders]);
 
   return (
-    <div 
-      className="absolute z-40 bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl flex flex-col w-72 h-[500px] overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex-none"
-      style={position ? { left: position.x, top: position.y } : { top: '60px', right: '10px' }}
+    <div
+      className="absolute z-40 w-64 bg-[#1e293b]/90 backdrop-blur-md border border-[#334155] rounded-xl shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200"
+      style={position ? { left: position.x, top: position.y } : { right: '1rem', top: '5rem' }}
     >
       {/* Header */}
-      <div 
-        className="flex flex-col bg-[#0f172a] border-b border-[#334155] cursor-move select-none"
+      <div
         onMouseDown={onHeaderMouseDown}
+        className="flex items-center justify-between p-3 border-b border-[#334155] cursor-move bg-[#0f172a]/50"
       >
-        <div className="flex items-center justify-between p-3 pb-2">
-            <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
-            <Layers size={16} className="text-blue-500" />
-            <span>Object Tree</span>
-            <span className="text-xs text-slate-500 font-normal ml-1">({drawings.length})</span>
-            </div>
-            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1 hover:bg-[#334155] rounded">
-            <X size={16} />
-            </button>
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
+          <Layers size={16} />
+          <span>Object Tree</span>
         </div>
-
-        {/* View Toggles */}
-        <div className="flex px-3 pb-2 gap-1">
-            <button
-                onClick={(e) => { e.stopPropagation(); setViewMode('layers'); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors ${viewMode === 'layers' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-500 hover:bg-[#334155]/50 hover:text-slate-300'}`}
+        <div className="flex items-center gap-1">
+            <button 
+                className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white"
+                title="New Folder"
+                onClick={(e) => { e.stopPropagation(); handleCreateFolder(); }}
             >
-                <List size={12} /> Layers
+                <FolderPlus size={14} />
             </button>
-            <button
-                onClick={(e) => { e.stopPropagation(); setViewMode('groups'); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-colors ${viewMode === 'groups' ? 'bg-[#334155] text-white shadow-sm' : 'text-slate-500 hover:bg-[#334155]/50 hover:text-slate-300'}`}
-            >
-                <Folder size={12} /> Groups
-            </button>
-        </div>
-         {/* Sync Toggle */}
-        <div className="px-3 pb-2 border-t border-[#334155]/50 pt-2">
-            <button
-                onClick={(e) => { e.stopPropagation(); onToggleDrawingSync?.(); }}
-                className={`w-full flex items-center justify-between p-2 text-xs rounded transition-colors ${
-                    isDrawingSyncEnabled
-                    ? 'bg-blue-900/20 text-blue-300 hover:bg-blue-900/30'
-                    : 'bg-[#334155]/30 text-slate-400 hover:bg-[#334155]/60 hover:text-slate-200'
-                }`}
-            >
-                <span className="font-bold">Sync Drawings</span>
-                <div className="flex items-center gap-1">
-                    {isDrawingSyncEnabled ? <Link size={14} /> : <Unlink size={14} />}
-                    <span className={`font-mono text-[10px] ${isDrawingSyncEnabled ? 'text-emerald-400' : 'text-slate-500'}`}>
-                        {isDrawingSyncEnabled ? 'ON' : 'OFF'}
-                    </span>
-                </div>
+            <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white">
+                <X size={16} />
             </button>
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#1e293b]">
+      {/* Toolbar */}
+      <div className="flex items-center p-2 border-b border-[#334155] gap-1">
+        <button
+          onClick={() => setViewMode('layers')}
+          className={`flex-1 p-1.5 rounded text-xs font-medium flex items-center justify-center gap-1 ${viewMode === 'layers' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
+        >
+          <List size={14} /> Layers
+        </button>
+        <button
+          onClick={() => setViewMode('groups')}
+          className={`flex-1 p-1.5 rounded text-xs font-medium flex items-center justify-center gap-1 ${viewMode === 'groups' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700'}`}
+        >
+          <Folder size={14} /> Groups
+        </button>
+        {onToggleDrawingSync && (
+          <button
+            onClick={onToggleDrawingSync}
+            className={`p-1.5 rounded transition-colors ${isDrawingSyncEnabled ? 'text-blue-400' : 'text-slate-500'}`}
+            title={isDrawingSyncEnabled ? "Drawing Sync Enabled" : "Drawing Sync Disabled"}
+          >
+            {isDrawingSyncEnabled ? <Link size={14} /> : <Unlink size={14} />}
+          </button>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar max-h-[400px]">
         {drawings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3 opacity-60">
-            <div className="bg-[#334155]/30 p-4 rounded-full">
-                <Layers size={24} />
-            </div>
-            <span className="text-xs">No objects on chart</span>
-          </div>
+          <div className="p-8 text-center text-xs text-slate-500">No drawings on chart.</div>
         ) : viewMode === 'layers' ? (
-            // --- FLAT LIST ---
-            <div className="flex flex-col">
-                {reversedDrawings.map((d, i) => (
-                    <LayerRow
+          [...drawings].reverse().map((d, visualIndex) => (
+            <LayerRow
+              key={d.id}
+              drawing={d}
+              isSelected={selectedDrawingId === d.id}
+              visualIndex={visualIndex}
+              onSelect={handleSelect}
+              onToggleVisible={handleToggleVisible}
+              onToggleLock={handleToggleLock}
+              onDelete={handleDelete}
+              isDraggable
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              draggedIndex={draggedIndex}
+            />
+          ))
+        ) : (
+          groupedDrawings && Object.entries(groupedDrawings).map(([groupName, groupDrawings]) => {
+            const isCollapsed = collapsedGroups.has(groupName);
+            return (
+              <div key={groupName}>
+                <div 
+                    className="flex items-center justify-between px-3 py-2 bg-[#0f172a]/50 border-b border-[#334155] cursor-pointer hover:bg-[#1e293b]/50"
+                    onClick={() => {
+                        const newSet = new Set(collapsedGroups);
+                        if (isCollapsed) newSet.delete(groupName);
+                        else newSet.add(groupName);
+                        setCollapsedGroups(newSet);
+                    }}
+                >
+                    <span className="text-xs font-bold text-slate-300">{groupName} ({groupDrawings.length})</span>
+                    {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                </div>
+                {!isCollapsed && groupDrawings.map((d, index) => (
+                     <LayerRow
                         key={d.id}
                         drawing={d}
                         isSelected={selectedDrawingId === d.id}
-                        visualIndex={i}
+                        visualIndex={index} // This is visual index within the group
                         onSelect={handleSelect}
                         onToggleVisible={handleToggleVisible}
                         onToggleLock={handleToggleLock}
                         onDelete={handleDelete}
-                        isDraggable={true}
-                        onDragStart={handleDragStart}
-                        onDragOver={handleDragOver}
-                        onDrop={handleDrop}
-                        draggedIndex={draggedIndex}
-                    />
+                     />
                 ))}
-            </div>
-        ) : (
-            // --- GROUPED TREE ---
-            <div className="flex flex-col p-1 space-y-1">
-                {groupedDrawings?.map(([groupName, groupDrawings]) => {
-                    const isCollapsed = collapsedGroups.has(groupName);
-                    return (
-                        <div key={groupName} className="rounded overflow-hidden border border-[#334155]/30 bg-[#0f172a]/30">
-                            <button 
-                                onClick={() => toggleGroup(groupName)}
-                                className="w-full flex items-center justify-between p-2 text-xs font-bold text-slate-400 hover:bg-[#334155]/50 hover:text-slate-200 transition-colors"
-                            >
-                                <div className="flex items-center gap-2">
-                                    {isCollapsed ? <Folder size={14} /> : <FolderOpen size={14} className="text-blue-400" />}
-                                    <span>{groupName}</span>
-                                </div>
-                                <span className="bg-[#334155] text-slate-300 px-1.5 rounded text-[10px]">{groupDrawings.length}</span>
-                            </button>
-                            
-                            {!isCollapsed && (
-                                <div className="border-t border-[#334155]/30 bg-[#1e293b]">
-                                    {groupDrawings.map((d) => (
-                                        <LayerRow
-                                            key={d.id}
-                                            drawing={d}
-                                            isSelected={selectedDrawingId === d.id}
-                                            visualIndex={-1} // No DnD in group mode
-                                            onSelect={handleSelect}
-                                            onToggleVisible={handleToggleVisible}
-                                            onToggleLock={handleToggleLock}
-                                            onDelete={handleDelete}
-                                            isDraggable={false}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
+              </div>
+            )
+          })
         )}
       </div>
     </div>

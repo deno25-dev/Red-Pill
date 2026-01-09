@@ -15,7 +15,6 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  // FIX: Replaced constructor with a class property for state initialization. This resolves the TypeScript errors related to 'this.state' and 'this.props' not being found on the component type.
   public state: State = {
     hasError: false,
     error: null,

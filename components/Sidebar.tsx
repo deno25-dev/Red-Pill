@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { 
   Eye,
@@ -22,8 +21,8 @@ interface SidebarProps {
   isFavoritesBarVisible: boolean;
   onToggleFavoritesBar: () => void;
   
-  areDrawingsLocked?: boolean;
-  onToggleDrawingsLock?: () => void;
+  areAllDrawingsLocked: boolean;
+  areAllDrawingsHidden: boolean;
   isMagnetMode?: boolean;
   onToggleMagnet?: () => void;
   isStayInDrawingMode?: boolean;
@@ -92,15 +91,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleFavorite,
   isFavoritesBarVisible,
   onToggleFavoritesBar,
-  areDrawingsLocked = false,
-  onToggleDrawingsLock,
+  areAllDrawingsLocked = false,
+  areAllDrawingsHidden = false,
   isMagnetMode = false,
   onToggleMagnet,
   isStayInDrawingMode = false,
   onToggleStayInDrawingMode,
   onClearAll
 }) => {
-  const [hideDrawings, setHideDrawings] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -114,29 +112,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleToggleMenu = (menuId: string) => {
       setOpenMenuId(prev => prev === menuId ? null : menuId);
   };
-
-  // --- IPC SENDERS (The 3 Headaches Fix) ---
-  const sendIPCSignal = (action: 'hide' | 'lock' | 'delete', value?: any) => {
-      const electron = (window as any).electronAPI;
-      if (electron && electron.sendDrawingAction) {
-          electron.sendDrawingAction(action, value);
-      }
+  
+  const handleLockToggle = () => {
+    window.dispatchEvent(new CustomEvent('redpill-lock-all'));
   };
 
   const handleHideToggle = () => {
-      const newState = !hideDrawings;
-      setHideDrawings(newState);
-      sendIPCSignal('hide', newState);
-  };
-
-  const handleLockToggle = () => {
-      if (onToggleDrawingsLock) onToggleDrawingsLock();
-      sendIPCSignal('lock', !areDrawingsLocked);
+    window.dispatchEvent(new CustomEvent('redpill-hide-all'));
   };
 
   const handleClear = () => {
       if (onClearAll) onClearAll();
-      sendIPCSignal('delete');
   };
 
   const handleCategoryClick = (category: any[], defaultIndex = 0) => {
@@ -349,26 +335,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           onClick={handleLockToggle}
           className={`p-2 rounded-lg transition-all group relative flex justify-center ${
-             areDrawingsLocked 
+             areAllDrawingsLocked 
                ? 'text-blue-400 bg-[#334155]/50' 
                : 'text-slate-400 hover:text-white hover:bg-[#334155]'
           }`}
-          title={areDrawingsLocked ? "Unlock All Drawings" : "Lock All Drawings"}
+          title={areAllDrawingsLocked ? "Unlock All Drawings" : "Lock All Drawings"}
         >
-          {areDrawingsLocked ? <Lock size={20} /> : <Unlock size={20} />}
+          {areAllDrawingsLocked ? <Lock size={20} /> : <Unlock size={20} />}
         </button>
 
         {/* Hide/Unhide Drawing Tools */}
         <button
           onClick={handleHideToggle}
           className={`p-2 rounded-lg transition-all group relative flex justify-center ${
-             hideDrawings 
+             areAllDrawingsHidden 
                ? 'text-blue-400 bg-[#334155]/50' 
                : 'text-slate-400 hover:text-white hover:bg-[#334155]'
           }`}
-          title={hideDrawings ? "Show Drawings" : "Hide Drawings"}
+          title={areAllDrawingsHidden ? "Show All Drawings" : "Hide All Drawings"}
         >
-          {hideDrawings ? <EyeOff size={20} /> : <Eye size={20} />}
+          {areAllDrawingsHidden ? <EyeOff size={20} /> : <Eye size={20} />}
         </button>
 
         {/* Toggle Favorites Bar */}
