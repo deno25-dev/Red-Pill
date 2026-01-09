@@ -6,13 +6,12 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, OHLCV } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
-import { useSymbolPersistence } from '../hooks/useChartPersistence';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -73,27 +72,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onUpdateDrawings,
   isHydrating,
 }) => {
-  // Scoped Persistence Hook (Drawings/Config)
-  const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
-  useSymbolPersistence({
-    symbol: sourceId,
-    onStateLoaded: (state) => {
-      if (state) {
-        updateTab({
-          drawings: state.drawings,
-          config: { ...tab.config, ...state.config },
-          visibleRange: state.visibleRange,
-        });
-      } else {
-        // If no state is loaded (e.g., first time), ensure drawings are reset.
-        updateTab({ drawings: [] });
-      }
-    },
-    drawings: tab.drawings,
-    config: tab.config,
-    visibleRange: tab.visibleRange,
-  });
-
   // Trade Persistence Hook - Remains local to the workspace context, keyed by file/source ID
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
   const { trades } = useTradePersistence(tradeSourceId);
@@ -352,7 +330,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const handleReplayPointSelect = (timeInMs: number) => {
       if (!tab.isReplaySelecting) return;
-      let idx = tab.data.findIndex((d: OHLCV) => d.time >= timeInMs);
+      let idx = tab.data.findIndex((d: any) => d.time >= timeInMs);
       if (idx === -1) idx = tab.data.length - 1;
       updateTab({
           isReplaySelecting: false,
