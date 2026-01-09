@@ -47,7 +47,7 @@ export interface ToolItem {
 }
 
 export enum Timeframe {
-  M1 = '1m',
+  M1 = '1mn',
   M3 = '3m',
   M5 = '5m',
   M15 = '15m',
@@ -58,7 +58,7 @@ export enum Timeframe {
   H12 = '12h',
   D1 = '1D',
   W1 = '1W',
-  MN1 = '1M',
+  MN1 = '1mo',
   MN12 = '12M'
 }
 

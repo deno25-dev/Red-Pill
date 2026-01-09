@@ -43,7 +43,7 @@ interface ChartProps {
   onToolComplete: () => void;
   currentDefaultProperties: DrawingProperties;
   selectedDrawingId: string | null;
-  onSelectDrawing: (id: string | null) => void;
+  onSelectDrawing: (id: string | null, e?: React.MouseEvent) => void;
   onActionStart?: () => void;
   isReplaySelecting?: boolean;
   onReplayPointSelect?: (time: number) => void;
@@ -512,7 +512,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const interactionState = useRef<{ 
       isDragging: boolean; 
       isCreating: boolean; 
-      isErasing: boolean; 
       dragDrawingId: string | null; 
       dragHandleIndex: number | null; 
       startPoint: { x: number; y: number } | null; 
@@ -524,7 +523,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   }>({ 
       isDragging: false, 
       isCreating: false, 
-      isErasing: false, 
       dragDrawingId: null, 
       dragHandleIndex: null, 
       startPoint: null, 
@@ -543,7 +541,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           interactionState.current = { 
               isDragging: false, 
               isCreating: false, 
-              isErasing: false, 
               dragDrawingId: null, 
               dragHandleIndex: null, 
               startPoint: null, 
@@ -692,7 +689,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
              const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
-             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'eraser' || activeToolId === 'arrow' || activeToolId === 'dot') if (!isReplaySelecting) onSelectDrawing(null);
+             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'arrow' || activeToolId === 'dot') if (!isReplaySelecting) onSelectDrawing(null);
         }
     };
     chart.subscribeClick(handleChartClick);
@@ -913,13 +910,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => {
     if (canvasRef.current) {
-        const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor', 'dot'].includes(activeToolId);
-        const isInteractive = isDrawingTool || isReplaySelecting || activeToolId === 'eraser';
+        const isDrawingTool = !['cross', 'arrow', 'cursor', 'dot'].includes(activeToolId);
+        const isInteractive = isDrawingTool || isReplaySelecting;
         
         if (isInteractive) { 
             canvasRef.current.style.pointerEvents = 'auto'; 
-            if (activeToolId === 'eraser') document.body.style.cursor = 'cell';
-            else if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair'; 
+            if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI4IiBjeT0iOCIgcj0iMyIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair'; 
             else document.body.style.cursor = 'crosshair'; 
         }
         else { 
@@ -1095,15 +1091,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (interactionState.current.isCreating || interactionState.current.isDragging) return;
       
       // Update: allow arrow and dot to trigger hover/select logic
-      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser' && activeToolId !== 'arrow' && activeToolId !== 'dot') return;
+      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'arrow' && activeToolId !== 'dot') return;
       
       if (chartContainerRef.current && canvasRef.current) {
           const rect = chartContainerRef.current.getBoundingClientRect();
           const { hitHandle, hitDrawing } = getHitObject(e.clientX - rect.left, e.clientY - rect.top);
-          if (activeToolId === 'eraser') {
-              if (hitDrawing && !areDrawingsLocked) { document.body.style.cursor = 'no-drop'; canvasRef.current.style.pointerEvents = 'auto'; }
-              else { document.body.style.cursor = 'cell'; canvasRef.current.style.pointerEvents = 'auto'; }
-          } else if ((hitHandle || hitDrawing) && !areDrawingsLocked) { 
+          if ((hitHandle || hitDrawing) && !areDrawingsLocked) { 
               document.body.style.cursor = hitDrawing?.properties.locked ? 'not-allowed' : hitHandle ? 'grab' : 'move'; 
               canvasRef.current.style.pointerEvents = 'auto'; 
           }
@@ -1125,7 +1118,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (isReplaySelecting) { const p = screenToPoint(x, y, true); if (p && onReplayPointSelect) onReplayPointSelect(p.time); return; }
     const { hitHandle, hitDrawing } = getHitObject(x, y);
     // Include 'arrow' and 'dot' in non-drawing tools check
-    const isDrawingTool = !['cross', 'arrow', 'eraser', 'cursor', 'dot'].includes(activeToolId);
+    const isDrawingTool = !['cross', 'arrow', 'cursor', 'dot'].includes(activeToolId);
     
     if (isDrawingTool) {
         onActionStart?.(); const p = screenToPoint(x, y, activeToolId !== 'brush' && activeToolId !== 'text');
@@ -1135,21 +1128,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             else { interactionState.current.creationStep = 1; const points = [p, p]; if (activeToolId === 'triangle' || activeToolId === 'rotated_rectangle') points.push(p); interactionState.current.creatingPoints = points; }
         }
     } else if (!areDrawingsLocked) {
-        if (activeToolId === 'eraser') {
-            interactionState.current.isErasing = true;
-            if (hitDrawing && !hitDrawing.properties.locked) {
-                onActionStart?.();
-                onUpdateDrawings(drawings.filter(d => d.id !== hitDrawing!.id));
-            }
-        } else if (hitHandle) { 
+        if (hitHandle) { 
             onActionStart?.(); 
-            onSelectDrawing(hitHandle.id); 
+            onSelectDrawing(hitHandle.id, e); 
             interactionState.current.isDragging = true; 
             interactionState.current.dragDrawingId = hitHandle.id; 
             interactionState.current.dragHandleIndex = hitHandle.index; 
         }
         else if (hitDrawing) {
-            onSelectDrawing(hitDrawing.id); 
+            onSelectDrawing(hitDrawing.id, e); 
             if (hitDrawing.properties.locked) return; 
             onActionStart?.(); 
             interactionState.current.isDragging = true; 
@@ -1182,12 +1169,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  interactionState.current.creatingPoints = points; 
                  redraw = true; 
              }
-        }
-    } else if (interactionState.current.isErasing) {
-        const { hitDrawing } = getHitObject(x, y);
-        if (hitDrawing && !hitDrawing.properties.locked) {
-            onUpdateDrawings(drawings.filter(d => d.id !== hitDrawing!.id));
-            redraw = true;
         }
     } else if (interactionState.current.isDragging && interactionState.current.dragDrawingId) {
         const d = drawings.find(d => d.id === interactionState.current.dragDrawingId);
@@ -1293,12 +1274,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
 
     interactionState.current.isDragging = false; 
-    interactionState.current.isErasing = false;
     interactionState.current.dragDrawingId = null; 
     
     // Restore Cursor based on active tool
-    if (activeToolId === 'eraser') document.body.style.cursor = 'cell';
-    else if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
+    if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
     else if (activeToolId === 'arrow') document.body.style.cursor = 'default';
     else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
     else document.body.style.cursor = 'crosshair';

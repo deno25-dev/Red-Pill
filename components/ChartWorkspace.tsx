@@ -100,6 +100,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     locked: false,
     smoothing: 0 
   });
+  const workspaceRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
@@ -249,7 +250,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const isDraggingToolbar = useRef(false);
   const toolbarDragStart = useRef({ x: 0, y: 0 });
   const toolbarStartPos = useRef({ x: 0, y: 0 });
-  const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'eraser'));
+  const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'));
 
   useEffect(() => {
     if (isToolbarVisible && toolbarPos.x === 0 && toolbarPos.y === 0) {
@@ -351,7 +352,34 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleToolComplete = () => {
+      if (activeToolId === 'arrow' || activeToolId === 'dot') {
+          return;
+      }
       if (!isStayInDrawingMode) onSelectTool?.('cross');
+  };
+
+  const handleSelectDrawing = (id: string | null, e?: React.MouseEvent) => {
+    setSelectedDrawingId(id);
+    if (id && e && workspaceRef.current) {
+        const workspaceRect = workspaceRef.current.getBoundingClientRect();
+        const relativeClickY = e.clientY - workspaceRect.top;
+        
+        let yPos = relativeClickY + 20; // Default below cursor
+        if (e.clientY > window.innerHeight - 150) {
+            yPos = relativeClickY - 80; // Shift toolbar and menu above cursor
+        }
+
+        const relativeClickX = e.clientX - workspaceRect.left;
+        let xPos = relativeClickX - 150; // Roughly center the toolbar
+        // clamp x to be within viewport
+        if (xPos < 10) xPos = 10;
+        const toolbarWidth = 300; // estimate
+        if (xPos > workspaceRect.width - toolbarWidth) xPos = workspaceRect.width - toolbarWidth;
+
+        setToolbarPos({ x: xPos, y: yPos });
+    } else if (!id) {
+        setSelectedDrawingId(null);
+    }
   };
 
   const activeProperties = useMemo(() => {
@@ -372,7 +400,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
 
   return (
-    <div className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
+    <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
         <div onMouseDown={handleHeaderMouseDown} style={{ left: headerPos.x, top: headerPos.y }} className="absolute z-20 bg-[#1e293b]/90 backdrop-blur-sm px-4 py-2 rounded border border-slate-700 shadow-lg flex items-center gap-4 cursor-move select-none transition-shadow hover:shadow-xl hover:ring-1 hover:ring-slate-600/50">
           <h1 className="text-sm font-bold text-white tracking-wide truncate max-w-[150px]">{tab.title}</h1>
           <div className="h-4 w-px bg-slate-600"></div>
@@ -439,7 +467,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 drawings={drawings} 
                 onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
                 selectedDrawingId={selectedDrawingId} 
-                onSelectDrawing={setSelectedDrawingId} 
+                onSelectDrawing={handleSelectDrawing} 
                 onClose={onToggleLayers || (() => {})} 
                 position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 
                 onHeaderMouseDown={handleLayersMouseDown} 
@@ -491,7 +519,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           onToolComplete={handleToolComplete} 
           currentDefaultProperties={defaultDrawingProperties} 
           selectedDrawingId={selectedDrawingId} 
-          onSelectDrawing={setSelectedDrawingId} 
+          onSelectDrawing={handleSelectDrawing} 
           onActionStart={onSaveHistory} 
           isReplaySelecting={tab.isReplaySelecting} 
           onReplayPointSelect={handleReplayPointSelect} 

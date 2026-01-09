@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { 
   X, 
@@ -23,7 +24,7 @@ interface LayersPanelProps {
   drawings: Drawing[];
   onUpdateDrawings: (drawings: Drawing[]) => void;
   selectedDrawingId: string | null;
-  onSelectDrawing: (id: string | null) => void;
+  onSelectDrawing: (id: string | null, e?: React.MouseEvent) => void;
   onClose: () => void;
   position?: { x: number; y: number };
   onHeaderMouseDown?: (e: React.MouseEvent) => void;

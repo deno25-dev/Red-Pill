@@ -629,7 +629,7 @@ export const getSourceId = (path: string, type: 'local' | 'asset' = 'local'): st
 // Covers standard conventions (suffix, prefix, no separator)
 const TF_PATTERNS: Record<string, RegExp[]> = {
   [Timeframe.M1]: [
-    /(?:^|[\W_])1m(?:in)?(?:[\W_]|$)/i, 
+    /(?:^|[\W_])(1m|1mn)(?:in)?(?:[\W_]|$)/i, 
     /m1$/i, 
     /_1$/
   ],
@@ -663,7 +663,7 @@ const TF_PATTERNS: Record<string, RegExp[]> = {
     /weekly/i
   ],
   [Timeframe.MN1]: [
-    /(?:^|[\W_])1M(?:onth)?(?:[\W_]|$)/, 
+    /(?:^|[\W_])(1M|1mo)(?:onth)?(?:[\W_]|$)/i, 
     /mn1$/i,
     /monthly/i
   ],
