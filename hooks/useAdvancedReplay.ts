@@ -27,11 +27,7 @@ export const useAdvancedReplay = ({
 }: UseAdvancedReplayProps) => {
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
-  
-  // The global index in the fullData array we are currently simulating
   const currentIndexRef = useRef<number>(startIndex);
-  
-  // The virtual time accumulator (ms) for the CURRENT candle being formed
   const virtualNowRef = useRef<number>(0);
 
   // NUCLEAR RESET LISTENER
@@ -41,72 +37,80 @@ export const useAdvancedReplay = ({
         requestRef.current = null;
         virtualNowRef.current = 0;
         lastFrameTimeRef.current = 0;
-        // Reset current index to safe default, though props will update it soon
         currentIndexRef.current = 0;
     };
     window.addEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
     return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
   }, []);
 
-  // Reset internal refs when startIndex changes significantly (user scrub)
+  // Initialization & "Slice & Set" Logic
   useEffect(() => {
+    if (!seriesRef.current || !fullData || fullData.length === 0) return;
+
+    // This effect runs when the replay mode is activated or the start index changes.
     if (isActive) {
+      // 1. SLICE: Get the historical data up to the start point.
+      const initialSlice = fullData.slice(0, startIndex + 1);
+      const seriesData = initialSlice.map(d => ({
+          time: (d.time / 1000) as Time,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+      }));
+      
+      // 2. SET: Apply the historical slice to the chart.
+      seriesRef.current.setData(seriesData);
+      
+      // 3. RESET: Initialize internal state for the animation loop.
       currentIndexRef.current = startIndex;
       virtualNowRef.current = 0;
       lastFrameTimeRef.current = 0;
+    } else {
+        // When replay is deactivated, restore the full chart data.
+        const fullSeriesData = fullData.map(d => ({
+            time: (d.time / 1000) as Time,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+        }));
+        seriesRef.current.setData(fullSeriesData);
     }
-  }, [startIndex, isActive]);
+  }, [isActive, startIndex, fullData, seriesRef]);
 
   const animate = useCallback((time: number) => {
     if (!isActive || !seriesRef.current || !fullData || fullData.length === 0) return;
 
-    // Initialize previous frame time
     if (lastFrameTimeRef.current === 0) {
       lastFrameTimeRef.current = time;
       requestRef.current = requestAnimationFrame(animate);
       return;
     }
 
-    // 1. Calculate Delta Time (Actual ms passed)
     const deltaTime = time - lastFrameTimeRef.current;
     lastFrameTimeRef.current = time;
-
-    // 2. Increment Virtual Timeline based on speed
-    // If speed is 1, we add exactly deltaTime. If speed is 10, we add 10x deltaTime.
     const effectiveDelta = deltaTime * speed;
     virtualNowRef.current += effectiveDelta;
 
     const currentIdx = currentIndexRef.current;
     
-    // Boundary Check
     if (currentIdx >= fullData.length) {
         if (onComplete) onComplete();
         return;
     }
 
-    // 3. Determine Candle Duration
-    // If we are at index i, we are simulating the formation of fullData[i].
-    // The duration is determined by the difference between fullData[i] and fullData[i-1].
-    // If i=0, we fallback to a standard timeframe guess.
     const targetCandle = fullData[currentIdx];
-    let duration = 60000; // Default 1m
+    let duration = 60000;
 
     if (currentIdx > 0) {
         const prevTime = fullData[currentIdx - 1].time;
         duration = targetCandle.time - prevTime;
     }
     
-    // Safety for irregular data gaps: Cap duration to reasonable limits or use 1m if calculation fails
     if (duration <= 0) duration = 60000;
-
-    // 4. Interpolation Logic
-    // We treat virtualNowRef.current as the time elapsed since the candle OPENED.
-    // If virtualNowRef >= duration, the candle is closed.
     
     if (virtualNowRef.current >= duration) {
-        // --- Candle Complete ---
-        
-        // 1. Commit the final completed candle
         seriesRef.current.update({
             time: (targetCandle.time / 1000) as Time,
             open: targetCandle.open,
@@ -115,51 +119,38 @@ export const useAdvancedReplay = ({
             close: targetCandle.close
         });
         
-        // 2. Sync State (Index increments)
         const nextIndex = currentIdx + 1;
         currentIndexRef.current = nextIndex;
-        
-        // 3. Carry over excess time (maintain strict time precision)
-        // Instead of resetting to 0, we keep the overflow to apply to the next bar immediately
         virtualNowRef.current = virtualNowRef.current - duration;
         
-        // 4. Update UI
         if (onSyncState) {
             onSyncState(nextIndex, targetCandle.time, targetCandle.close);
         }
 
     } else {
-        // --- Candle Forming (Partial Update) ---
+        const progress = virtualNowRef.current / duration;
         
-        const progress = virtualNowRef.current / duration; // 0.0 to 1.0
-        
-        // 3-Phase Simulation for realism
         let simulatedPrice = targetCandle.open;
         let simulatedHigh = targetCandle.open;
         let simulatedLow = targetCandle.open;
 
         if (progress < 0.33) {
-            // Phase 1: Open -> High
             const p = progress / 0.33;
             simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
             simulatedHigh = Math.max(targetCandle.open, simulatedPrice);
             simulatedLow = Math.min(targetCandle.open, simulatedPrice);
         } else if (progress < 0.66) {
-            // Phase 2: High -> Low
             const p = (progress - 0.33) / 0.33;
             simulatedPrice = targetCandle.high - (targetCandle.high - targetCandle.low) * p;
             simulatedHigh = targetCandle.high;
             simulatedLow = Math.min(targetCandle.low, simulatedPrice);
         } else {
-            // Phase 3: Low -> Close
             const p = (progress - 0.66) / 0.34;
             simulatedPrice = targetCandle.low + (targetCandle.close - targetCandle.low) * p;
             simulatedHigh = targetCandle.high;
             simulatedLow = targetCandle.low;
         }
 
-        // Apply Update to Chart (Phantom Bar)
-        // NOTE: Lightweight charts updates the existing bar if timestamp matches.
         seriesRef.current.update({
             time: (targetCandle.time / 1000) as Time,
             open: targetCandle.open,
@@ -168,15 +159,13 @@ export const useAdvancedReplay = ({
             close: simulatedPrice
         });
 
-        // Sync Price to UI Header (Real-time price tick)
         if (onSyncState) {
-            // We pass the *current* index, but the *simulated* price
             onSyncState(currentIdx, targetCandle.time, simulatedPrice);
         }
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [isActive, fullData, speed, onSyncState, onComplete]);
+  }, [isActive, fullData, speed, onSyncState, onComplete, seriesRef]);
 
   // Start/Stop Loop
   useEffect(() => {

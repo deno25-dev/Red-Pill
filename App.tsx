@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -12,13 +13,14 @@ import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog'
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId } from './utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
 import { debugLog } from './utils/logger';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useTradePersistence } from './hooks/useTradePersistence';
+import { useSymbolPersistence } from './hooks/useChartPersistence';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -149,6 +151,7 @@ const App: React.FC = () => {
       id,
       title,
       symbolId: getSymbolId(title),
+      sourceId: `mock_${id}`, // Persistent ID for mock/new tabs
       rawData: raw,
       data: raw.length > 0 ? resampleData(raw, detectedTf) : [],
       timeframe: detectedTf,
@@ -192,8 +195,8 @@ const App: React.FC = () => {
   }, [createNewTab, layoutMode]);
 
   const activeTab = useMemo(() => 
-    tabs.find(t => t.id === activeTabId) || tabs[0] || createNewTab(), 
-  [tabs, activeTabId, createNewTab]);
+    tabs.find(t => t.id === activeTabId) || tabs[0], 
+  [tabs, activeTabId]);
 
   // Global Theme Controller
   useEffect(() => {
@@ -202,7 +205,7 @@ const App: React.FC = () => {
   }, [activeTab?.config?.theme]);
 
   // Trade Persistence for Active Tab
-  const tradeSourceId = activeTab.filePath || `${activeTab.title}_${activeTab.timeframe}`;
+  const tradeSourceId = activeTab?.sourceId;
   useTradePersistence(tradeSourceId);
 
   // --- Watcher Validation Effect (Auto-Clear Deleted Files) ---
@@ -238,21 +241,18 @@ const App: React.FC = () => {
       const handleNuclearClear = async () => {
           if (!activeTabId) return;
           const tab = tabs.find(t => t.id === activeTabId);
-          if (!tab) return;
+          if (!tab || !tab.sourceId) return;
 
-          const sourceId = tab.filePath || (tab.title ? `${tab.title}_${tab.timeframe}` : null);
-          if (!sourceId) return;
-
-          debugLog('Data', `Executing NUCLEAR CLEAR for ${sourceId}`);
+          debugLog('Data', `Executing NUCLEAR CLEAR for ${tab.sourceId}`);
 
           try {
               // 1. Clear IndexedDB Entry
-              await deleteChartMeta(sourceId);
+              await deleteChartMeta(tab.sourceId);
               
               // 2. Clear Electron Sidecar (if applicable)
               const electron = (window as any).electronAPI;
               if (electron && tab.filePath) {
-                  await electron.deleteMeta(tab.filePath); // Assume this command exists or fails gracefully
+                  await electron.deleteMeta(tab.filePath);
               }
 
               // 3. Clear Active Tab State
@@ -270,6 +270,36 @@ const App: React.FC = () => {
   }, [activeTabId, tabs]);
 
   // --- Persistence Logic ---
+  
+  const updateTab = useCallback((id: string, updates: Partial<TabSession>) => {
+    setTabs(prev => prev.map(tab => {
+      if (tab.id === id) {
+        return { ...tab, ...updates };
+      }
+      return tab;
+    }));
+  }, []);
+  
+  // Persistence Hook Integration
+  const activeSourceId = activeTab?.sourceId || null;
+  
+  const handleStateLoaded = useCallback((loadedState: ChartState | null) => {
+    if (loadedState && activeTabId) {
+        updateTab(activeTabId, {
+            drawings: loadedState.drawings || [],
+            config: { ...(tabs.find(t=>t.id === activeTabId)?.config || {}), ...loadedState.config },
+            visibleRange: loadedState.visibleRange || null,
+        });
+    }
+  }, [activeTabId, updateTab, tabs]);
+  
+  const { isHydrating } = useSymbolPersistence({
+      symbol: activeSourceId,
+      onStateLoaded: handleStateLoaded,
+      drawings: activeTab?.drawings || [],
+      config: activeTab?.config,
+      visibleRange: activeTab?.visibleRange || null,
+  });
 
   // 1. Restore Session on Boot
   useEffect(() => {
@@ -303,7 +333,6 @@ const App: React.FC = () => {
                 if (dbHandle) {
                     const perm = await dbHandle.queryPermission({ mode: 'readwrite' });
                     if (perm === 'granted') {
-                        // Files will be loaded via AssetLibrary or FilePanel, no need to store handle here
                         debugLog('Data', `Database handle permission granted.`);
                     }
                 }
@@ -345,7 +374,10 @@ const App: React.FC = () => {
       const stateToSave = {
         tabs: tabs.map(t => ({
           ...t,
-          fileState: undefined 
+          fileState: undefined,
+          // Do not persist large data arrays in the main app state
+          data: [], 
+          rawData: []
         })),
         activeTabId,
         favoriteTools,
@@ -372,15 +404,6 @@ const App: React.FC = () => {
   }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isDrawingSyncEnabled, isMagnetMode, appStatus, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
 
 
-  const updateTab = useCallback((id: string, updates: Partial<TabSession>) => {
-    setTabs(prev => prev.map(tab => {
-      if (tab.id === id) {
-        return { ...tab, ...updates };
-      }
-      return tab;
-    }));
-  }, []);
-
   const updateActiveTab = useCallback((updates: Partial<TabSession>) => {
     if (activeTabId) {
         updateTab(activeTabId, updates);
@@ -391,7 +414,6 @@ const App: React.FC = () => {
   const handleSaveHistory = useCallback(() => {
     if (!activeTab) return;
     
-    // Create a snapshot of the CURRENT state before the new action is applied
     const currentSnapshot: HistorySnapshot = {
         drawings: activeTab.drawings,
         visibleRange: activeTab.visibleRange
@@ -442,7 +464,7 @@ const App: React.FC = () => {
 
      updateActiveTab({
          drawings: previousSnapshot.drawings,
-         visibleRange: previousSnapshot.visibleRange, // Restore View
+         visibleRange: previousSnapshot.visibleRange,
          undoStack: newUndoStack,
          redoStack: [...activeTab.redoStack, currentSnapshot]
      });
@@ -462,7 +484,7 @@ const App: React.FC = () => {
 
      updateActiveTab({
          drawings: nextSnapshot.drawings,
-         visibleRange: nextSnapshot.visibleRange, // Restore View
+         visibleRange: nextSnapshot.visibleRange,
          undoStack: [...activeTab.undoStack, currentSnapshot],
          redoStack: newRedoStack
      });
@@ -524,7 +546,6 @@ const App: React.FC = () => {
   const loadPreviousChunk = async (tab: TabSession, fileState: any) => {
       if (!fileState.hasMore || fileState.isLoading) return null;
 
-      // Logic handles both Web (File object) and Electron (Path string)
       const fileSource = isBridgeAvailable ? tab.filePath : fileState.file;
       if (!fileSource) return null;
 
@@ -533,7 +554,6 @@ const App: React.FC = () => {
       const start = Math.max(0, end - CHUNK_SIZE);
       const isFirstChunkOfFile = start === 0;
 
-      // Use explicit readChunk utility
       const text = await readChunk(fileSource, start, end);
       
       const combined = text + fileState.leftover;
@@ -558,14 +578,11 @@ const App: React.FC = () => {
   };
 
   const startFileStream = useCallback(async (fileSource: File | any, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
-      // NUCLEAR RESET SIGNAL: Freeze all imperative systems before loading new data
       window.dispatchEvent(new CustomEvent('GLOBAL_ASSET_CHANGE'));
       
       setLoading(true);
       debugLog('Data', `Starting file stream for ${fileName}`);
       try {
-          // Robust Bridge: If in bridge mode, fileSource might be a handle with .path
-          // or just the File object from legacy input
           let actualSource = fileSource;
           let filePath = undefined;
           
@@ -574,7 +591,6 @@ const App: React.FC = () => {
               filePath = fileSource.path;
           }
 
-          // Command: get_local_chart_data
           const result = await getLocalChartData(actualSource, CHUNK_SIZE);
           
           const { rawData, cursor, leftover, fileSize } = result;
@@ -592,16 +608,10 @@ const App: React.FC = () => {
               initialTf = detectTimeframe(rawData);
           }
           
-          // --- SANITIZATION LAYER ---
           const tfMs = getTimeframeDuration(initialTf);
           const { data: cleanRawData, stats: sanitizationReport } = sanitizeData(rawData, tfMs);
           
           debugLog('Data', `Sanitization Report for ${displayTitle}`, sanitizationReport);
-          if (sanitizationReport.fixedZeroes > 0 || sanitizationReport.fixedLogic > 0 || sanitizationReport.filledGaps > 0) {
-              // Optional: notify user via small toast, or just rely on debug log
-              console.log(`Loaded ${sanitizationReport.totalRecords} candles. Fixed ${sanitizationReport.fixedZeroes + sanitizationReport.fixedLogic} errors, filled ${sanitizationReport.filledGaps} gaps.`);
-          }
-          // --------------------------
 
           const displayData = resampleData(cleanRawData, initialTf);
 
@@ -611,13 +621,16 @@ const App: React.FC = () => {
               if (idx !== -1) replayIndex = idx;
           }
 
+          const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
+
           const updates: Partial<TabSession> = {
               title: displayTitle,
-              symbolId: getSymbolId(displayTitle), // Ensure ID is updated with file load
+              symbolId: getSymbolId(displayTitle),
+              sourceId: sourceId,
               rawData: cleanRawData,
               data: displayData,
               timeframe: initialTf,
-              filePath: filePath, // Store bridge path
+              filePath: filePath,
               fileState: {
                   file: (actualSource instanceof File) ? actualSource : null,
                   path: (typeof actualSource === 'string') ? actualSource : undefined,
@@ -632,13 +645,12 @@ const App: React.FC = () => {
               isReplayMode: preservedReplay?.isReplayMode ?? false,
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
               replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              drawings: [], // Hard Reset: Clear drawings to prevent ghosting
-              visibleRange: null // Hard Reset: Reset view
+              drawings: [],
+              visibleRange: null
           };
 
           const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
 
-          // If no active tab exists (e.g., first launch from LIBRARY), create one
           if (!tabs.find(t => t.id === tabIdToUpdate) || tabs.length === 0) {
               const newTab = createNewTab(tabIdToUpdate);
               const updatedNewTab = { ...newTab, ...updates };
@@ -680,15 +692,12 @@ const App: React.FC = () => {
           if (result) {
               const { newPoints, newCursor, newLeftover, hasMore } = result;
               
-              // Sort before sanitizing to ensure time order within chunk
               newPoints.sort((a, b) => a.time - b.time);
               
-              // Sanitize the new chunk
               const tfMs = getTimeframeDuration(tab.timeframe);
               const { data: cleanNewPoints } = sanitizeData(newPoints, tfMs);
 
               const fullRawData = [...cleanNewPoints, ...tab.rawData];
-              // Re-sort combined to be safe
               fullRawData.sort((a, b) => a.time - b.time);
               
               const uniqueData: OHLCV[] = [];
@@ -735,19 +744,15 @@ const App: React.FC = () => {
     startFileStream(file, file.name);
   }, [startFileStream]);
 
-  // Updated to handle both WebHandle and Bridge Object
   const handleLibraryFileSelect = async (fileHandle: any) => {
     setLoading(true);
     try {
       let file, name;
       
-      // Check if this is a bridge file (plain object) or web handle
       if (fileHandle.path) {
-          // Bridge mode: We don't have a File object, we use the handle which contains the path
-          file = fileHandle; // Pass the whole object to startFileStream
+          file = fileHandle;
           name = fileHandle.name;
       } else {
-          // Web API
           file = await fileHandle.getFile();
           name = file.name;
       }
@@ -853,6 +858,7 @@ const App: React.FC = () => {
   };
 
   const toggleTheme = () => {
+    if (!activeTab) return;
     const newTheme = activeTab.config.theme === 'dark' ? 'light' : 'dark';
     setTabs(prev => prev.map(t => ({
       ...t,
@@ -1085,41 +1091,30 @@ const App: React.FC = () => {
   };
 
   const handleClearAll = useCallback(async () => {
-    // 1. Guard Clauses
     if (!activeTab || activeTab.drawings.length === 0) {
         if (activeTab.drawings.length === 0) alert("No drawings to clear.");
         return;
     }
 
-    // 2. Confirmation Dialog for destructive action
     if (!window.confirm('Are you sure you want to permanently remove all drawings for this asset? This cannot be undone.')) {
         return;
     }
     
-    // 3. Clear drawings from state
     updateActiveTab({ drawings: [] });
     
-    // 4. Dispatch event for chart component to imperatively clear any primitives.
     window.dispatchEvent(new CustomEvent('redpill-force-clear'));
 
-    // 5. Force an immediate save of the empty drawings array to persistence.
-    // This bypasses the debounce in useChartPersistence for an immediate, destructive save.
-    const sourceId = activeTab.filePath || (activeTab.title ? `${activeTab.title}_${activeTab.timeframe}` : null);
+    const sourceId = activeTab.sourceId;
     if (sourceId) {
         const clearedState: ChartState = {
             sourceId,
             timestamp: Date.now(),
-            drawings: [], // Explicitly empty
-            config: activeTab.config, // Preserve config
-            visibleRange: activeTab.visibleRange // Preserve zoom
+            drawings: [],
+            config: activeTab.config,
+            visibleRange: activeTab.visibleRange
         };
         try {
-            const electron = (window as any).electronAPI;
-            if (electron && activeTab.filePath) {
-                await electron.saveMeta(activeTab.filePath, clearedState);
-            } else {
-                await saveChartMeta(clearedState);
-            }
+            await saveChartMeta(clearedState);
             debugLog('Data', `Drawings permanently cleared for ${sourceId}`);
         } catch (e: any) {
             console.error("Failed to clear persisted drawings:", e);
@@ -1152,7 +1147,6 @@ const App: React.FC = () => {
           }
       }
       
-      // Optimistic update for UI even if electron save fails or if no electron
       updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
       
   }, [activeTab, tradeSourceId, updateActiveTab]);
@@ -1178,14 +1172,14 @@ const App: React.FC = () => {
     const price = activeTab.data[lastIdx].close;
     const prev = lastIdx > 0 ? activeTab.data[lastIdx - 1].close : price;
     return { currentPrice: price, prevPrice: prev };
-  }, [activeTab.data, activeTab.isReplayMode, activeTab.isAdvancedReplayMode, activeTab.replayIndex, activeTab.simulatedPrice]);
+  }, [activeTab?.data, activeTab?.isReplayMode, activeTab?.isAdvancedReplayMode, activeTab?.replayIndex, activeTab?.simulatedPrice]);
 
-  const currentSymbolName = getBaseSymbolName(activeTab.title);
-
-  // Derive active data source string for dev tools
-  const activeDataSource = activeTab.fileState ? (activeTab.fileState.file?.name || activeTab.fileState.path || 'Unknown Source') : (activeTab.data.length > 0 ? 'Mock Data' : 'None');
+  const currentSymbolName = getBaseSymbolName(activeTab?.title || '');
+  const activeDataSource = activeTab?.fileState ? (activeTab.fileState.file?.name || activeTab.fileState.path || 'Unknown Source') : (activeTab?.data?.length > 0 ? 'Mock Data' : 'None');
 
   const renderLayout = () => {
+    if (!activeTab) return null;
+
     if (layoutMode === 'single') {
         return (
             <div className="flex-1 flex flex-col relative min-w-0">
@@ -1205,6 +1199,7 @@ const App: React.FC = () => {
                     </div>
                 ) : (
                     <ChartWorkspace 
+                        key={activeTab.sourceId || activeTab.id}
                         tab={activeTab} 
                         updateTab={(updates) => updateActiveTab(updates)}
                         onTimeframeChange={(tf) => handleTimeframeChange(activeTab.id, tf)}
@@ -1227,7 +1222,7 @@ const App: React.FC = () => {
                         onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                         drawings={activeTab.drawings}
                         onUpdateDrawings={(newDrawings) => updateActiveTab({ drawings: newDrawings })}
-                        isHydrating={false}
+                        isHydrating={isHydrating}
                     />
                 )}
             </div>
@@ -1250,6 +1245,7 @@ const App: React.FC = () => {
                         onClick={() => setActiveTabId(tab.id)}
                     >
                         <ChartWorkspace 
+                            key={tab.sourceId || tab.id}
                             tab={tab} 
                             updateTab={(updates) => updateTab(tab.id, updates)}
                             onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
@@ -1273,7 +1269,7 @@ const App: React.FC = () => {
                             onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                             drawings={tab.drawings}
                             onUpdateDrawings={(newDrawings) => updateTab(tab.id, { drawings: newDrawings })}
-                            isHydrating={false}
+                            isHydrating={isHydrating && tab.id === activeTabId}
                         />
                     </div>
                 );
@@ -1308,6 +1304,7 @@ const App: React.FC = () => {
                 </>
             );
         case 'ACTIVE':
+            if (!activeTab) return null; // Guard against render before activeTab is set
             return (
                 <div className="flex flex-col h-screen bg-app-bg text-text-primary overflow-hidden">
                     <DeveloperTools 
@@ -1438,6 +1435,7 @@ const App: React.FC = () => {
                                     onClose={() => handleAttachTab(tab.id)}
                                 >
                                     <ChartWorkspace 
+                                        key={tab.sourceId || tab.id}
                                         tab={tab}
                                         updateTab={(updates) => updateTab(tab.id, updates)}
                                         onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
@@ -1450,7 +1448,7 @@ const App: React.FC = () => {
                                         onBackToLibrary={() => setAppStatus('LIBRARY')}
                                         drawings={tab.drawings}
                                         onUpdateDrawings={(newDrawings) => updateTab(tab.id, { drawings: newDrawings })}
-                                        isHydrating={false}
+                                        isHydrating={isHydrating && tab.id === activeTabId}
                                     />
                                 </Popout>
                             );

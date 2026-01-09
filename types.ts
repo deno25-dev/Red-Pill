@@ -140,6 +140,7 @@ export interface TabSession {
   id: string;
   title: string;
   symbolId: string; // Namespace-aware ID (e.g., "FOREX_GOLD")
+  sourceId: string; // Persistent unique ID for drawings/trades
   rawData: OHLCV[];
   data: OHLCV[];
   timeframe: Timeframe;

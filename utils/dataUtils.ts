@@ -602,6 +602,27 @@ export const parseCSV = (text: string): OHLCV[] => {
   return uniqueData;
 };
 
+// --- PERSISTENCE & ID UTILS ---
+
+// Simple hash function to create a consistent numeric ID from a string.
+const simpleHash = (str: string): string => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash.toString(16); // return as hex
+};
+
+// Get Source ID (Mandate 11)
+export const getSourceId = (path: string, type: 'local' | 'asset' = 'local'): string => {
+  if (!path) return 'anonymous_source';
+  // Use a simple hash of the path to create a consistent ID
+  // The type can be used for namespacing if needed in the future
+  return `${type}_${simpleHash(path)}`;
+};
+
 // --- FILE MATCHING LOGIC ---
 
 // Regex patterns for detecting timeframe in filename
