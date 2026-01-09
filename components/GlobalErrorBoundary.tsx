@@ -15,11 +15,15 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  // FIX: Initialize state as a class property. This is a more modern syntax and helps TypeScript correctly infer the type of `this.state`.
-  state: State = {
-    hasError: false,
-    error: null,
-  };
+  // FIX: Switched from class property to constructor for state initialization.
+  // This helps ensure `this` context is correctly inferred, resolving errors where `this.props` and `this.state` were not found.
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
