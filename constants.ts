@@ -1,7 +1,5 @@
 import { 
   Crosshair, 
-  Circle, 
-  MousePointer2, 
   Slash, 
   TrendingUp, 
   ArrowRight, 

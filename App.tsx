@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -14,9 +10,9 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, Folder } from './types';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, saveChartMeta } from './utils/storage';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
 import { debugLog } from './utils/logger';
@@ -132,7 +128,7 @@ const App: React.FC = () => {
       if (electron) {
           // Load Drawing States
           if (electron.getDrawingsState) {
-              electron.getDrawingsState().then((state: any) => {
+              electron.getDrawingsState().then(() => {
                   // The global lock state is now derived from active tab's drawings.
                   // This avoids stale state from a JSON file.
               });
@@ -1131,16 +1127,6 @@ const App: React.FC = () => {
 
     const sourceId = activeTab.sourceId;
     if (sourceId) {
-        // Prepare empty state
-        const clearedState: ChartState = {
-            sourceId,
-            timestamp: Date.now(),
-            drawings: [],
-            folders: [],
-            config: activeTab.config,
-            visibleRange: activeTab.visibleRange
-        };
-        
         try {
             // Mandate 12.3: Nuclear Clear Backend Call
             const electron = (window as any).electronAPI;

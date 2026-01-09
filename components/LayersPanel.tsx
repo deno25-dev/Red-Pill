@@ -9,7 +9,6 @@ import {
   Trash2, 
   GripVertical, 
   Layers,
-  FolderOpen,
   Folder,
   List,
   Link,
