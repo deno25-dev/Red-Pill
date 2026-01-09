@@ -167,6 +167,9 @@ export interface TabSession {
   replaySpeed: number; 
   isDetached: boolean;
   
+  // Persisted UI State
+  isMarketOverviewOpen: boolean;
+
   visibleRange: { from: number; to: number } | null;
   trades: Trade[];
   drawings: Drawing[];

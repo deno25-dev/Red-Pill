@@ -204,6 +204,27 @@ ipcMain.handle('drawings:get-state', async () => {
     } catch (e) { return {}; }
 });
 
+ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
+    try {
+        const dbPath = getMasterDrawingsPath();
+        if (fs.existsSync(dbPath)) {
+            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+            if (data[sourceId]) {
+                // Clear drawings array for this source
+                data[sourceId].drawings = [];
+                // Clear folders as well since they contain drawing references
+                data[sourceId].folders = [];
+                data[sourceId].timestamp = Date.now();
+                fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+            }
+        }
+        return { success: true };
+    } catch (e) {
+        console.error("Failed to delete all drawings:", e);
+        return { success: false, error: e.message };
+    }
+});
+
 const updateDrawingsState = (key, value) => {
     try {
         const statePath = path.join(resolveDatabasePath(), 'drawings_state.json');

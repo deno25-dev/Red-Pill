@@ -34,6 +34,7 @@ interface LayersPanelProps {
   onToggleDrawingSync?: () => void;
   folders?: FolderType[];
   onUpdateFolders?: (folders: FolderType[]) => void;
+  sourceId?: string;
 }
 
 // --- Memoized Row Component ---
@@ -158,7 +159,8 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   isDrawingSyncEnabled = true,
   onToggleDrawingSync,
   folders,
-  onUpdateFolders
+  onUpdateFolders,
+  sourceId
 }) => {
   const [viewMode, setViewMode] = useState<'layers' | 'groups'>('layers');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -216,6 +218,26 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
     // We can't easily check selectedDrawingId inside this callback without ref, but checking logic is simple
     onSelectRef.current(null); 
   }, []);
+
+  const handleDeleteAll = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (drawingsRef.current.length === 0) return;
+    if (!window.confirm('Delete ALL drawings on this chart? This cannot be undone.')) return;
+
+    const electron = (window as any).electronAPI;
+    if (electron && sourceId) {
+        try {
+            await electron.deleteAllDrawings(sourceId);
+            debugLog('Data', `Invoked delete_all_drawings for ${sourceId}`);
+        } catch (err) {
+            console.error("Failed to delete all drawings via backend:", err);
+        }
+    }
+    
+    onUpdateRef.current([]);
+    if (onUpdateFolders) onUpdateFolders([]);
+    onSelectRef.current(null);
+  }, [sourceId, onUpdateFolders]);
 
   const handleSelect = useCallback((id: string) => {
     onSelectRef.current(id);
@@ -306,6 +328,13 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
             >
                 <FolderPlus size={14} />
             </button>
+            <button 
+                className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-red-400"
+                title="Delete All Drawings"
+                onClick={handleDeleteAll}
+            >
+                <Trash2 size={14} />
+            </button>
             <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white">
                 <X size={16} />
             </button>
@@ -361,6 +390,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           ))
         ) : (
           groupedDrawings && Object.entries(groupedDrawings).map(([groupName, groupDrawings]) => {
+            const drawings = groupDrawings as Drawing[];
             const isCollapsed = collapsedGroups.has(groupName);
             return (
               <div key={groupName}>
@@ -373,10 +403,10 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                         setCollapsedGroups(newSet);
                     }}
                 >
-                    <span className="text-xs font-bold text-slate-300">{groupName} ({groupDrawings.length})</span>
+                    <span className="text-xs font-bold text-slate-300">{groupName} ({drawings.length})</span>
                     {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                 </div>
-                {!isCollapsed && groupDrawings.map((d, index) => (
+                {!isCollapsed && drawings.map((d, index) => (
                      <LayerRow
                         key={d.id}
                         drawing={d}

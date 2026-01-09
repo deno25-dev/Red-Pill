@@ -36,8 +36,6 @@ export const MOCK_DATA_COUNT = 5000;
 export const TOOLS = {
   cursors: [
     { id: 'cross', label: 'Cross', icon: Crosshair },
-    { id: 'dot', label: 'Dot', icon: Circle },
-    { id: 'arrow', label: 'Arrow', icon: MousePointer2 },
   ],
   lines: [
     { id: 'trend_line', label: 'Trend Line', icon: Slash },

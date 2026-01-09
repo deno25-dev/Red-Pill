@@ -1,5 +1,6 @@
 
 
+
 import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
@@ -615,12 +616,29 @@ const simpleHash = (str: string): string => {
   return hash.toString(16); // return as hex
 };
 
-// Get Source ID (Mandate 11)
+// Get Source ID (Mandate 11) - UPDATED to share across timeframes
 export const getSourceId = (path: string, type: 'local' | 'asset' = 'local'): string => {
   if (!path) return 'anonymous_source';
-  // Use a simple hash of the path to create a consistent ID
-  // The type can be used for namespacing if needed in the future
-  return `${type}_${simpleHash(path)}`;
+  
+  // 1. Isolate filename from full path to separate directory context if needed
+  // However, we want to maintain directory context for uniqueness across folders (e.g. Binance/BTC vs Kraken/BTC)
+  // But we want to strip the timeframe suffix from the filename part.
+  
+  // Split path
+  const parts = path.split(/[\\/]/);
+  const filename = parts.pop() || '';
+  const dirPath = parts.join('/');
+  
+  // 2. Strip timeframe from filename using getBaseSymbolName logic
+  // This converts "BTCUSDT_1h.csv" -> "BTCUSDT"
+  const baseName = getBaseSymbolName(filename);
+  
+  // 3. Reconstruct a unique identity key: Directory + Base Symbol
+  // This ensures "Binance/BTC_1h" and "Binance/BTC_5m" share ID,
+  // but "Kraken/BTC_1h" has a different ID.
+  const uniqueKey = dirPath ? `${dirPath}/${baseName}` : baseName;
+  
+  return `${type}_${simpleHash(uniqueKey)}`;
 };
 
 // --- FILE MATCHING LOGIC ---

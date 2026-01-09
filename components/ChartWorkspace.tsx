@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -88,7 +87,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
-  const [showRecentData, setShowRecentData] = useState(true);
+  // Removed local showRecentData state, now using tab.isMarketOverviewOpen
   const settingsRef = useRef<HTMLDivElement>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({
@@ -372,9 +371,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleToolComplete = () => {
-      if (activeToolId === 'arrow' || activeToolId === 'dot') {
-          return;
-      }
       if (!isStayInDrawingMode) onSelectTool?.('cross');
   };
 
@@ -495,6 +491,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 onToggleDrawingSync={onToggleDrawingSync}
                 folders={tab.folders}
                 onUpdateFolders={(folders: Folder[]) => updateTab({ folders })}
+                sourceId={tab.sourceId}
             />
         )}
         {(tab.isReplayMode || tab.isAdvancedReplayMode) && (
@@ -573,8 +570,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         >
             <RecentMarketDataPanel 
                 currentSymbol={tab.title}
-                isOpen={showRecentData} 
-                onToggle={() => setShowRecentData(!showRecentData)} 
+                isOpen={tab.isMarketOverviewOpen} 
+                onToggle={() => updateTab({ isMarketOverviewOpen: !tab.isMarketOverviewOpen })} 
             />
         </GlobalErrorBoundary>
 

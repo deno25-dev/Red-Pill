@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // --- Drawing State Sync ---
     getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),
     sendDrawingAction: (action, value) => ipcRenderer.send(`drawings:${action}`, value),
+    deleteAllDrawings: (sourceId) => ipcRenderer.invoke('drawings:delete-all', sourceId),
 
     // --- Trade Persistence ---
     getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-by-source', sourceId),

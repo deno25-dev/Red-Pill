@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -174,6 +176,7 @@ const App: React.FC = () => {
       isReplayPlaying: false,
       replaySpeed: 1, 
       isDetached: false,
+      isMarketOverviewOpen: true, // Persisted Sidebar State
       drawings: [],
       folders: [], // Explicitly empty folders
       visibleRange: null, 
@@ -634,6 +637,7 @@ const App: React.FC = () => {
               if (idx !== -1) replayIndex = idx;
           }
 
+          // Use the robust source ID generator which handles timeframe stripping
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
 
           const updates: Partial<TabSession> = {

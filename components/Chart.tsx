@@ -1,4 +1,3 @@
-
 // ... (imports remain the same, just keeping context)
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
@@ -692,7 +691,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const handleChartClick = (param: MouseEventParams) => {
         if (param.point) {
              const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current;
-             if (activeToolId === 'cross' || activeToolId === 'cursor' || activeToolId === 'arrow' || activeToolId === 'dot') if (!isReplaySelecting) onSelectDrawing(null);
+             if (activeToolId === 'cross' || activeToolId === 'cursor') if (!isReplaySelecting) onSelectDrawing(null);
         }
     };
     chart.subscribeClick(handleChartClick);
@@ -783,14 +782,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
     // Handle per-tool overrides only if global showCrosshair is true
     if (config.showCrosshair !== false) {
-        const isArrow = activeToolId === 'arrow';
-        const isDot = activeToolId === 'dot';
-        const hideLines = isArrow || isDot;
-        
         chartRef.current.applyOptions({
             crosshair: {
-                vertLine: { visible: !hideLines, labelVisible: !hideLines },
-                horzLine: { visible: !hideLines, labelVisible: !hideLines },
+                vertLine: { visible: true, labelVisible: true },
+                horzLine: { visible: true, labelVisible: true },
             }
         });
     }
@@ -937,9 +932,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         }
         else { 
             canvasRef.current.style.pointerEvents = 'none'; 
-            if (activeToolId === 'arrow') document.body.style.cursor = 'default';
-            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
-            else document.body.style.cursor = 'crosshair'; 
+            document.body.style.cursor = 'crosshair'; 
         }
     }
   }, [activeToolId, isReplaySelecting, config.showCrosshair]);
@@ -1105,8 +1098,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (isReplaySelecting && canvasRef.current) { const rect = canvasRef.current.getBoundingClientRect(); replayMouseX.current = e.clientX - rect.left; requestDraw(); return; }
       if (interactionState.current.isCreating || interactionState.current.isDragging) return;
       
-      // Update: allow arrow and dot to trigger hover/select logic
-      if (activeToolId !== 'cross' && activeToolId !== 'cursor' && activeToolId !== 'arrow' && activeToolId !== 'dot') return;
+      if (activeToolId !== 'cross' && activeToolId !== 'cursor') return;
       
       if (chartContainerRef.current && canvasRef.current) {
           const rect = chartContainerRef.current.getBoundingClientRect();
@@ -1123,10 +1115,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               canvasRef.current.style.pointerEvents = 'auto'; 
           }
           else { 
-            // If arrow, force default cursor. If cross, force crosshair. If dot, force dot.
-            if (activeToolId === 'arrow') document.body.style.cursor = 'default';
-            else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZHTgxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
-            else document.body.style.cursor = 'crosshair'; 
+            document.body.style.cursor = 'crosshair'; 
             canvasRef.current.style.pointerEvents = 'none'; 
           }
       }
@@ -1139,7 +1128,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const rect = canvasRef.current!.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
     if (isReplaySelecting) { const p = screenToPoint(x, y, true); if (p && onReplayPointSelect) onReplayPointSelect(p.time); return; }
     const { hitHandle, hitDrawing } = getHitObject(x, y);
-    // Include 'arrow' and 'dot' in non-drawing tools check
     const isDrawingTool = !['cross', 'arrow', 'cursor', 'dot'].includes(activeToolId);
     
     if (isDrawingTool) {
@@ -1304,8 +1292,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
     // Restore Cursor based on active tool
     if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZHTgxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
-    else if (activeToolId === 'arrow') document.body.style.cursor = 'default';
-    else if (activeToolId === 'dot') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHZpZXdCb3g9IjAgMCAxMCAxMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iYmxhY2siIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 5 5, crosshair';
     else document.body.style.cursor = 'crosshair';
 
     requestDraw();
