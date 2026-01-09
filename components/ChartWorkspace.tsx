@@ -5,7 +5,7 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, ChartConfig } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder } from 'lucide-react';
