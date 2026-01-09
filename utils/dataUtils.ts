@@ -1,6 +1,3 @@
-
-
-
 import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
@@ -199,7 +196,7 @@ export const sanitizeData = (
 export const generateMockData = (count: number): OHLCV[] => {
   const data: OHLCV[] = [];
   let currentPrice = 50000;
-  // Start from roughly 3 days ago to have a nice history ending near "now"
+  // Start from roughly 3 days ago to have a history ending near "now"
   let currentTime = Date.now() - (count * 60 * 1000); 
   const timeframe = 60 * 1000; // 1 minute base resolution
 
@@ -524,47 +521,75 @@ export const parseCSVChunk = (lines: string[]): OHLCV[] => {
   const data: OHLCV[] = [];
 
   for (const line of lines) {
-    if (!line || !/^\d/.test(line)) continue; // Skip empty or header lines starting with non-digit
+    // Skip empty lines or header lines (assuming header doesn't start with digit)
+    if (!line || !line.trim() || !/^\d/.test(line.trim())) continue;
 
-    // Fast split
+    // 1. Auto-Detect Delimiter
     const delimiter = line.indexOf(';') > -1 ? ';' : ',';
     const parts = line.split(delimiter);
 
+    // Require at least 5 columns (Date, Time|Open, High, Low, Close)
     if (parts.length < 5) continue;
 
     try {
         let dateStr = '';
+        let timestamp = 0;
         let open = 0, high = 0, low = 0, close = 0, volume = 0;
 
-        if (parts.length >= 7) {
-            const d = parts[0].trim(); 
-            const t = parts[1].trim(); 
-            // Normalize MT4 date like 2023.01.01 or 20230101
-            const cleanD = d.replace(/\./g, '');
-            const formattedDate = `${cleanD.substring(0,4)}-${cleanD.substring(4,6)}-${cleanD.substring(6,8)}`;
-            dateStr = `${formattedDate}T${t}`;
+        const p0 = parts[0].trim();
+        const p1 = parts[1].trim();
+
+        // 2 & 3. Robust Mapping for Split Date/Time (YYYYMMDD + HH:MM:SS)
+        // Detection: p0 is 8 digits (YYYYMMDD) or dot/slash date, AND p1 contains ':'
+        const isDateColumn = /^\d{8}$/.test(p0) || /^\d{4}[\.\-\/]\d{2}[\.\-\/]\d{2}$/.test(p0);
+        const isTimeColumn = p1.includes(':');
+
+        if (isDateColumn && isTimeColumn) {
+            // Normalize Date
+            let cleanDate = p0.replace(/[\.\-\/]/g, '');
+            if (cleanDate.length === 8) {
+                cleanDate = `${cleanDate.substring(0,4)}-${cleanDate.substring(4,6)}-${cleanDate.substring(6,8)}`;
+            }
             
+            // Combine
+            dateStr = `${cleanDate}T${p1}`;
+            
+            // Map OHLCV - indices shifted because time is separate
             open = parseFloat(parts[2]);
             high = parseFloat(parts[3]);
             low = parseFloat(parts[4]);
             close = parseFloat(parts[5]);
-            volume = parseFloat(parts[6]);
+            // Volume is optional, usually index 6 in this format
+            if (parts.length > 6) {
+                const v = parseFloat(parts[6]);
+                volume = isNaN(v) ? 0 : v;
+            }
         } else {
-             // Standard Format: Timestamp/Date, Open, High, Low, Close, Volume
-             dateStr = parts[0].trim();
+             // Fallback to Standard (Single Column Date/Timestamp)
+             dateStr = p0;
              open = parseFloat(parts[1]);
              high = parseFloat(parts[2]);
              low = parseFloat(parts[3]);
              close = parseFloat(parts[4]);
-             volume = parseFloat(parts[5]);
+             if (parts.length > 5) {
+                 const v = parseFloat(parts[5]);
+                 volume = isNaN(v) ? 0 : v;
+             }
         }
 
         if (isNaN(open) || isNaN(close)) continue;
 
-        const timestamp = new Date(dateStr).getTime();
+        timestamp = new Date(dateStr).getTime();
 
-        // Skip invalid dates to prevent chart crashes
-        if (isNaN(timestamp)) continue;
+        // Fallback validation for timestamp
+        if (isNaN(timestamp)) {
+            // Attempt pure numeric parse (e.g. unix timestamp in col 0)
+            timestamp = parseFloat(dateStr);
+            // Heuristic for seconds vs ms
+            if (!isNaN(timestamp) && timestamp < 10000000000) timestamp *= 1000;
+        }
+
+        if (isNaN(timestamp) || timestamp <= 0) continue;
 
         data.push({
             time: timestamp,
@@ -572,7 +597,7 @@ export const parseCSVChunk = (lines: string[]): OHLCV[] => {
             high,
             low,
             close,
-            volume: isNaN(volume) ? 0 : volume,
+            volume,
             dateStr: dateStr
         });
     } catch (e) {
