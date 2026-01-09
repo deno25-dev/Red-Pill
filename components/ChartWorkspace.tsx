@@ -165,7 +165,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     const win = (e.view as unknown as Window) || window;
     const handleMouseMove = (ev: MouseEvent) => {
       if (!isDraggingHeader.current) return;
-      // FIX: Define dx and dy from mouse event before using them.
       const dx = ev.clientX - headerDragStart.current.x;
       const dy = ev.clientY - headerDragStart.current.y;
       setHeaderPos({ x: Math.max(0, headerStartPos.current.x + dx), y: Math.max(0, headerStartPos.current.y + dy) });
@@ -313,9 +312,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       onSaveHistory?.();
       const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d);
       onUpdateDrawings(newDrawings);
-      setDefaultDrawingProperties(prev => ({ ...prev, ...updates }));
+      setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
     } else {
-      setDefaultDrawingProperties(prev => ({ ...prev, ...updates }));
+      setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates }));
     }
   };
 
@@ -330,7 +329,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const handleReplayPointSelect = (timeInMs: number) => {
       if (!tab.isReplaySelecting) return;
-      let idx = tab.data.findIndex(d => d.time >= timeInMs);
+      let idx = tab.data.findIndex((d: any) => d.time >= timeInMs);
       if (idx === -1) idx = tab.data.length - 1;
       updateTab({
           isReplaySelecting: false,
@@ -379,10 +378,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
               {Object.values(Timeframe)
-                .filter(tf => !favoriteTimeframes || favoriteTimeframes.length === 0 || favoriteTimeframes.includes(tf))
+                .filter(tf => !favoriteTimeframes || (favoriteTimeframes as any).includes(tf))
                 .map((tf) => (
-              <button key={tf} onClick={() => onTimeframeChange(tf)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
-                  {tf}
+              <button key={String(tf)} onClick={() => onTimeframeChange(tf as any)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>
+                  {String(tf)}
               </button>
               ))}
           </div>
@@ -426,7 +425,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 <div className="pl-2 pr-1 text-slate-500 cursor-move hover:text-slate-300 transition-colors"><GripVertical size={14} /></div>
                 <div className="w-px h-4 bg-[#334155] mx-1"></div>
                 {favoriteTools.map(toolId => {
-                    const tool = ALL_TOOLS_LIST.find(t => t.id === toolId);
+                    const tool = ALL_TOOLS_LIST.find((t: any) => t.id === toolId);
                     if (!tool) return null;
                     return (
                         <button key={toolId} onClick={(e) => { e.stopPropagation(); onSelectTool?.(toolId); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${activeToolId === toolId ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} onMouseDown={(e) => e.stopPropagation()} title={tool.label}><tool.icon size={18} /></button>
@@ -438,7 +437,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={drawings} 
-                onUpdateDrawings={(newDrawings) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
+                onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
                 selectedDrawingId={selectedDrawingId} 
                 onSelectDrawing={setSelectedDrawingId} 
                 onClose={onToggleLayers || (() => {})} 
@@ -458,7 +457,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
                 } else {
                     const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe);
-                    let nextIndex = tab.data.findIndex(d => d.time >= nextTime);
+                    let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime);
                     if (nextIndex === -1) nextIndex = tab.data.length - 1;
                     updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
                 }
@@ -469,7 +468,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
               }} 
               onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} 
               speed={tab.replaySpeed} 
-              onSpeedChange={(speed) => updateTab({ replaySpeed: speed })} 
+              onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} 
               progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} 
               position={replayPos.x !== 0 ? replayPos : undefined} 
               onHeaderMouseDown={handleReplayMouseDown} 
@@ -485,7 +484,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           smaData={smaData} 
           config={tab.config} 
           timeframe={tab.timeframe} 
-          onConfigChange={(newConfig) => updateTab({ config: newConfig })} 
+          onConfigChange={(newConfig: any) => updateTab({ config: newConfig })} 
           drawings={drawings} 
           onUpdateDrawings={onUpdateDrawings} 
           activeToolId={activeToolId || 'cross'} 

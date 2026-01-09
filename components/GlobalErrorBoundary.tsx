@@ -15,8 +15,6 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  // FIX: Re-introduced a constructor to properly initialize state and ensure 'this' context,
-  // which resolves type errors with 'this.props' and 'this.setState'.
   constructor(props: Props) {
     super(props);
     this.state = {
