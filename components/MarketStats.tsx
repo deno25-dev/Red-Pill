@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { useMarketPrices } from '../hooks/useLiveData';
 import { MarketOfflineFallback } from './MarketOfflineFallback';
@@ -25,6 +25,12 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
   
   const [isAdding, setIsAdding] = useState(false);
   const [newSymbolInput, setNewSymbolInput] = useState('');
+
+  // Resize Logic State
+  const [panelHeight, setPanelHeight] = useState(300);
+  const isResizing = useRef(false);
+  const startY = useRef(0);
+  const startHeight = useRef(0);
 
   const displayTickers = useMemo(() => {
     if (!tickers) return [];
@@ -83,8 +89,44 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
       }
   };
 
+  // --- Resizing Handlers ---
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = true;
+    startY.current = e.clientY;
+    startHeight.current = panelHeight;
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none'; // Prevent selection during drag
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isResizing.current) return;
+    
+    // Calculate delta: moving mouse UP (negative clientY change relative to start) increases height
+    const delta = startY.current - e.clientY;
+    let newHeight = startHeight.current + delta;
+
+    // Constraint: Clamp height
+    const maxHeight = window.innerHeight * 0.7;
+    const minHeight = 150;
+    newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
+    
+    setPanelHeight(newHeight);
+  };
+
+  const handleMouseUp = () => {
+    isResizing.current = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
   // Determine if we should show fallback
-  // Logic: Show fallback if we have NO data AND we are not currently trying to get it (unless we are offline)
   const showFallback = (!tickers || tickers.length === 0) && !isConnected;
 
   // Determine Status Label and Color
@@ -105,9 +147,23 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
   }
 
   return (
-    <div className="border-t border-[#334155] bg-[#0f172a] shrink-0">
+    <div 
+        className="border-t border-[#334155] bg-[#0f172a] shrink-0 flex flex-col relative transition-all duration-75 ease-out"
+        style={{ height: isOpen ? `${panelHeight}px` : 'auto' }}
+    >
+      {/* Resize Handle (Only visible when Open) */}
+      {isOpen && (
+          <div 
+            className="absolute -top-[3px] left-0 right-0 h-[6px] w-full cursor-ns-resize z-50 flex items-center justify-center group/handle hover:bg-blue-500/10 transition-colors"
+            onMouseDown={handleMouseDown}
+          >
+             {/* Pill Icon */}
+             <div className="w-8 h-1 bg-slate-600 rounded-full group-hover/handle:bg-blue-400 transition-colors shadow-sm" />
+          </div>
+      )}
+
       <div 
-        className="flex items-center justify-between px-4 py-2 bg-[#1e293b] cursor-pointer hover:bg-[#334155]/50 select-none border-b border-[#334155]"
+        className="flex items-center justify-between px-4 py-2 bg-[#1e293b] cursor-pointer hover:bg-[#334155]/50 select-none border-b border-[#334155] shrink-0"
         onClick={onToggle}
       >
         <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
@@ -140,13 +196,13 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
             </button>
 
             <button className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
-                {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {isOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
             </button>
         </div>
       </div>
 
       {isOpen && (
-        <div className="flex flex-col animate-in slide-in-from-top-2 duration-200">
+        <div className="flex flex-col flex-1 min-h-0 border-b border-[#334155]">
              
              {showFallback ? (
                  <MarketOfflineFallback onRetry={refetch} />
@@ -154,7 +210,7 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
                  <>
                     {/* Add Symbol Form */}
                     {isAdding && (
-                        <form onSubmit={handleAddSubmit} className="flex gap-2 p-2 bg-[#1e293b] border-b border-[#334155]">
+                        <form onSubmit={handleAddSubmit} className="flex gap-2 p-2 bg-[#1e293b] border-b border-[#334155] shrink-0">
                             <input 
                                 type="text" 
                                 value={newSymbolInput} 
@@ -179,9 +235,9 @@ export const RecentMarketDataPanel: React.FC<StatsPanelProps> = ({ currentSymbol
                         </form>
                     )}
 
-                    <div className="p-0 overflow-x-auto">
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-0 overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
-                            <thead className="bg-[#1e293b]/50 text-slate-400 font-medium whitespace-nowrap">
+                            <thead className="bg-[#1e293b] sticky top-0 z-10 text-slate-400 font-medium whitespace-nowrap shadow-sm">
                                 <tr>
                                     <th className="px-4 py-2 border-b border-[#334155]">Symbol</th>
                                     <th className="px-4 py-2 border-b border-[#334155] text-right">Price</th>
