@@ -640,7 +640,8 @@ const App: React.FC = () => {
           // Use the robust source ID generator which handles timeframe stripping
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
 
-          const updates: Partial<TabSession> = {
+          // Base update object with new data
+          const baseUpdates: Partial<TabSession> = {
               title: displayTitle,
               symbolId: getSymbolId(displayTitle),
               sourceId: sourceId,
@@ -662,27 +663,51 @@ const App: React.FC = () => {
               isReplayMode: preservedReplay?.isReplayMode ?? false,
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
               replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              drawings: [],
-              folders: [],
-              visibleRange: null
+              visibleRange: null // Reset view on new data load
           };
 
           const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
 
-          if (!tabs.find(t => t.id === tabIdToUpdate) || tabs.length === 0) {
-              const newTab = createNewTab(tabIdToUpdate);
-              const updatedNewTab = { ...newTab, ...updates };
-              setTabs([updatedNewTab]);
+          setTabs(currentTabs => {
+              const targetTabExists = currentTabs.find(t => t.id === tabIdToUpdate);
+              
+              if (!targetTabExists) {
+                  // Create new tab
+                  const newTab = createNewTab(tabIdToUpdate);
+                  // New tabs start empty drawings
+                  const fullUpdates = { ...baseUpdates, drawings: [], folders: [] };
+                  // Update layout and active state as side effects outside this reducer? 
+                  // No, we need to do it here or after. 
+                  // Since we are inside setTabs updater, we can't side-effect easily.
+                  // We'll return the new array.
+                  return [...currentTabs, { ...newTab, ...fullUpdates }];
+              }
+
+              // Update existing tabs (Single or Sync)
+              return currentTabs.map(t => {
+                  const shouldUpdate = (t.id === tabIdToUpdate) || (isSymbolSync && layoutTabIds.includes(t.id));
+                  
+                  if (shouldUpdate) {
+                      // STATE LIFT: Check if we are staying on the same source (e.g. timeframe switch)
+                      // If sourceId matches, KEEP existing drawings/folders.
+                      // If sourceId changes, RESET them (to be rehydrated by persistence hook).
+                      const isSameSource = t.sourceId === sourceId;
+                      
+                      return {
+                          ...t,
+                          ...baseUpdates,
+                          drawings: isSameSource ? t.drawings : [],
+                          folders: isSameSource ? t.folders : []
+                      };
+                  }
+                  return t;
+              });
+          });
+
+          // Ensure active tab and layout if it was a new tab
+          if (!tabs.find(t => t.id === tabIdToUpdate)) {
               setActiveTabId(tabIdToUpdate);
               setLayoutTabIds([tabIdToUpdate]);
-          } else {
-              if (isSymbolSync && layoutTabIds.length > 1) {
-                  layoutTabIds.forEach(id => {
-                      updateTab(id, updates);
-                  });
-              } else {
-                  updateTab(tabIdToUpdate, updates);
-              }
           }
           
           debugLog('Data', `File stream started successfully. Records: ${cleanRawData.length}`);
@@ -695,7 +720,7 @@ const App: React.FC = () => {
       } finally {
           setLoading(false);
       }
-  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, updateTab, isBridgeAvailable, tabs, createNewTab]);
+  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab]);
 
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
