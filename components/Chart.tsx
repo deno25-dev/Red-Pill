@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { 
   createChart, 
   ColorType, 
@@ -641,6 +642,36 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [visibleRange]);
 
+  // Helper: Context-Aware Snapping logic
+  // Mandate 26: If in Replay, center view on the "cut". If Live, scroll to RealTime.
+  const handleSnapToRecent = useCallback(() => {
+      if (!chartRef.current) return;
+      
+      // Determine if we are in a replay context where we want specific centering.
+      // Replay is active if isPlaying is true, OR if we have data and the replayIndex indicates a slice.
+      // We check if data is a slice of fullData by checking length difference
+      // Note: props.data is already sliced in ChartWorkspace if replay is active.
+      const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
+
+      if (isReplayActive) {
+          // In Replay mode (Standard or Advanced), 'data' passed to this component is sliced to the current replay point.
+          // The "cut" is effectively at data.length - 1.
+          // We want to center the view around this point with some look-back.
+          // Mandate 26: from: startIndex - 50, to: startIndex + 2
+          const currentHeadIndex = data.length - 1;
+          const from = Math.max(0, currentHeadIndex - 50);
+          const to = currentHeadIndex + 2;
+          
+          chartRef.current.timeScale().setVisibleLogicalRange({ 
+              from: from as Logical, 
+              to: to as Logical 
+          } as LogicalRange);
+      } else {
+          // Standard Live Mode
+          chartRef.current.timeScale().scrollToRealTime();
+      }
+  }, [isPlaying, fullData, data.length]);
+
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
@@ -883,6 +914,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
     // @ts-ignore
     seriesRef.current = newSeries; newSeries.setData(processedData);
+    
+    // UPDATED: Use context-aware snap logic
+    handleSnapToRecent();
+
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;
     primitive.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data);
@@ -891,11 +926,16 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     register('drawings-primitive', primitive);
     
     newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw();
-  }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount]); 
+  }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount, handleSnapToRecent]); 
 
   useEffect(() => {
     if (!seriesRef.current) return;
-    try { seriesRef.current.setData(processedData); } catch(e) {}
+    try { 
+        seriesRef.current.setData(processedData); 
+        
+        // UPDATED: Use context-aware snap logic
+        handleSnapToRecent();
+    } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
         const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
         const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
@@ -911,7 +951,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: (data[i].time / 1000) as Time, value: smaData[i] as number }); }
         smaSeriesRef.current.setData(smaSeriesData);
     }
-  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor]); 
+  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent]); 
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -1212,249 +1252,189 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                     const newPoints = [...d.points];
                     newPoints[interactionState.current.dragHandleIndex!] = p;
                     onUpdateDrawings(drawings.map(dr => dr.id === d.id ? { ...dr, points: newPoints } : dr)); 
+                    redraw = true; 
+                } else if (interactionState.current.startPoint && interactionState.current.initialDrawingPoints) {
+                    // Dragging whole shape logic
+                    const startScreen = interactionState.current.startPoint;
+                    const dx = x - startScreen.x;
+                    const dy = y - startScreen.y;
+                    
+                    const newPoints = interactionState.current.initialDrawingPoints.map(pt => {
+                        const screenPt = pointToScreen(pt);
+                        if (screenPt.x === OFF_SCREEN) return pt;
+                        const newScreenX = screenPt.x + dx;
+                        const newScreenY = screenPt.y + dy;
+                        const newPt = screenToPoint(newScreenX, newScreenY);
+                        return newPt || pt;
+                    });
+                    
+                    interactionState.current.draggedDrawingPoints = newPoints;
                     redraw = true;
                 }
-                // Handle Moving Whole Object (Optimized via ref)
-                else if (interactionState.current.startPoint && interactionState.current.initialDrawingPoints) {
-                     const dx = x - interactionState.current.startPoint.x;
-                     const dy = y - interactionState.current.startPoint.y; 
-                     
-                     const newPoints: DrawingPoint[] = [];
-                     const originalPoints = interactionState.current.initialDrawingPoints;
-
-                     for(const op of originalPoints) {
-                         const sp = pointToScreen(op);
-                         if (sp.x !== OFF_SCREEN) {
-                             const np = screenToPoint(sp.x + dx, sp.y + dy);
-                             if (np) newPoints.push(np);
-                         }
-                     }
-
-                     if (newPoints.length === originalPoints.length) {
-                         interactionState.current.draggedDrawingPoints = newPoints;
-                         redraw = true; // Just request draw, don't update React state
-                     }
-                }
             }
         }
     }
+    
     if (redraw) requestDraw();
+    handleContainerMouseMove(e);
   };
 
-  const handleCanvasMouseUp = () => {
-    if (isReplaySelecting) return;
-    if (interactionState.current.isCreating) {
-        if (activeToolId === 'brush') { 
-            // 1. Commit the drawing with updated smoothing logic (RDP + Checks)
-            onUpdateDrawings([
-                ...drawings, 
-                { 
-                    id: crypto.randomUUID(), 
-                    type: activeToolId, 
-                    points: smoothPoints(interactionState.current.creatingPoints, currentDefaultProperties.smoothing || 0), 
-                    properties: currentDefaultProperties,
-                    creationTimeframe: timeframe as Timeframe
-                }
-            ]);
-            
-            // 2. PERSISTENT MODE: Reset creating state for the next stroke, but DO NOT complete the tool
-            interactionState.current.isCreating = false; 
-            interactionState.current.creatingPoints = [];
-            interactionState.current.creationStep = 0;
-            
-            // 3. Just redraw to clear the "creation" ghost lines
-            requestDraw();
-            return;
-        }
-        else if (activeToolId === 'text') {
-             // Instead of prompt, open custom text input
-             const point = interactionState.current.creatingPoints[0];
-             const screenP = pointToScreen(point);
-             if (screenP.x !== OFF_SCREEN && screenP.y !== OFF_SCREEN) {
-                 setTextInputState({
-                     visible: true,
-                     x: screenP.x,
-                     y: screenP.y,
-                     text: "Text",
-                     point: point
-                 });
-             }
-             interactionState.current.isCreating = false;
-             // Do not call onToolComplete yet, wait for text submission
-        } else {
-            const step = interactionState.current.creationStep;
-            if (step < interactionState.current.creatingPoints.length - 1) { interactionState.current.creationStep = step + 1; interactionState.current.creatingPoints[step + 1] = interactionState.current.creatingPoints[step]; requestDraw(); return; }
-            onUpdateDrawings([...drawings, { id: crypto.randomUUID(), type: activeToolId, points: interactionState.current.creatingPoints, properties: currentDefaultProperties, creationTimeframe: timeframe as Timeframe }]); interactionState.current.isCreating = false; 
-            
-            // Handle Persistent Mode for other tools if requested
-            if (propsRef.current.isStayInDrawingMode) {
-                 interactionState.current.isCreating = false;
-                 interactionState.current.creatingPoints = [];
-            } else {
-                 onToolComplete(); 
-            }
-        }
-    }
-    
-    // Commit the drag if we were moving an object via ref
-    if (interactionState.current.isDragging && interactionState.current.dragHandleIndex === -1 && interactionState.current.draggedDrawingPoints && interactionState.current.dragDrawingId) {
-         const newPoints = interactionState.current.draggedDrawingPoints;
-         const id = interactionState.current.dragDrawingId;
-         onUpdateDrawings(drawings.map(dr => dr.id === id ? { ...dr, points: newPoints } : dr));
-         interactionState.current.draggedDrawingPoints = null;
-         interactionState.current.initialDrawingPoints = null;
-    }
-
-    interactionState.current.isDragging = false; 
-    interactionState.current.dragDrawingId = null; 
-    
-    if (propsRef.current.config.showCrosshair === false) {
-        document.body.style.cursor = 'default';
-        return;
-    }
-    // Restore Cursor based on active tool
-    if (activeToolId === 'brush') document.body.style.cursor = 'url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZHTgxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48Y2lyY2xlIGN4PSI1IiBjeT0iNSIgcj0iMiIgZmlsbD0id2hpdGUiIHN0cm9rZT0iIzNiODJmNiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==) 8 8, crosshair';
-    else document.body.style.cursor = 'crosshair';
-
-    requestDraw();
-  };
-  
-  // Explicitly handle Right Click to cancel/deselect tools
-  const handleContextMenu = (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // If we are currently drawing a shape (in-progress), cancel the shape but keep tool if brush/persistent
+  const handleCanvasMouseUp = (e: React.MouseEvent) => {
       if (interactionState.current.isCreating) {
-          interactionState.current.isCreating = false;
-          interactionState.current.creatingPoints = [];
-          requestDraw();
-          return;
+          if (activeToolId === 'brush') {
+              const points = smoothPoints(interactionState.current.creatingPoints, 1);
+              if (points.length > 2) {
+                  const newDrawing: Drawing = {
+                      id: crypto.randomUUID(),
+                      type: 'brush',
+                      points,
+                      properties: currentDefaultProperties,
+                      creationTimeframe: timeframe as Timeframe,
+                      folderId: null
+                  };
+                  onUpdateDrawings([...drawings, newDrawing]);
+                  onToolComplete();
+              }
+              interactionState.current.isCreating = false;
+              interactionState.current.creatingPoints = [];
+          } else if (SINGLE_POINT_TOOLS.includes(activeToolId)) {
+              const p = interactionState.current.creatingPoints[0];
+              if (p) {
+                   const newDrawing: Drawing = {
+                      id: crypto.randomUUID(),
+                      type: activeToolId,
+                      points: [p],
+                      properties: currentDefaultProperties,
+                      creationTimeframe: timeframe as Timeframe,
+                      folderId: null
+                  };
+                  onUpdateDrawings([...drawings, newDrawing]);
+                  onToolComplete();
+                  
+                  if (activeToolId === 'text') {
+                      setTextInputState({
+                          visible: true,
+                          x: e.clientX,
+                          y: e.clientY,
+                          text: currentDefaultProperties.text || 'Text',
+                          point: p
+                      });
+                      onSelectDrawing(newDrawing.id);
+                  }
+              }
+              interactionState.current.isCreating = false;
+              interactionState.current.creatingPoints = [];
+          } else {
+              interactionState.current.creationStep++;
+              const requiredSteps = (activeToolId === 'triangle' || activeToolId === 'rotated_rectangle') ? 3 : 2;
+              
+              if (interactionState.current.creationStep >= requiredSteps) {
+                  const points = interactionState.current.creatingPoints;
+                  const newDrawing: Drawing = {
+                      id: crypto.randomUUID(),
+                      type: activeToolId,
+                      points,
+                      properties: currentDefaultProperties,
+                      creationTimeframe: timeframe as Timeframe,
+                      folderId: null
+                  };
+                  onUpdateDrawings([...drawings, newDrawing]);
+                  onToolComplete();
+                  interactionState.current.isCreating = false;
+                  interactionState.current.creatingPoints = [];
+              } else {
+                  interactionState.current.creatingPoints.push(interactionState.current.creatingPoints[interactionState.current.creatingPoints.length-1]);
+              }
+          }
+          onActionStart?.();
+      } else if (interactionState.current.isDragging) {
+          if (interactionState.current.draggedDrawingPoints && interactionState.current.dragDrawingId) {
+              const d = drawings.find(dr => dr.id === interactionState.current.dragDrawingId);
+              if (d) {
+                  const updatedDrawing = { ...d, points: interactionState.current.draggedDrawingPoints };
+                  onUpdateDrawings(drawings.map(dr => dr.id === d.id ? updatedDrawing : dr));
+              }
+          }
+          
+          interactionState.current.isDragging = false;
+          interactionState.current.dragDrawingId = null;
+          interactionState.current.dragHandleIndex = null;
+          interactionState.current.draggedDrawingPoints = null;
+          interactionState.current.initialDrawingPoints = null;
+          onActionStart?.();
       }
-      
-      // If no shape in progress, right click deselects the tool entirely (Manual Disengagement)
-      if (activeToolId !== 'cross') {
-          onToolComplete(); // Switch to Cross
-      } else if (selectedDrawingId) {
-          onSelectDrawing(null); // Deselect object
-      }
+      requestDraw();
   };
 
-  const handleScrollToRealTime = () => {
-       // 1. Reference Verification - Early Return to prevent crashes
-       if (!chartRef.current) return;
-
-       // 2. Wrap in RAF to ensure paint cycle completes (Critical for Production builds)
-       requestAnimationFrame(() => {
-           // Double-check ref availability inside the callback
-           if (!chartRef.current) return;
-           
-           try {
-               // 3. Standardize Scroll Method: scrollToRealTime()
-               // This method is designed to safely navigate to the most recent bar regardless of visible range
-               chartRef.current.timeScale().scrollToRealTime();
-           } catch (e) {
-               console.warn("Scroll to real-time failed:", e);
-           }
-       });
-  };
-
-  // Text Input Handlers
-  const handleTextSubmit = () => {
-      if (textInputState && textInputState.point) {
-          propsRef.current.onUpdateDrawings([
-            ...propsRef.current.drawings, 
-            { 
-                id: crypto.randomUUID(), 
-                type: 'text', 
-                points: [textInputState.point], 
-                properties: { ...propsRef.current.currentDefaultProperties, text: textInputState.text || "Label" },
-                creationTimeframe: propsRef.current.timeframe as Timeframe
-            }
-          ]);
-          propsRef.current.onToolComplete();
+  const handleTextSubmit = (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (textInputState && textInputState.point && selectedDrawingId) {
+          const d = drawings.find(dr => dr.id === selectedDrawingId);
+          if (d) {
+              onUpdateDrawings(drawings.map(dr => dr.id === selectedDrawingId ? { ...dr, properties: { ...dr.properties, text: textInputState.text } } : dr));
+          }
           setTextInputState(null);
-          requestDraw();
+          onActionStart?.();
       }
   };
-
-  const handleTextCancel = () => {
-      setTextInputState(null);
-      // Optional: reset tool if cancelled
-      // propsRef.current.onToolComplete();
-  };
-
-  if (data.length === 0) return <div className="flex items-center justify-center h-full text-text-tertiary">No data loaded.</div>;
 
   return (
-    <div className="w-full h-full relative group" onMouseMove={handleContainerMouseMove}>
-       <div ref={chartContainerRef} className="w-full h-full" />
-       <canvas 
-          ref={canvasRef} 
-          className="absolute inset-0 z-10" 
-          style={{ pointerEvents: 'none' }} 
-          onMouseDown={handleCanvasMouseDown} 
-          onMouseMove={handleCanvasMouseMove} 
-          onMouseUp={handleCanvasMouseUp} 
-          onContextMenu={handleContextMenu}
-        />
-       {config.showVolume && <div className="absolute left-0 right-0 z-30 h-1 cursor-ns-resize group/resize" style={{ top: `${localVolumeTopMargin * 100}%` }} onMouseDown={handleVolumeResizeMouseDown}><div className="w-full h-px bg-interactive-hover-bg opacity-0 group-hover/resize:opacity-100 transition-opacity" /></div>}
-       <div ref={toolTipRef} className="absolute hidden pointer-events-none bg-panel-bg/95 border border-app-border p-2.5 rounded shadow-xl backdrop-blur-sm z-50 transition-opacity duration-75" />
-       
-       {showScrollButton && (
-           <button
-             onClick={handleScrollToRealTime}
-             className="absolute bottom-12 right-20 z-40 bg-panel-bg/80 hover:bg-accent-bg text-text-secondary hover:text-white p-2 rounded-full shadow-lg backdrop-blur-sm border border-app-border transition-all animate-in fade-in zoom-in duration-200"
-             title="Scroll to most recent"
-           >
-             <ChevronsRight size={20} />
-           </button>
-       )}
-       
-       {/* Text Input Overlay */}
-       {textInputState && textInputState.visible && (
-           <div 
-             className="absolute z-50 flex flex-col gap-2 p-2 bg-panel-bg border border-app-border rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-100"
-             style={{ 
-                 left: Math.min(textInputState.x, (chartContainerRef.current?.clientWidth || 0) - 220), 
-                 top: Math.min(textInputState.y, (chartContainerRef.current?.clientHeight || 0) - 100)
-             }}
-             onMouseDown={(e) => e.stopPropagation()}
-           >
-              <textarea
-                autoFocus
-                className="w-56 h-20 bg-sub-panel-bg border border-app-border rounded p-2 text-sm text-text-primary focus:outline-none focus:border-accent-bg resize-none font-sans"
-                value={textInputState.text}
-                onChange={(e) => setTextInputState({ ...textInputState, text: e.target.value })}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleTextSubmit();
-                    } else if (e.key === 'Escape') {
-                        e.preventDefault();
-                        handleTextCancel();
-                    }
-                }}
-                onFocus={(e) => e.target.select()}
-              />
-              <div className="flex justify-end gap-2">
-                  <button 
-                    onClick={handleTextCancel}
-                    className="p-1 text-text-secondary hover:text-text-primary hover:bg-interactive-bg rounded"
-                    title="Cancel (Esc)"
-                  >
-                      <XIcon size={16} />
-                  </button>
-                  <button 
-                    onClick={handleTextSubmit}
-                    className="p-1 text-accent-bg/80 hover:text-white hover:bg-accent-bg rounded"
-                    title="Save (Enter)"
-                  >
-                      <Check size={16} />
-                  </button>
+    <div className="relative w-full h-full" onContextMenu={(e) => e.preventDefault()}>
+      <div 
+        ref={chartContainerRef} 
+        className="w-full h-full relative" 
+        onMouseMove={handleContainerMouseMove}
+      />
+      <canvas 
+        ref={canvasRef} 
+        className="absolute top-0 left-0 w-full h-full z-10 outline-none"
+        tabIndex={0}
+        onMouseDown={handleCanvasMouseDown}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+      />
+      
+      {/* "Snap to Recent" Button */}
+      {showScrollButton && (
+          <button
+            onClick={() => {
+                requestAnimationFrame(() => {
+                    handleSnapToRecent();
+                });
+            }}
+            className="absolute bottom-12 right-16 z-20 p-2 bg-[#1e293b]/80 text-blue-400 hover:text-white rounded-full shadow-lg border border-blue-500/30 hover:bg-blue-600 transition-all animate-in fade-in zoom-in duration-200"
+            title="Scroll to Real-time"
+          >
+              <ChevronsRight size={20} />
+          </button>
+      )}
+
+      {/* Text Input Overlay */}
+      {textInputState && textInputState.visible && (
+          <div 
+            className="absolute z-50 bg-[#1e293b] p-2 rounded shadow-xl border border-[#334155] flex flex-col gap-2 min-w-[200px]"
+            style={{ left: Math.min(textInputState.x, window.innerWidth - 220), top: Math.min(textInputState.y, window.innerHeight - 150) }}
+          >
+              <div className="flex justify-between items-center text-xs text-slate-400 font-bold uppercase mb-1">
+                  <span>Edit Text</span>
+                  <button onClick={() => setTextInputState(null)}><XIcon size={14}/></button>
               </div>
-           </div>
-       )}
+              <textarea 
+                  autoFocus
+                  value={textInputState.text}
+                  onChange={(e) => setTextInputState({ ...textInputState, text: e.target.value })}
+                  className="w-full bg-[#0f172a] border border-[#334155] rounded p-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-y"
+                  rows={3}
+                  onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleTextSubmit(); } }}
+              />
+              <button 
+                  onClick={() => handleTextSubmit()}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white py-1 rounded text-xs font-bold flex items-center justify-center gap-1"
+              >
+                  <Check size={12} /> Apply
+              </button>
+          </div>
+      )}
     </div>
   );
 };
