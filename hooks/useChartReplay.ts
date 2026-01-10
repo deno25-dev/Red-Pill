@@ -33,6 +33,10 @@ export const useChartReplay = ({
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
 
+  // State Tracking for Pause Logic
+  const prevStartIndexRef = useRef<number | null>(null);
+  const prevDataRef = useRef<OHLCV[] | null>(null);
+
   // NUCLEAR RESET LISTENER
   useEffect(() => {
     const handleGlobalReset = () => {
@@ -41,6 +45,7 @@ export const useChartReplay = ({
         replayBufferRef.current = [];
         bufferCursorRef.current = 0;
         lastFrameTimeRef.current = 0;
+        prevStartIndexRef.current = null;
     };
     window.addEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
     return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
@@ -50,9 +55,25 @@ export const useChartReplay = ({
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
-    // This effect handles the "Slice & Append" setup.
-    // It only runs when replay is paused or being set up.
-    if (!isPlaying) {
+    // Logic: We only re-initialize the chart if:
+    // 1. We are NOT currently playing (to avoid stutter during playback).
+    // 2. AND either the data changed OR the start index changed.
+    // 
+    // This prevents the chart from resetting to the `startIndex` immediately upon pausing.
+    // When `isPlaying` turns false, `startIndex` is initially unchanged, so this block is skipped.
+    // The chart remains in its "paused" state.
+    // Once the parent component updates `startIndex` via `onSyncState`, this effect runs again,
+    // sees the index change, and cleanly re-initializes the buffer at the new position.
+
+    const dataChanged = prevDataRef.current !== fullData;
+    const indexChanged = prevStartIndexRef.current !== startIndex;
+    const shouldInit = !isPlaying && (indexChanged || dataChanged);
+
+    if (shouldInit) {
+        // Update trackers
+        prevStartIndexRef.current = startIndex;
+        prevDataRef.current = fullData;
+
         // 1. SLICE: Get the historical data up to the start point.
         const initialSlice = fullData.slice(0, startIndex + 1);
         const seriesData = initialSlice.map(d => ({
@@ -84,6 +105,10 @@ export const useChartReplay = ({
             currentTimeRef.current = fullData[startIndex].time;
             currentPriceRef.current = fullData[startIndex].close;
         }
+    } else if (isPlaying) {
+        // If playing, keep trackers synced so when we stop, we know if it was a jump or just a pause
+        prevStartIndexRef.current = startIndex;
+        prevDataRef.current = fullData;
     }
   }, [fullData, startIndex, isPlaying, seriesRef]); 
 
