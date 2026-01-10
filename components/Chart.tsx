@@ -1,4 +1,3 @@
-// ... (imports remain the same, just keeping context)
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   createChart, 
@@ -118,7 +117,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context); }); }
     _drawImpl(target: CanvasRenderingContext2D) {
         if (!target || typeof target.beginPath !== 'function') return;
-        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties } = this._source;
+        const { _drawings, _series, _chart, _timeToIndex, _interactionStateRef, _currentDefaultProperties, _hoveredDrawingId } = this._source;
         if (!_series || !_chart) return;
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId, draggedDrawingPoints } = _interactionStateRef.current;
         let drawingsToRender = [..._drawings];
@@ -219,7 +218,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 return { x, y: price };
             } catch { return { x: OFF_SCREEN, y: OFF_SCREEN }; }
         };
-        target.save();
+        
         drawingsToRender.forEach(d => {
             if (d.properties.visible === false) return;
             
@@ -235,6 +234,17 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             if (screenPoints.every(p => p.x === OFF_SCREEN && p.y === OFF_SCREEN)) return;
             const isSelected = d.id === this._source._selectedDrawingId;
             const isBeingDragged = d.id === dragDrawingId;
+            const isHovered = d.id === _hoveredDrawingId;
+            const isLocked = d.properties.locked;
+
+            target.save(); // Isolate context for per-drawing effects (filters/shadows)
+
+            // Mandate 25: Hover Effect (Brightness Shift)
+            // Constraint: No line weight change, no glow. Subtle shift.
+            if (isHovered && !isSelected && !isBeingDragged && !isLocked) {
+                target.filter = 'brightness(1.2)';
+            }
+
             target.beginPath(); target.strokeStyle = d.properties.color; target.lineCap = 'round'; target.lineJoin = 'round';
             if (isSelected || isBeingDragged) { target.lineWidth = d.properties.lineWidth + 1; target.shadowColor = d.properties.color; target.shadowBlur = 10; }
             else { target.lineWidth = d.properties.lineWidth; target.shadowColor = 'transparent'; target.shadowBlur = 0; }
@@ -244,9 +254,9 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             const isFilled = d.properties.filled;
             target.fillStyle = isFilled ? d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)' : 'transparent';
             if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') {
-                if (screenPoints.length < 2) return;
+                if (screenPoints.length < 2) { target.restore(); return; }
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
-                if (p1.x === OFF_SCREEN || p2.x === OFF_SCREEN) return;
+                if (p1.x === OFF_SCREEN || p2.x === OFF_SCREEN) { target.restore(); return; }
                 target.moveTo(p1.x, p1.y);
                 if (d.type === 'ray') {
                     const dx = p2.x - p1.x; const dy = p2.y - p1.y; const dist = Math.sqrt(dx*dx + dy*dy);
@@ -265,7 +275,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 }
             }
             else if (d.type === 'brush') {
-                 if (screenPoints.length < 2) return;
+                 if (screenPoints.length < 2) { target.restore(); return; }
                  target.beginPath(); let started = false;
                  for(let i=0; i<screenPoints.length; i++) {
                      const p = screenPoints[i]; if (p.x !== OFF_SCREEN && p.y !== OFF_SCREEN) { if (!started) { target.moveTo(p.x, p.y); started = true; } else target.lineTo(p.x, p.y); }
@@ -276,9 +286,9 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             else if (d.type === 'vertical_line') { if (screenPoints.length > 0 && screenPoints[0].x !== OFF_SCREEN) { target.moveTo(screenPoints[0].x, -50000); target.lineTo(screenPoints[0].x, 50000); target.stroke(); } }
             else if (d.type === 'horizontal_ray') { if (screenPoints.length > 0 && screenPoints[0].y !== OFF_SCREEN && screenPoints[0].x !== OFF_SCREEN) { target.moveTo(screenPoints[0].x, screenPoints[0].y); target.lineTo(50000, screenPoints[0].y); target.stroke(); } }
             else if (d.type === 'rectangle' || d.type === 'date_range' || d.type === 'measure') {
-                if (screenPoints.length < 2) return;
+                if (screenPoints.length < 2) { target.restore(); return; }
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
-                if (p1.x === OFF_SCREEN || p2.x === OFF_SCREEN) return;
+                if (p1.x === OFF_SCREEN || p2.x === OFF_SCREEN) { target.restore(); return; }
                 const x = Math.min(p1.x, p2.x); const w = Math.abs(p2.x - p1.x);
                 if (d.type === 'date_range') {
                      target.fillStyle = d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)';
@@ -332,8 +342,9 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                  target.fillStyle = '#ffffff'; target.strokeStyle = '#3b82f6'; target.lineWidth = 1; target.setLineDash([]);
                  screenPoints.forEach(p => { if (p.x !== OFF_SCREEN) { target.beginPath(); target.arc(p.x, p.y, 4, 0, 2*Math.PI); target.fill(); target.stroke(); } });
             }
+
+            target.restore();
         });
-        target.restore();
     }
 }
 
@@ -371,6 +382,7 @@ class DrawingsPaneView {
 class DrawingsPrimitive implements ISeriesPrimitive {
     _chart: IChartApi; _series: ISeriesApi<any>; _drawings: Drawing[] = []; _timeToIndex: Map<number, number> | null = null;
     _interactionStateRef: React.MutableRefObject<any>; _currentDefaultProperties: DrawingProperties; _selectedDrawingId: string | null = null;
+    _hoveredDrawingId: string | null = null;
     _timeframe: string = '1h'; 
     _lastTime: number | null = null;
     _lastIndex: number = 0;
@@ -1104,6 +1116,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           const rect = chartContainerRef.current.getBoundingClientRect();
           const { hitHandle, hitDrawing } = getHitObject(e.clientX - rect.left, e.clientY - rect.top);
           
+          // Update Hover State
+          if (drawingsPrimitiveRef.current) {
+              const newHoverId = hitDrawing ? hitDrawing.id : null;
+              if (drawingsPrimitiveRef.current._hoveredDrawingId !== newHoverId) {
+                  drawingsPrimitiveRef.current._hoveredDrawingId = newHoverId;
+                  requestDraw();
+              }
+          }
+
           if (propsRef.current.config.showCrosshair === false) {
               document.body.style.cursor = 'default';
               canvasRef.current.style.pointerEvents = (hitHandle || hitDrawing) ? 'auto' : 'none';
@@ -1111,7 +1132,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           }
 
           if ((hitHandle || hitDrawing) && !areDrawingsLocked) { 
-              document.body.style.cursor = hitDrawing?.properties.locked ? 'not-allowed' : hitHandle ? 'grab' : 'move'; 
+              // Pointer for drawing, Grab for handle, Not-Allowed for locked
+              document.body.style.cursor = hitDrawing?.properties.locked ? 'not-allowed' : hitHandle ? 'grab' : 'pointer'; 
               canvasRef.current.style.pointerEvents = 'auto'; 
           }
           else { 

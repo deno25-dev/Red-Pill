@@ -55,19 +55,14 @@ export const useChartReplay = ({
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
-    // Logic: We only re-initialize the chart if:
-    // 1. We are NOT currently playing (to avoid stutter during playback).
-    // 2. AND either the data changed OR the start index changed.
-    // 
-    // This prevents the chart from resetting to the `startIndex` immediately upon pausing.
-    // When `isPlaying` turns false, `startIndex` is initially unchanged, so this block is skipped.
-    // The chart remains in its "paused" state.
-    // Once the parent component updates `startIndex` via `onSyncState`, this effect runs again,
-    // sees the index change, and cleanly re-initializes the buffer at the new position.
-
+    // Detect changes
     const dataChanged = prevDataRef.current !== fullData;
     const indexChanged = prevStartIndexRef.current !== startIndex;
-    const shouldInit = !isPlaying && (indexChanged || dataChanged);
+
+    // MANDATE 16 & 23 FIX: 
+    // If data changes (e.g. timeframe switch), we MUST re-initialize the buffer immediately,
+    // even if playing. If only index changes (user seek), we only re-init if paused.
+    const shouldInit = dataChanged || (!isPlaying && indexChanged);
 
     if (shouldInit) {
         // Update trackers
@@ -96,6 +91,9 @@ export const useChartReplay = ({
         }
         
         // 4. RESET CURSOR
+        // This satisfies the requirement: "update the bufferCursorRef to that index immediately"
+        // Since we rebuilt the buffer starting exactly after the Cut (startIndex), 
+        // the cursor (offset) is 0.
         bufferCursorRef.current = 0;
         lastFrameTimeRef.current = 0;
         currentIndexRef.current = startIndex;
@@ -106,7 +104,7 @@ export const useChartReplay = ({
             currentPriceRef.current = fullData[startIndex].close;
         }
     } else if (isPlaying) {
-        // If playing, keep trackers synced so when we stop, we know if it was a jump or just a pause
+        // If playing without data change (just continuing), keep trackers synced
         prevStartIndexRef.current = startIndex;
         prevDataRef.current = fullData;
     }
