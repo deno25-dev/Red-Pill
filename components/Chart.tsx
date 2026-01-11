@@ -643,7 +643,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   }, [visibleRange]);
 
   // Helper: Context-Aware Snapping logic
-  // Mandate 26: If in Replay, center view on the "cut". If Live, scroll to RealTime.
+  // Mandate 26: If in Replay, center view on the "cut" while preserving zoom. If Live, scroll to RealTime.
   const handleSnapToRecent = useCallback(() => {
       if (!chartRef.current) return;
       
@@ -654,13 +654,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
 
       if (isReplayActive) {
-          // In Replay mode (Standard or Advanced), 'data' passed to this component is sliced to the current replay point.
+          // Detect Current Zoom: Get current visible logical range width
+          const currentRange = chartRef.current.timeScale().getVisibleLogicalRange();
+          const currentZoomWidth = currentRange ? (currentRange.to - currentRange.from) : 50;
+
+          // In Replay mode, 'data' is sliced to current replay point.
           // The "cut" is effectively at data.length - 1.
-          // We want to center the view around this point with some look-back.
-          // Mandate 26: from: startIndex - 50, to: startIndex + 2
           const currentHeadIndex = data.length - 1;
-          const from = Math.max(0, currentHeadIndex - 50);
+          
+          // Maintain +2 buffer on the right
           const to = currentHeadIndex + 2;
+          
+          // Preserve Zoom Level: Set from based on current zoom width
+          const from = to - currentZoomWidth;
           
           chartRef.current.timeScale().setVisibleLogicalRange({ 
               from: from as Logical, 
