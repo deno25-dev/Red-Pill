@@ -15,11 +15,14 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  // Explicitly define state property type
-  public state: State = {
-    hasError: false,
-    error: null,
-  };
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+    this.handleRetry = this.handleRetry.bind(this);
+  }
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
@@ -41,11 +44,10 @@ export class GlobalErrorBoundary extends Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
-  // Use arrow function to automatically bind 'this'
-  handleRetry = () => {
+  handleRetry() {
     debugLog('UI', 'User attempted Error Boundary retry');
     this.setState({ hasError: false, error: null });
-  };
+  }
 
   render() {
     if (this.state.hasError) {

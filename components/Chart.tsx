@@ -418,7 +418,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     smaData, 
     config, 
     timeframe, 
-    onConfigChange, 
+    onConfigChange: _onConfigChange, 
     drawings, 
     onUpdateDrawings, 
     activeToolId, 

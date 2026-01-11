@@ -965,7 +965,6 @@ const App: React.FC = () => {
     // If currently selecting, cancel selection (Exit)
     if (activeTab.isReplaySelecting) {
         updateActiveTab({ 
-            isAdvancedReplayMode: false, 
             isReplayMode: false,
             isReplaySelecting: false, 
             isReplayPlaying: false,

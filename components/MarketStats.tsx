@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { ChevronDown, ChevronUp, Activity, TrendingUp, TrendingDown, Wifi, WifiOff, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { useMarketPrices } from '../hooks/useLiveData';
 import { MarketOfflineFallback } from './MarketOfflineFallback';
