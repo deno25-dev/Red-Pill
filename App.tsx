@@ -927,43 +927,72 @@ const App: React.FC = () => {
 
   const handleToggleReplay = () => {
     if (!activeTab) return;
-    if (activeTab.isReplayMode || activeTab.isReplaySelecting) {
+    
+    // If currently selecting, cancel selection (Exit)
+    if (activeTab.isReplaySelecting) {
         updateActiveTab({ 
             isReplayMode: false, 
             isReplaySelecting: false, 
             isReplayPlaying: false,
             simulatedPrice: null,
-            replayGlobalTime: null
+            replayGlobalTime: null,
+            isAdvancedReplayMode: false
         });
-    } else {
+        return;
+    }
+
+    // If already in standard replay, enter selection mode (Recut)
+    if (activeTab.isReplayMode) {
         updateActiveTab({ 
             isReplaySelecting: true,
-            isReplayMode: false,
-            isAdvancedReplayMode: false,
             isReplayPlaying: false
         });
+        return;
     }
+
+    // Start fresh standard replay selection
+    updateActiveTab({ 
+        isReplaySelecting: true,
+        isReplayMode: false,
+        isAdvancedReplayMode: false,
+        isReplayPlaying: false
+    });
   };
 
   const handleToggleAdvancedReplay = () => {
     if (!activeTab) return;
-     if (activeTab.isAdvancedReplayMode) {
+    
+    // If currently selecting, cancel selection (Exit)
+    if (activeTab.isReplaySelecting) {
         updateActiveTab({ 
             isAdvancedReplayMode: false, 
+            isReplayMode: false,
             isReplaySelecting: false, 
             isReplayPlaying: false,
             simulatedPrice: null,
-            replayGlobalTime: null
+            replayGlobalTime: null,
+            isAdvancedReplayMode: false
         });
-     } else {
+        return;
+    }
+
+    // If already in advanced replay, enter selection mode (Recut)
+    if (activeTab.isAdvancedReplayMode) {
         updateActiveTab({ 
-            isAdvancedReplayMode: true, 
             isReplaySelecting: true, 
-            isReplayMode: false,
-            isReplayPlaying: false
+            isReplayPlaying: false 
         });
-        alert("Advanced Replay: Select a starting point. This mode plays back in real-time speed.");
-     }
+        return;
+    }
+     
+    // Start fresh advanced replay selection
+    updateActiveTab({ 
+        isAdvancedReplayMode: true, 
+        isReplaySelecting: true, 
+        isReplayMode: false,
+        isReplayPlaying: false
+    });
+    alert("Advanced Replay: Select a starting point. This mode plays back in real-time speed.");
   };
 
   const handleLayoutAction = async (action: string) => {

@@ -450,8 +450,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null); const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawingsPrimitiveRef = useRef<DrawingsPrimitive | null>(null); const rangeChangeTimeout = useRef<any>(null);
-  const rafId = useRef<number | null>(null); const toolTipRef = useRef<HTMLDivElement>(null);
-  const isResizingVolume = useRef(false); const [localVolumeTopMargin, setLocalVolumeTopMargin] = useState(config.volumeTopMargin || 0.8);
+  const rafId = useRef<number | null>(null);
   const replayMouseX = useRef<number | null>(null); const ignoreRangeChange = useRef(false);
   
   // Flag to ignore range changes that come from props update (Undo/Redo)
@@ -643,38 +642,49 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   }, [visibleRange]);
 
   // Helper: Context-Aware Snapping logic
-  // Mandate 26: If in Replay, center view on the "cut" while preserving zoom. If Live, scroll to RealTime.
-  const handleSnapToRecent = useCallback(() => {
+  // Mandate 27: Smart Auto-Scroll
+  // Logic: Only snap if force=true OR if the latest candle is near/past the right edge of the screen.
+  const handleSnapToRecent = useCallback((force: boolean = false) => {
       if (!chartRef.current) return;
       
-      // Determine if we are in a replay context where we want specific centering.
-      // Replay is active if isPlaying is true, OR if we have data and the replayIndex indicates a slice.
-      // We check if data is a slice of fullData by checking length difference
-      // Note: props.data is already sliced in ChartWorkspace if replay is active.
       const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
+      const timeScale = chartRef.current.timeScale();
+      
+      // If we have no data, do nothing
+      if (data.length === 0) return;
 
-      if (isReplayActive) {
-          // Detect Current Zoom: Get current visible logical range width
-          const currentRange = chartRef.current.timeScale().getVisibleLogicalRange();
-          const currentZoomWidth = currentRange ? (currentRange.to - currentRange.from) : 50;
+      const currentHeadIndex = data.length - 1;
+      const currentRange = timeScale.getVisibleLogicalRange();
 
-          // In Replay mode, 'data' is sliced to current replay point.
-          // The "cut" is effectively at data.length - 1.
-          const currentHeadIndex = data.length - 1;
-          
-          // Maintain +2 buffer on the right
-          const to = currentHeadIndex + 2;
-          
-          // Preserve Zoom Level: Set from based on current zoom width
-          const from = to - currentZoomWidth;
-          
-          chartRef.current.timeScale().setVisibleLogicalRange({ 
-              from: from as Logical, 
-              to: to as Logical 
-          } as LogicalRange);
-      } else {
-          // Standard Live Mode
-          chartRef.current.timeScale().scrollToRealTime();
+      // Case 0: Chart not ready or range invalid -> Force snap to end
+      if (!currentRange) {
+          if (data.length > 0) timeScale.scrollToRealTime();
+          return;
+      }
+
+      // Calculate distance from the right edge of the viewport to the last candle
+      const distanceToRightEdge = currentRange.to - currentHeadIndex;
+      
+      // Smart Snap Logic:
+      // Snap if FORCED (User clicked button or initial load)
+      // Snap if NEAR EDGE (The latest candle is within 5 bars of the right edge, implying "Live" view)
+      // Do NOT snap if user is scrolled far back (distance > 5)
+      const shouldSnap = force || distanceToRightEdge < 5;
+
+      if (shouldSnap) {
+          if (isReplayActive) {
+              const currentZoomWidth = currentRange.to - currentRange.from;
+              // Maintain +2 buffer on the right
+              const targetTo = currentHeadIndex + 2;
+              const targetFrom = targetTo - currentZoomWidth;
+              
+              timeScale.setVisibleLogicalRange({ 
+                  from: targetFrom as Logical, 
+                  to: targetTo as Logical 
+              } as LogicalRange);
+          } else {
+              timeScale.scrollToRealTime();
+          }
       }
   }, [isPlaying, fullData, data.length]);
 
@@ -921,8 +931,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     // @ts-ignore
     seriesRef.current = newSeries; newSeries.setData(processedData);
     
-    // UPDATED: Use context-aware snap logic
-    handleSnapToRecent();
+    // UPDATED: Initial Load -> Force Snap
+    handleSnapToRecent(true); 
 
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;
@@ -939,8 +949,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     try { 
         seriesRef.current.setData(processedData); 
         
-        // UPDATED: Use context-aware snap logic
-        handleSnapToRecent();
+        // UPDATED: Data Update -> Smart Snap (No Force)
+        handleSnapToRecent(false);
     } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
         const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
@@ -964,13 +974,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (config.showVolume) {
         if (!volumeSeriesRef.current) {
             volumeSeriesRef.current = chartRef.current.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-            chartRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: localVolumeTopMargin, bottom: 0 } });
+            // Use config.volumeTopMargin directly
+            chartRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: config.volumeTopMargin || 0.8, bottom: 0 } });
         }
     } else if (volumeSeriesRef.current) { chartRef.current.removeSeries(volumeSeriesRef.current); volumeSeriesRef.current = null; }
     if (config.showSMA) {
         if (!smaSeriesRef.current) smaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: COLORS.sma, lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
     } else if (smaSeriesRef.current) { chartRef.current.removeSeries(smaSeriesRef.current); smaSeriesRef.current = null; }
-  }, [config.showVolume, config.showSMA]);
+  }, [config.showVolume, config.showSMA, config.volumeTopMargin]); // Updated dependency to include volumeTopMargin
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -1144,14 +1155,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     return { hitHandle, hitDrawing };
   };
 
-  const handleVolumeResizeMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation(); isResizingVolume.current = true;
-    const handleMouseMove = (ev: MouseEvent) => { if (isResizingVolume.current && chartContainerRef.current) { const rect = chartContainerRef.current.getBoundingClientRect(); setLocalVolumeTopMargin(Math.max(0.5, Math.min((ev.clientY - rect.top) / rect.height, 0.95))); } };
-    const handleMouseUp = () => { isResizingVolume.current = false; window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); if (onConfigChange) onConfigChange({ ...config, volumeTopMargin: localVolumeTopMargin }); };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  };
-  
   const handleContainerMouseMove = (e: React.MouseEvent) => {
       if (isReplaySelecting && canvasRef.current) { const rect = canvasRef.current.getBoundingClientRect(); replayMouseX.current = e.clientX - rect.left; requestDraw(); return; }
       if (interactionState.current.isCreating || interactionState.current.isDragging) return;
@@ -1405,7 +1408,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           <button
             onClick={() => {
                 requestAnimationFrame(() => {
-                    handleSnapToRecent();
+                    handleSnapToRecent(true);
                 });
             }}
             className="absolute bottom-12 right-16 z-20 p-2 bg-[#1e293b]/80 text-blue-400 hover:text-white rounded-full shadow-lg border border-blue-500/30 hover:bg-blue-600 transition-all animate-in fade-in zoom-in duration-200"
