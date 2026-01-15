@@ -36,7 +36,8 @@ import {
   Star,
   FolderOpen,
   Grid,
-  Crosshair
+  Crosshair,
+  StickyNote
 } from 'lucide-react';
 import { Timeframe } from '../types';
 
@@ -78,6 +79,11 @@ interface ToolbarProps {
   onToggleGridlines?: () => void;
   showCrosshair?: boolean;
   onToggleCrosshair?: () => void;
+  
+  // Sticky Notes
+  onAddStickyNote?: () => void;
+  isStickyNotesVisible?: boolean;
+  onToggleStickyNotes?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -117,7 +123,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   showGridlines,
   onToggleGridlines,
   showCrosshair,
-  onToggleCrosshair
+  onToggleCrosshair,
+  onAddStickyNote,
+  isStickyNotesVisible,
+  onToggleStickyNotes
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -340,6 +349,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         </button>
                     </div>
                 </div>
+                
+                {/* Sticky Notes Integration */}
+                <div className="h-px bg-[#334155] my-1 mx-2"></div>
+                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Utilities</div>
+                <button
+                    onClick={() => { onAddStickyNote?.(); setIsToolsOpen(false); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <StickyNote size={16} className="text-yellow-400" />
+                        <span>Add Sticky Note</span>
+                    </div>
+                </button>
+                <button
+                    onClick={() => { onToggleStickyNotes?.(); setIsToolsOpen(false); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <span>Show Sticky Notes</span>
+                    </div>
+                    {isStickyNotesVisible && <Check size={14} className="text-emerald-400" />}
+                </button>
             </div>
           )}
         </div>

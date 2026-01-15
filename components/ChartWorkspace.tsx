@@ -1,4 +1,6 @@
 
+
+
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -12,6 +14,7 @@ import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2 } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
+import { loadUILayout, saveUILayout } from '../utils/storage';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -166,10 +169,17 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 setSelectedDrawingIds(new Set());
             }
         }
+        
+        // Mandate 4.5: Inversion Hotkey (Alt + I)
+        if (e.altKey && (e.key === 'i' || e.key === 'I')) {
+            e.preventDefault();
+            // Toggle Inversion via Config
+            updateTab({ config: { ...tab.config, invertScale: !tab.config.invertScale } });
+        }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeToolId, selectedDrawingId, onSelectTool]);
+  }, [activeToolId, selectedDrawingId, onSelectTool, tab.config, updateTab]);
   
   const displayedData = useMemo(() => {
     if (tab.isReplaySelecting) return tab.data;
@@ -289,17 +299,24 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     win.addEventListener('mouseup', handleMouseUp);
   };
 
-  const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 0 });
+  // --- MANDATE 3.1: PERSISTENT DRAWING TOOLBAR ---
+  const [toolbarPos, setToolbarPos] = useState({ x: -1, y: -1 }); // -1 indicates uninitialized
   const isDraggingToolbar = useRef(false);
   const toolbarDragStart = useRef({ x: 0, y: 0 });
   const toolbarStartPos = useRef({ x: 0, y: 0 });
   const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'));
 
+  // Initialize toolbar position from storage
   useEffect(() => {
-    if (isToolbarVisible && toolbarPos.x === 0 && toolbarPos.y === 0) {
-        setToolbarPos({ x: window.innerWidth / 2 - 100, y: window.innerHeight - 120 });
-    }
-  }, [isToolbarVisible, toolbarPos.x, toolbarPos.y]);
+      loadUILayout().then(layout => {
+          if (layout && layout.toolbarPos) {
+              setToolbarPos(layout.toolbarPos);
+          } else {
+              // Default: Top-Center
+              setToolbarPos({ x: window.innerWidth / 2 - 150, y: 60 });
+          }
+      });
+  }, []);
 
   const handleToolbarMouseDown = (e: React.MouseEvent) => {
     isDraggingToolbar.current = true;
@@ -312,10 +329,17 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       if (!isDraggingToolbar.current) return;
       setToolbarPos({ x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) });
     };
-    const handleMouseUp = () => {
+    const handleMouseUp = (ev: MouseEvent) => {
       isDraggingToolbar.current = false;
       win.removeEventListener('mousemove', handleMouseMove);
       win.removeEventListener('mouseup', handleMouseUp);
+      
+      // Save new position
+      const newPos = { 
+          x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), 
+          y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) 
+      };
+      saveUILayout({ toolbarPos: newPos });
     };
     win.addEventListener('mousemove', handleMouseMove);
     win.addEventListener('mouseup', handleMouseUp);
@@ -428,22 +452,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         setSelectedDrawingId(null);
         setSelectedDrawingIds(new Set());
     }
-
-    if (id && e && workspaceRef.current) {
-        // ... (toolbar positioning logic remains same)
-        const workspaceRect = workspaceRef.current.getBoundingClientRect();
-        const relativeClickY = e.clientY - workspaceRect.top;
-        let yPos = relativeClickY + 20; 
-        if (e.clientY > window.innerHeight - 150) {
-            yPos = relativeClickY - 80;
-        }
-        const relativeClickX = e.clientX - workspaceRect.left;
-        let xPos = relativeClickX - 150; 
-        if (xPos < 10) xPos = 10;
-        const toolbarWidth = 300; 
-        if (xPos > workspaceRect.width - toolbarWidth) xPos = workspaceRect.width - toolbarWidth;
-        setToolbarPos({ x: xPos, y: yPos });
-    }
+    
+    // MANDATE 3.1: REMOVED AUTO-POSITIONING LOGIC
+    // The bar stays in its persisted 'Sticky' position.
   };
 
   const activeProperties = useMemo(() => {
@@ -500,6 +511,17 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           </div>
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="text-[10px] text-slate-400">Vol: <span className="text-slate-300 font-mono">{displayedData.length > 0 ? displayedData[displayedData.length - 1].volume.toFixed(0) : 0}</span></div>
+          
+          {/* Mandate 4.5: Inversion Badge */}
+          {tab.config.invertScale && (
+              <>
+                <div className="h-4 w-px bg-slate-600"></div>
+                <span className="text-[9px] font-bold bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30 uppercase tracking-wider animate-pulse" title="Chart Scale Inverted (Alt+I)">
+                    Inverted
+                </span>
+              </>
+          )}
+
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="relative" ref={settingsRef}>
              <button onClick={(e) => { e.stopPropagation(); setIsChartSettingsOpen(!isChartSettingsOpen); }} className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-white transition-colors" title="Chart Settings" onMouseDown={(e) => e.stopPropagation()}><Settings size={14} /></button>
@@ -511,6 +533,11 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                    <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'percentage' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Percentage</span>{tab.config.priceScaleMode === 'percentage' && <Check size={12} className="text-blue-400" />}</button>
                    <div className="h-px bg-[#334155] my-1 mx-2"></div>
                    <button onClick={() => updateTab({ config: { ...tab.config, autoScale: !tab.config.autoScale } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Auto Scale</span>{(tab.config.autoScale !== false) && <Check size={12} className="text-emerald-400" />}</button>
+                   {/* Mandate 4.5: Inversion Toggle */}
+                   <button onClick={() => updateTab({ config: { ...tab.config, invertScale: !tab.config.invertScale } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
+                       <span>Invert Scale (Alt+I)</span>
+                       {tab.config.invertScale && <Check size={12} className="text-orange-400" />}
+                   </button>
                 </div>
              )}
           </div>
@@ -549,7 +576,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 })}
             </div>
         )}
-        <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== 0 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
+        <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== -1 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={drawings} 

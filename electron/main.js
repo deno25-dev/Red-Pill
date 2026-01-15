@@ -205,6 +205,60 @@ ipcMain.handle('storage:load-drawing', async (event, symbol) => {
     }
 });
 
+// --- SETTINGS STORAGE (UI LAYOUT) ---
+ipcMain.handle('storage:save-settings', async (event, filename, data) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const p = path.join(root, 'Database', 'Settings', filename);
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+        return { success: true };
+    } catch (e) {
+        console.error(`Failed to save settings (${filename}):`, e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:load-settings', async (event, filename) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const p = path.join(root, 'Database', 'Settings', filename);
+        if (fs.existsSync(p)) {
+            return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
+        }
+        return { success: true, data: null };
+    } catch (e) {
+        console.error(`Failed to load settings (${filename}):`, e);
+        return { success: false, error: e.message };
+    }
+});
+
+// --- STICKY NOTES PERSISTENCE (Mandate 4.4) ---
+ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const p = path.join(root, 'Database', 'Workspaces', 'sticky_notes.json');
+        fs.writeFileSync(p, JSON.stringify(notes, null, 2));
+        return { success: true };
+    } catch (e) {
+        console.error("Failed to save sticky notes:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:load-sticky-notes', async (event) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const p = path.join(root, 'Database', 'Workspaces', 'sticky_notes.json');
+        if (fs.existsSync(p)) {
+            return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
+        }
+        return { success: true, data: [] };
+    } catch (e) {
+        console.error("Failed to load sticky notes:", e);
+        return { success: false, error: e.message };
+    }
+});
+
 // --- Existing Handlers ---
 
 ipcMain.handle('get-user-data-path', async () => {

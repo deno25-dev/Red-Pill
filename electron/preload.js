@@ -1,5 +1,4 @@
 
-
 const { contextBridge, ipcRenderer } = require('electron');
 
 console.log('--- PRELOAD SCRIPT V2 EXECUTED ---');
@@ -25,6 +24,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveObjectTree: (data) => ipcRenderer.invoke('storage:save-object-tree', data),
     saveDrawing: (symbol, data) => ipcRenderer.invoke('storage:save-drawing', symbol, data),
     loadDrawing: (symbol) => ipcRenderer.invoke('storage:load-drawing', symbol),
+    
+    // --- UI Settings (Mandate 3.1) ---
+    saveSettings: (filename, data) => ipcRenderer.invoke('storage:save-settings', filename, data),
+    loadSettings: (filename) => ipcRenderer.invoke('storage:load-settings', filename),
+
+    // --- Sticky Notes (Mandate 4.4) ---
+    saveStickyNotes: (notes) => ipcRenderer.invoke('storage:save-sticky-notes', notes),
+    loadStickyNotes: () => ipcRenderer.invoke('storage:load-sticky-notes'),
 
     // --- Drawing State Sync ---
     getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),

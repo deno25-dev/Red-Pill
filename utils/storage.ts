@@ -1,3 +1,4 @@
+
 import { ChartState } from '../types';
 
 const DB_NAME = 'RedPillChartingDB';
@@ -244,4 +245,35 @@ export const deleteChartMeta = async (sourceId: string) => {
   const masterStore = (await loadMasterDrawingsStore()) || {};
   delete masterStore[sourceId];
   await saveMasterDrawingsStore(masterStore);
+};
+
+// --- UI LAYOUT PERSISTENCE (MANDATE 3.1) ---
+
+export const saveUILayout = async (layout: any) => {
+  const electron = (window as any).electronAPI;
+  if (electron && electron.saveSettings) {
+      await electron.saveSettings('ui_layout.json', layout);
+  } else {
+      localStorage.setItem('redpill_ui_layout', JSON.stringify(layout));
+  }
+};
+
+export const loadUILayout = async () => {
+  const electron = (window as any).electronAPI;
+  if (electron && electron.loadSettings) {
+      const res = await electron.loadSettings('ui_layout.json');
+      if (res.success && res.data) return res.data;
+  }
+  const local = localStorage.getItem('redpill_ui_layout');
+  return local ? JSON.parse(local) : null;
+};
+
+// --- STICKY NOTES PERSISTENCE (Web Fallback) ---
+export const saveStickyNotesWeb = async (notes: any[]) => {
+    localStorage.setItem('redpill_sticky_notes', JSON.stringify(notes));
+};
+
+export const loadStickyNotesWeb = async () => {
+    const data = localStorage.getItem('redpill_sticky_notes');
+    return data ? JSON.parse(data) : [];
 };

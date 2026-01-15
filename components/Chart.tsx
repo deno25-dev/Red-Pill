@@ -952,8 +952,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     });
 
     const mode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal;
-    chartRef.current.priceScale('right').applyOptions({ mode, autoScale: config.autoScale !== false });
-  }, [config.theme, config.showGridlines, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor]);
+    // Apply scale options including Mandate 4.5 Inversion
+    chartRef.current.priceScale('right').applyOptions({ 
+        mode, 
+        autoScale: config.autoScale !== false,
+        invertScale: !!config.invertScale 
+    });
+  }, [config.theme, config.showGridlines, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor, config.invertScale]);
 
   useEffect(() => {
     if (!chartRef.current) return;

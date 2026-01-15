@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -10,6 +11,7 @@ import { CandleSettingsDialog } from './components/CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
+import { StickyNoteOverlay } from './components/StickyNoteOverlay';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from './utils/storage';
@@ -19,6 +21,7 @@ import { debugLog } from './utils/logger';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useTradePersistence } from './hooks/useTradePersistence';
 import { useSymbolPersistence } from './hooks/useSymbolPersistence';
+import { useStickyNotes } from './hooks/useStickyNotes';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -100,6 +103,17 @@ const App: React.FC = () => {
 
   // Electron File System Hook
   const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase } = useFileSystem();
+
+  // Sticky Notes Hook
+  const { 
+      notes, 
+      isVisible: isStickyNotesVisible, 
+      addNote: addStickyNote, 
+      updateNote: updateStickyNote, 
+      removeNote: removeStickyNote, 
+      toggleVisibility: toggleStickyNotes,
+      bringToFront: bringStickyNoteToFront
+  } = useStickyNotes();
 
   // Performance Listener
   useEffect(() => {
@@ -1480,6 +1494,10 @@ const App: React.FC = () => {
                         onToggleGridlines={toggleGridlines}
                         showCrosshair={activeTab.config.showCrosshair ?? true}
                         onToggleCrosshair={() => updateActiveTab({ config: { ...activeTab.config, showCrosshair: !(activeTab.config.showCrosshair ?? true) } })}
+                        
+                        onAddStickyNote={addStickyNote}
+                        isStickyNotesVisible={isStickyNotesVisible}
+                        onToggleStickyNotes={toggleStickyNotes}
                     />
 
                     <div className="flex flex-1 overflow-hidden relative">
@@ -1508,6 +1526,15 @@ const App: React.FC = () => {
                         />
 
                         {renderLayout()}
+                        
+                        {/* Sticky Notes Overlay */}
+                        <StickyNoteOverlay 
+                            notes={notes}
+                            isVisible={isStickyNotesVisible}
+                            onUpdateNote={updateStickyNote}
+                            onRemoveNote={removeStickyNote}
+                            onFocusNote={bringStickyNoteToFront}
+                        />
                         
                         {!isTradingPanelDetached && (
                         <TradingPanel 

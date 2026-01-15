@@ -21,6 +21,7 @@ export interface ChartConfig {
   volumeTopMargin?: number; // 0.0 to 1.0, defines where volume section starts
   priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
   autoScale?: boolean;
+  invertScale?: boolean; // Mandate 4.5: Price Scale Inversion
   showGridlines?: boolean;
   showCrosshair?: boolean;
   // Color overrides
@@ -184,4 +185,18 @@ export interface SanitizationStats {
   filledGaps: number;
   outliers: number;
   totalRecords: number;
+}
+
+// Mandate 4.4: Sticky Note Engine
+export interface StickyNoteData {
+  id: string;
+  title: string; // New: Note Title
+  content: string; // Text content
+  inkData: string | null; // Base64 encoded image data for ink mode
+  mode: 'text' | 'ink';
+  isMinimized: boolean; // New: Minimized state
+  position: { x: number; y: number };
+  size: { w: number; h: number };
+  zIndex: number;
+  color: 'yellow' | 'blue' | 'green' | 'red' | 'dark';
 }
