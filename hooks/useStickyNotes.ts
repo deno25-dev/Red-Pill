@@ -22,9 +22,17 @@ export const useStickyNotes = () => {
                 } else {
                     loadedNotes = await loadStickyNotesWeb();
                 }
-                setNotes(loadedNotes || []);
+                
+                // Backwards compatibility for notes without isPinned
+                const processedNotes = (loadedNotes || []).map((n: any) => ({
+                    ...n,
+                    isPinned: n.isPinned ?? true, // Default to true (Docked)
+                    color: n.color || 'yellow'
+                }));
+
+                setNotes(processedNotes);
                 hasLoaded.current = true;
-                debugLog('UI', `Loaded ${loadedNotes.length} sticky notes.`);
+                debugLog('UI', `Loaded ${processedNotes.length} sticky notes.`);
             } catch (e) {
                 console.error("Failed to load sticky notes", e);
             }
@@ -59,6 +67,7 @@ export const useStickyNotes = () => {
             inkData: null,
             mode: 'text',
             isMinimized: false,
+            isPinned: true, // Default: Docked
             position: { x: window.innerWidth / 2 - 100, y: window.innerHeight / 2 - 100 },
             size: { w: 200, h: 200 },
             zIndex: Date.now(), // Simple z-index based on creation time

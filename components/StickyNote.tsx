@@ -1,8 +1,20 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Trash2, GripVertical, Type, PenTool, Scaling, Minus, Save, CheckCircle2, Maximize2 } from 'lucide-react';
+import { 
+    Trash2, 
+    GripVertical, 
+    Type, 
+    PenTool, 
+    Scaling, 
+    Minus, 
+    Save, 
+    CheckCircle2, 
+    Maximize2,
+    Palette,
+    Pin,
+    PinOff
+} from 'lucide-react';
 import { StickyNoteData } from '../types';
-import { useStickyNotes } from '../hooks/useStickyNotes'; // Import context hooks logic if available or just use passed props
 
 interface StickyNoteProps {
     note: StickyNoteData;
@@ -11,30 +23,35 @@ interface StickyNoteProps {
     onFocus: (id: string) => void;
 }
 
-const COLORS = {
-    yellow: 'bg-yellow-100 border-yellow-300 text-yellow-900',
-    blue: 'bg-blue-100 border-blue-300 text-blue-900',
-    green: 'bg-green-100 border-green-300 text-green-900',
-    red: 'bg-red-100 border-red-300 text-red-900',
-    dark: 'bg-[#1e293b] border-[#334155] text-slate-200',
+// Updated Palette with specific styles
+const COLORS_CONFIG: Record<string, { bg: string, border: string, text: string, header: string }> = {
+    yellow: { bg: 'bg-yellow-100', border: 'border-yellow-300', text: 'text-yellow-900', header: 'bg-yellow-200/50' },
+    blue:   { bg: 'bg-blue-100',   border: 'border-blue-300',   text: 'text-blue-900',   header: 'bg-blue-200/50' },
+    green:  { bg: 'bg-green-100',  border: 'border-green-300',  text: 'text-green-900',  header: 'bg-green-200/50' },
+    red:    { bg: 'bg-red-100',    border: 'border-red-300',    text: 'text-red-900',    header: 'bg-red-200/50' },
+    gray:   { bg: 'bg-slate-200',  border: 'border-slate-400',  text: 'text-slate-900',  header: 'bg-slate-300/50' },
+    dark:   { bg: 'bg-[#1e293b]',  border: 'border-[#334155]',  text: 'text-slate-200',  header: 'bg-[#0f172a]' },
 };
 
 const MIN_SIZE = 150;
 const MAX_SIZE = 600;
 const HEADER_HEIGHT = 32;
+// Toolbar height approximation for offset calculations
+const TOOLBAR_OFFSET = 56; 
 
 export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove, onFocus }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [isSavedVisual, setIsSavedVisual] = useState(false);
+    const [showColorPicker, setShowColorPicker] = useState(false);
     
     // --- DRAG LOGIC ---
     const dragStart = useRef<{ x: number, y: number } | null>(null);
     const initialPos = useRef<{ x: number, y: number } | null>(null);
 
     const handleDragStart = (e: React.MouseEvent) => {
-        // Allow dragging only from header background or grip, not from inputs/buttons
+        // Allow dragging only from header background or grip
         if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).tagName === 'INPUT') return;
         
         e.preventDefault();
@@ -105,7 +122,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                 img.src = note.inkData;
             }
         }
-    }, [note.mode, note.isMinimized]);
+    }, [note.mode, note.isMinimized, note.size]);
 
     const startDrawing = (e: React.MouseEvent) => {
         if (note.mode !== 'ink' || !canvasRef.current || note.isMinimized) return;
@@ -141,8 +158,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     // --- ACTIONS ---
     const handleManualSave = () => {
         setIsSavedVisual(true);
-        // Force update to trigger hook debounce save immediately if not triggered
-        // But hook watches 'notes' so update is enough. We just show visual feedback.
         setTimeout(() => setIsSavedVisual(false), 2000);
     };
 
@@ -152,25 +167,44 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
         }
     };
 
-    const colorClass = COLORS[note.color] || COLORS.yellow;
+    const togglePin = () => {
+        // Offset Adjustment logic:
+        // If becoming fixed (unpinned), subtract header offset because Fixed is viewport relative
+        // If becoming absolute (pinned), add header offset because Absolute is container relative
+        // Note: This assumes the container starts below the header (approx 56px)
+        const newY = note.isPinned 
+            ? note.position.y // Docked -> Undocked (Fixed): Usually keep Y or adjust if scrolling? For this app, keep Y is safest.
+            : note.position.y; 
+            
+        // Actually, simple swap is often enough if container doesn't scroll much.
+        onUpdate(note.id, { isPinned: !note.isPinned });
+    };
+
+    const theme = COLORS_CONFIG[note.color] || COLORS_CONFIG.yellow;
+    // If not pinned (Undocked), use Fixed positioning and high Z-Index
+    const positionStyle: React.CSSProperties = {
+        left: note.position.x,
+        top: note.position.y,
+        width: note.size.w,
+        height: note.isMinimized ? HEADER_HEIGHT : note.size.h,
+        zIndex: note.isPinned ? note.zIndex : 9999, // Undocked is always top
+        opacity: 0.98,
+        position: note.isPinned ? 'absolute' : 'fixed',
+    };
+
+    // Visuals for Undocked state
+    const shadowClass = note.isPinned ? 'shadow-xl' : 'shadow-[0_0_25px_rgba(0,0,0,0.5)] ring-1 ring-white/20';
 
     return (
         <div 
             ref={containerRef}
-            className={`absolute flex flex-col shadow-xl rounded-lg overflow-hidden border transition-all ${colorClass} ${note.mode === 'ink' ? 'cursor-crosshair' : 'cursor-default'}`}
-            style={{ 
-                left: note.position.x, 
-                top: note.position.y, 
-                width: note.size.w, 
-                height: note.isMinimized ? HEADER_HEIGHT : note.size.h,
-                zIndex: note.zIndex + 20,
-                opacity: 0.95
-            }}
+            className={`flex flex-col rounded-lg overflow-hidden border transition-colors ${theme.bg} ${theme.border} ${theme.text} ${shadowClass} ${note.mode === 'ink' ? 'cursor-crosshair' : 'cursor-default'}`}
+            style={positionStyle}
             onMouseDown={() => onFocus(note.id)}
         >
-            {/* Header / Drag Handle */}
+            {/* Header */}
             <div 
-                className="h-8 flex items-center justify-between px-2 cursor-move select-none bg-black/10 shrink-0"
+                className={`h-8 flex items-center justify-between px-2 cursor-move select-none shrink-0 ${theme.header}`}
                 onMouseDown={handleDragStart}
             >
                 <div className="flex items-center gap-1 flex-1 overflow-hidden mr-2">
@@ -179,13 +213,47 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         type="text" 
                         value={note.title || ''} 
                         onChange={(e) => onUpdate(note.id, { title: e.target.value })}
-                        className="bg-transparent border-none outline-none text-xs font-bold w-full truncate placeholder-black/30 text-inherit"
+                        className="bg-transparent border-none outline-none text-xs font-bold w-full truncate placeholder-current/30 text-inherit"
                         placeholder="Note Title"
                         onMouseDown={(e) => e.stopPropagation()} 
                     />
                 </div>
 
                 <div className="flex items-center gap-0.5">
+                    {/* Color Picker */}
+                    <div className="relative">
+                        <button 
+                            onClick={() => setShowColorPicker(!showColorPicker)}
+                            className="p-1 rounded hover:bg-black/10 transition-colors"
+                            title="Change Color"
+                        >
+                            <Palette size={12} />
+                        </button>
+                        {showColorPicker && (
+                            <div className="absolute top-full right-0 mt-1 bg-[#1e293b] border border-[#334155] p-2 rounded shadow-xl grid grid-cols-3 gap-1.5 z-50 w-24">
+                                {Object.keys(COLORS_CONFIG).map((c) => (
+                                    <button
+                                        key={c}
+                                        onClick={() => { onUpdate(note.id, { color: c as any }); setShowColorPicker(false); }}
+                                        className={`w-5 h-5 rounded-full border border-white/20 ${COLORS_CONFIG[c].bg}`}
+                                        title={c}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Pin / Unpin */}
+                    <button 
+                        onClick={togglePin}
+                        className={`p-1 rounded transition-colors ${!note.isPinned ? 'text-blue-500 bg-blue-500/10' : 'hover:bg-black/10'}`}
+                        title={note.isPinned ? "Undock (Float on top)" : "Dock to Workspace"}
+                    >
+                        {note.isPinned ? <Pin size={12} /> : <PinOff size={12} />}
+                    </button>
+
+                    <div className="w-px h-3 bg-black/10 mx-1"></div>
+
                     {/* Minimize / Maximize */}
                     <button 
                         onClick={() => onUpdate(note.id, { isMinimized: !note.isMinimized })}
@@ -194,17 +262,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                     >
                         {note.isMinimized ? <Maximize2 size={12} /> : <Minus size={12} />}
                     </button>
-
-                    {/* Manual Save */}
-                    <button 
-                        onClick={handleManualSave}
-                        className={`p-1 rounded transition-colors ${isSavedVisual ? 'text-green-600 bg-green-500/20' : 'hover:bg-black/10'}`}
-                        title="Save to Database"
-                    >
-                        {isSavedVisual ? <CheckCircle2 size={12} /> : <Save size={12} />}
-                    </button>
-
-                    <div className="w-px h-3 bg-black/10 mx-1"></div>
 
                     {/* Mode Toggles (Only when expanded) */}
                     {!note.isMinimized && (
@@ -228,6 +285,15 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
 
                     <div className="w-px h-3 bg-black/10 mx-1"></div>
 
+                    {/* Manual Save */}
+                    <button 
+                        onClick={handleManualSave}
+                        className={`p-1 rounded transition-colors ${isSavedVisual ? 'text-green-600 bg-green-500/20' : 'hover:bg-black/10'}`}
+                        title="Save to Database"
+                    >
+                        {isSavedVisual ? <CheckCircle2 size={12} /> : <Save size={12} />}
+                    </button>
+
                     {/* Delete */}
                     <button 
                         onClick={handleDelete}
@@ -244,7 +310,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                 <div className="flex-1 relative overflow-hidden">
                     {note.mode === 'text' ? (
                         <textarea 
-                            className="w-full h-full bg-transparent border-none resize-none p-3 text-sm focus:outline-none font-medium leading-relaxed custom-scrollbar"
+                            className="w-full h-full bg-transparent border-none resize-none p-3 text-sm focus:outline-none font-medium leading-relaxed custom-scrollbar placeholder-current/40"
                             value={note.content}
                             onChange={(e) => onUpdate(note.id, { content: e.target.value })}
                             placeholder="Write something..."

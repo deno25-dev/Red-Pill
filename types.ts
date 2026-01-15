@@ -195,8 +195,9 @@ export interface StickyNoteData {
   inkData: string | null; // Base64 encoded image data for ink mode
   mode: 'text' | 'ink';
   isMinimized: boolean; // New: Minimized state
+  isPinned?: boolean; // New: Docking state (true = docked/absolute, false = undocked/fixed)
   position: { x: number; y: number };
   size: { w: number; h: number };
   zIndex: number;
-  color: 'yellow' | 'blue' | 'green' | 'red' | 'dark';
+  color: 'yellow' | 'blue' | 'green' | 'red' | 'dark' | 'gray';
 }

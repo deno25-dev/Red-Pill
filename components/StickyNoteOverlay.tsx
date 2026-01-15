@@ -21,7 +21,9 @@ export const StickyNoteOverlay: React.FC<StickyNoteOverlayProps> = ({
     if (!isVisible) return null;
 
     return (
-        <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+        // Increased z-index to 50 to allow undocked notes (which are children) to sit above the sidebar (z-30).
+        // pointer-events-none ensures clicks pass through to chart when not hitting a note.
+        <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
             {notes.map(note => (
                 <div key={note.id} className="pointer-events-auto">
                     <StickyNote 
