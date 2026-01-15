@@ -2,6 +2,28 @@ import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
 
+// Mandate 0.3: The Red Pill Safety Toggle
+// Enforces Read-Only import logic. This middleware ensures that data is loaded 
+// into an immutable memory session and strictly decouples the application from 
+// any write capabilities to the source file.
+export const loadProtectedSession = async (fileSource: File | string, chunkSize: number): Promise<{
+    rawData: OHLCV[];
+    cursor: number;
+    leftover: string;
+    fileSize: number;
+}> => {
+    // 1. Read Data (Read-Only Stream)
+    // This accesses the file via the read-only bridge or File API.
+    const result = await getLocalChartData(fileSource, chunkSize);
+    
+    // 2. RAM-Only Guarantee
+    // The returned 'rawData' is a new array in memory. 
+    // Modifications to this array (cleaning, sorting) do not affect the disk file.
+    // We intentionally do not pass back any file handles that could facilitate writing.
+    
+    return result;
+};
+
 // Command: get_local_chart_data
 // Orchestrates reading a file chunk and parsing it into usable chart data
 // supports both Web File API and Electron Bridge

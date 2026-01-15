@@ -8,7 +8,7 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties, Drawing, Folder } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Folder as FolderIcon } from 'lucide-react';
+import { GripVertical, Settings, Check, Folder as FolderIcon, Lock } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 
@@ -418,6 +418,13 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
         <div onMouseDown={handleHeaderMouseDown} style={{ left: headerPos.x, top: headerPos.y }} className="absolute z-20 bg-[#1e293b]/90 backdrop-blur-sm px-4 py-2 rounded border border-slate-700 shadow-lg flex items-center gap-4 cursor-move select-none transition-shadow hover:shadow-xl hover:ring-1 hover:ring-slate-600/50">
+          
+          {/* Mandate 0.3: Source Protected Indicator */}
+          <div className="flex items-center gap-1.5 mr-3 px-2 py-0.5 bg-[#0f172a]/50 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)] group/lock cursor-help transition-all hover:bg-emerald-900/20" title="Source Protected: Read-Only Mode. The original file on disk is never modified.">
+              <Lock size={10} className="text-emerald-500" />
+              <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest opacity-70 group-hover/lock:opacity-100 transition-opacity hidden sm:block">Secure</span>
+          </div>
+
           <h1 className="text-sm font-bold text-white tracking-wide truncate max-w-[150px]">{tab.title}</h1>
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
