@@ -674,47 +674,54 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   // Helper: Context-Aware Snapping logic
   // Mandate 27: Smart Auto-Scroll
   // Logic: Only snap if force=true OR if the latest candle is near/past the right edge of the screen.
+  // Fix: Electron Layout Guard (Mandate 0.26.1)
   const handleSnapToRecent = useCallback((force: boolean = false) => {
       if (!chartRef.current) return;
       
-      const timeScale = chartRef.current.timeScale();
-      
-      // If we have no data, do nothing
-      if (data.length === 0) return;
+      // Wrap in timeout to ensure setData has settled and layout is ready
+      setTimeout(() => {
+          // Layout Guard inside timeout (Mandate 0.26.1)
+          if (!chartContainerRef.current || chartContainerRef.current.clientWidth === 0) return;
+          if (!chartRef.current) return;
 
-      const currentHeadIndex = data.length - 1;
-      const currentRange = timeScale.getVisibleLogicalRange();
+          const timeScale = chartRef.current.timeScale();
+          // If we have no data, do nothing
+          if (data.length === 0) return;
 
-      // Case 0: Chart not ready or range invalid -> Force snap to end
-      if (!currentRange) {
-          if (data.length > 0) timeScale.scrollToRealTime();
-          return;
-      }
+          const currentHeadIndex = data.length - 1;
+          const currentRange = timeScale.getVisibleLogicalRange();
 
-      // Calculate distance from the right edge of the viewport to the last candle
-      const distanceToRightEdge = currentRange.to - currentHeadIndex;
-      
-      // Smart Snap Logic:
-      // Snap if FORCED (User clicked button or initial load)
-      // Snap if NEAR EDGE (The latest candle is within 5 bars of the right edge, implying "Live" view)
-      // Do NOT snap if user is scrolled far back (distance > 5)
-      const shouldSnap = force || distanceToRightEdge < 5;
-
-      if (shouldSnap) {
-          if (isReplayActive) {
-              const currentZoomWidth = currentRange.to - currentRange.from;
-              // Maintain +2 buffer on the right
-              const targetTo = currentHeadIndex + 2;
-              const targetFrom = targetTo - currentZoomWidth;
-              
-              timeScale.setVisibleLogicalRange({ 
-                  from: targetFrom as Logical, 
-                  to: targetTo as Logical 
-              } as LogicalRange);
-          } else {
-              timeScale.scrollToRealTime();
+          // Case 0: Chart not ready or range invalid -> Force snap to end if NOT replay
+          if (!currentRange) {
+              if (data.length > 0 && !isReplayActive) timeScale.scrollToRealTime();
+              return;
           }
-      }
+
+          // Calculate distance from the right edge of the viewport to the last candle
+          const distanceToRightEdge = currentRange.to - currentHeadIndex;
+          
+          // Smart Snap Logic:
+          // Snap if FORCED (User clicked button or initial load)
+          // Snap if NEAR EDGE (The latest candle is within 5 bars of the right edge, implying "Live" view)
+          // Do NOT snap if user is scrolled far back (distance > 5)
+          const shouldSnap = force || distanceToRightEdge < 5;
+
+          if (shouldSnap) {
+              if (isReplayActive) {
+                  const currentZoomWidth = currentRange.to - currentRange.from;
+                  // Maintain +2 buffer on the right
+                  const targetTo = currentHeadIndex + 2;
+                  const targetFrom = targetTo - currentZoomWidth;
+                  
+                  timeScale.setVisibleLogicalRange({ 
+                      from: targetFrom as Logical, 
+                      to: targetTo as Logical 
+                  } as LogicalRange);
+              } else {
+                  timeScale.scrollToRealTime();
+              }
+          }
+      }, 50);
   }, [isReplayActive, data.length]);
 
   useEffect(() => {
