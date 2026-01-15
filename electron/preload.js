@@ -17,10 +17,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getInternalFolders: () => ipcRenderer.invoke('get-internal-folders'),
     getInternalLibrary: () => ipcRenderer.invoke('get-internal-folders'), // Alias for compatibility
     
-    // --- Master Drawing Store Persistence ---
+    // --- Master Drawing Store Persistence (LEGACY) ---
     loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
     saveMasterDrawings: (data) => ipcRenderer.invoke('master-drawings:save', data),
     
+    // --- New Database Storage (Mandate 0.31) ---
+    saveObjectTree: (data) => ipcRenderer.invoke('storage:save-object-tree', data),
+    saveDrawing: (symbol, data) => ipcRenderer.invoke('storage:save-drawing', symbol, data),
+    loadDrawing: (symbol) => ipcRenderer.invoke('storage:load-drawing', symbol),
+
     // --- Drawing State Sync ---
     getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),
     sendDrawingAction: (action, value) => ipcRenderer.send(`drawings:${action}`, value),

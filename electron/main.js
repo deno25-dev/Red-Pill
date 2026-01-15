@@ -1,5 +1,4 @@
 
-
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -9,6 +8,25 @@ let watcher = null;
 
 // --- INTERNAL LIBRARY STORAGE (BOOT CACHE) ---
 let internalLibraryStorage = [];
+
+// --- STORAGE INITIALIZATION (Mandate 0.31) ---
+const initializeDatabase = () => {
+    const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    const dbPath = path.join(rootPath, 'Database');
+    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings'];
+
+    try {
+        if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
+
+        subfolders.forEach(sub => {
+            const subPath = path.join(dbPath, sub);
+            if (!fs.existsSync(subPath)) fs.mkdirSync(subPath, { recursive: true });
+        });
+        console.log('[Storage] Database structure initialized at:', dbPath);
+    } catch (e) {
+        console.error('[Storage] Failed to initialize database structure:', e);
+    }
+};
 
 const createWindow = () => {
   // --- DIAGNOSTIC PATH CHECK ---
@@ -134,6 +152,58 @@ const runBootScan = () => {
 
 // --- IPC HANDLERS ---
 
+// --- Storage Handlers (Mandate 0.31) ---
+
+ipcMain.handle('storage:save-object-tree', async (event, data) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const p = path.join(root, 'Database', 'ObjectTree', 'tree_state.json');
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+        return { success: true };
+    } catch (e) {
+        console.error("Failed to save Object Tree:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:save-drawing', async (event, symbol, data) => {
+    try {
+        // MANDATE 0.30: Backend Safety Interlock
+        // Prevent writing to CSV even if frontend check failed
+        if (symbol.toLowerCase().endsWith('.csv') || symbol.toLowerCase().endsWith('.txt')) {
+            throw new Error("Safety Interlock: Cannot use source extension as persistence key");
+        }
+
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        // Sanitize symbol for safe filename (replace slashes, colons etc)
+        const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
+        const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
+        
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+        return { success: true };
+    } catch (e) {
+        console.error("Failed to save Drawing:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:load-drawing', async (event, symbol) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
+        const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
+        
+        if (fs.existsSync(p)) {
+            const data = fs.readFileSync(p, 'utf8');
+            return { success: true, data: JSON.parse(data) };
+        }
+        return { success: true, data: null };
+    } catch (e) {
+        console.error("Failed to load Drawing:", e);
+        return { success: false, error: e.message };
+    }
+});
+
 // --- Existing Handlers ---
 
 ipcMain.handle('get-user-data-path', async () => {
@@ -206,17 +276,13 @@ ipcMain.handle('drawings:get-state', async () => {
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
     try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-            if (data[sourceId]) {
-                // Clear drawings array for this source
-                data[sourceId].drawings = [];
-                // Clear folders as well since they contain drawing references
-                data[sourceId].folders = [];
-                data[sourceId].timestamp = Date.now();
-                fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-            }
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const safeSymbol = sourceId.replace(/[^a-z0-9_\-\.]/gi, '_');
+        const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
+        
+        if (fs.existsSync(p)) {
+            // "Nuclear" delete: Remove the file entirely
+            fs.unlinkSync(p);
         }
         return { success: true };
     } catch (e) {
@@ -271,7 +337,7 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- Master Drawing Store Persistence ---
+// --- Master Drawing Store Persistence (LEGACY - Kept for fallback) ---
 const getMasterDrawingsPath = () => path.join(app.getPath('userData'), 'drawings_master.json');
 
 ipcMain.handle('master-drawings:load', async () => {
@@ -337,6 +403,7 @@ ipcMain.handle('trades:save', async (event, trade) => {
 // --- APP LIFECYCLE ---
 
 app.whenReady().then(() => {
+  initializeDatabase();
   runBootScan();
   createWindow();
 });

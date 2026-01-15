@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -8,7 +9,7 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties, Drawing, Folder } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Folder as FolderIcon, Lock } from 'lucide-react';
+import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2 } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 
@@ -87,9 +88,12 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
-  // Removed local showRecentData state, now using tab.isMarketOverviewOpen
   const settingsRef = useRef<HTMLDivElement>(null);
+  
+  // Selection State
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<Set<string>>(new Set());
+
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({
     color: COLORS.line,
     lineWidth: 2,
@@ -101,6 +105,20 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     smoothing: 0 
   });
   const workspaceRef = useRef<HTMLDivElement>(null);
+
+  // Visual Confirmation State (Mandate 0.32)
+  const [showLoadToast, setShowLoadToast] = useState(false);
+  const prevHydrating = useRef(isHydrating);
+
+  // Trigger Toast when hydration finishes and drawings exist
+  useEffect(() => {
+      if (prevHydrating.current && !isHydrating && drawings.length > 0) {
+          setShowLoadToast(true);
+          const timer = setTimeout(() => setShowLoadToast(false), 3000);
+          return () => clearTimeout(timer);
+      }
+      prevHydrating.current = isHydrating;
+  }, [isHydrating, drawings.length]);
 
   useEffect(() => {
     const handleLockAll = () => {
@@ -140,7 +158,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
             if (activeToolId && activeToolId !== 'cross') onSelectTool?.('cross');
-            else if (selectedDrawingId) setSelectedDrawingId(null);
+            else if (selectedDrawingId) {
+                setSelectedDrawingId(null);
+                setSelectedDrawingIds(new Set());
+            }
         }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -341,9 +362,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const deleteSelectedDrawing = () => {
     if (selectedDrawingId) {
       onSaveHistory?.();
-      const newDrawings = drawings.filter(d => d.id !== selectedDrawingId);
+      const newDrawings = drawings.filter(d => !selectedDrawingIds.has(d.id));
       onUpdateDrawings(newDrawings);
       setSelectedDrawingId(null);
+      setSelectedDrawingIds(new Set());
     }
   };
 
@@ -375,26 +397,49 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   };
 
   const handleSelectDrawing = (id: string | null, e?: React.MouseEvent) => {
-    setSelectedDrawingId(id);
+    const isMultiSelect = e?.ctrlKey || e?.metaKey;
+    const isRangeSelect = e?.shiftKey;
+
+    if (id) {
+        if (isMultiSelect) {
+            const newSet = new Set(selectedDrawingIds);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+                // If we deselected the primary, set primary to the last one available
+                if (id === selectedDrawingId) {
+                    const asArray = Array.from(newSet);
+                    setSelectedDrawingId(asArray.length > 0 ? asArray[asArray.length - 1] : null);
+                }
+            } else {
+                newSet.add(id);
+                setSelectedDrawingId(id); // Newly clicked becomes primary for toolbar
+            }
+            setSelectedDrawingIds(newSet);
+        } else {
+            // Normal click - replace selection
+            setSelectedDrawingId(id);
+            setSelectedDrawingIds(new Set([id]));
+        }
+    } else {
+        // Deselect all
+        setSelectedDrawingId(null);
+        setSelectedDrawingIds(new Set());
+    }
+
     if (id && e && workspaceRef.current) {
+        // ... (toolbar positioning logic remains same)
         const workspaceRect = workspaceRef.current.getBoundingClientRect();
         const relativeClickY = e.clientY - workspaceRect.top;
-        
-        let yPos = relativeClickY + 20; // Default below cursor
+        let yPos = relativeClickY + 20; 
         if (e.clientY > window.innerHeight - 150) {
-            yPos = relativeClickY - 80; // Shift toolbar and menu above cursor
+            yPos = relativeClickY - 80;
         }
-
         const relativeClickX = e.clientX - workspaceRect.left;
-        let xPos = relativeClickX - 150; // Roughly center the toolbar
-        // clamp x to be within viewport
+        let xPos = relativeClickX - 150; 
         if (xPos < 10) xPos = 10;
-        const toolbarWidth = 300; // estimate
+        const toolbarWidth = 300; 
         if (xPos > workspaceRect.width - toolbarWidth) xPos = workspaceRect.width - toolbarWidth;
-
         setToolbarPos({ x: xPos, y: yPos });
-    } else if (!id) {
-        setSelectedDrawingId(null);
     }
   };
 
@@ -470,6 +515,14 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 </button>
               </>
           )}
+          
+          {/* Visual Confirmation: Drawings Loaded */}
+          {showLoadToast && (
+              <div className="absolute top-12 left-4 z-50 bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 px-3 py-1.5 rounded-full text-xs font-bold animate-in fade-in slide-in-from-top-2 flex items-center gap-2 backdrop-blur-sm shadow-lg shadow-emerald-900/20">
+                  <CheckCircle2 size={12} />
+                  <span>Drawings Loaded</span>
+              </div>
+          )}
         </div>
         {isFavoritesBarVisible && favoriteTools.length > 0 && (
             <div ref={favBarRef} onMouseDown={handleFavMouseDown} style={{ left: favBarPos.x, top: favBarPos.y }} className="absolute z-30 bg-[#1e293b] border border-[#334155] rounded-full shadow-xl shadow-black/50 backdrop-blur-md flex items-center p-1 gap-1 cursor-move animate-in fade-in zoom-in-95 duration-200">
@@ -489,7 +542,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <LayersPanel 
                 drawings={drawings} 
                 onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
-                selectedDrawingId={selectedDrawingId} 
+                selectedDrawingId={selectedDrawingId}
+                selectedDrawingIds={selectedDrawingIds}
                 onSelectDrawing={handleSelectDrawing} 
                 onClose={onToggleLayers || (() => {})} 
                 position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 

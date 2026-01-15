@@ -467,7 +467,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const [reinitCount, setReinitCount] = useState(0);
 
   // --- REGISTRY HOOK ---
-  const { register, forceClear } = useDrawingRegistry(chartRef, seriesRef);
+  const { register, forceClear, registry } = useDrawingRegistry(chartRef, seriesRef);
 
   const visibleDrawings = useMemo(() => {
     if (isDrawingSyncEnabled) {
@@ -825,7 +825,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
       if (rafId.current) cancelAnimationFrame(rafId.current);
       try { chart.unsubscribeClick(handleChartClick); } catch(e) {}
-      chart.remove(); chartRef.current = null;
+      
+      // Mandate 5.1: Memory Management (Explicit Garbage Collection)
+      if (registry && registry.current) {
+          registry.current.clear();
+      }
+      
+      chart.remove(); 
+      chartRef.current = null;
+      seriesRef.current = null;
+      
+      if ((import.meta as any).env?.DEV) {
+          console.log(`[RedPill] Memory: Chart instance ${propsRef.current.id || 'unnamed'} destroyed & registry cleared.`);
+      }
     };
   }, []);
 
