@@ -1,14 +1,16 @@
+
 import React, { useState } from 'react';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronUp, ChevronDown, Target } from 'lucide-react';
 import { Trade } from '../types';
 
 interface BottomPanelProps {
   isOpen: boolean;
   onToggle: () => void;
   trades: Trade[];
+  onTradeClick?: (trade: Trade) => void;
 }
 
-export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trades }) => {
+export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trades, onTradeClick }) => {
   const [activeTab, setActiveTab] = useState<'positions' | 'orders' | 'history'>('history');
 
   // Filter trades for display based on tab (Mock logic for now since all are filled)
@@ -68,18 +70,23 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trad
                         <th className="px-4 py-2 border-b border-[#334155] text-right">Amount</th>
                         <th className="px-4 py-2 border-b border-[#334155] text-right">Value</th>
                         <th className="px-4 py-2 border-b border-[#334155] text-center">Status</th>
+                        <th className="px-4 py-2 border-b border-[#334155] text-center">Action</th>
                     </tr>
                 </thead>
                 <tbody className="text-slate-300">
                     {displayTrades.length === 0 ? (
                         <tr>
-                            <td colSpan={8} className="px-4 py-8 text-center text-slate-500 italic">
+                            <td colSpan={9} className="px-4 py-8 text-center text-slate-500 italic">
                                 No {activeTab} found.
                             </td>
                         </tr>
                     ) : (
                         displayTrades.slice().reverse().map((trade) => (
-                            <tr key={trade.id} className="hover:bg-[#1e293b]/50 transition-colors border-b border-[#334155]/30">
+                            <tr 
+                                key={trade.id} 
+                                className="hover:bg-[#1e293b]/50 transition-colors border-b border-[#334155]/30 cursor-pointer"
+                                onClick={() => onTradeClick?.(trade)}
+                            >
                                 <td className="px-4 py-2 font-mono text-slate-400">
                                     {new Date(trade.timestamp).toLocaleTimeString()}
                                 </td>
@@ -97,6 +104,15 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trad
                                     }`}>
                                         {trade.status}
                                     </span>
+                                </td>
+                                <td className="px-4 py-2 text-center">
+                                    <button 
+                                        className="p-1 rounded hover:bg-blue-900/50 text-slate-500 hover:text-blue-400 transition-colors"
+                                        title="Show on Chart"
+                                        onClick={(e) => { e.stopPropagation(); onTradeClick?.(trade); }}
+                                    >
+                                        <Target size={14} />
+                                    </button>
                                 </td>
                             </tr>
                         ))

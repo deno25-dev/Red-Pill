@@ -13,7 +13,8 @@ let internalLibraryStorage = [];
 const initializeDatabase = () => {
     const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
     const dbPath = path.join(rootPath, 'Database');
-    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings'];
+    // Mandate 0.33: Added 'Trades' to subfolders
+    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades'];
 
     try {
         if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
@@ -366,36 +367,48 @@ ipcMain.handle('master-drawings:save', async (event, data) => {
 });
 
 
-// --- Trade Persistence ---
-const getTradesDbPath = () => path.join(app.getPath('userData'), 'trades_db.json');
-
-const readTradesDb = () => {
-    const dbPath = getTradesDbPath();
-    if (fs.existsSync(dbPath)) {
-        try { return JSON.parse(fs.readFileSync(dbPath, 'utf8')); } 
-        catch { return {}; }
-    }
-    return {};
+// --- Trade Persistence (Mandate 0.33) ---
+const getTradesLedgerPath = () => {
+    const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    return path.join(rootPath, 'Database', 'Trades', 'ledger.json');
 };
 
-const writeTradesDb = (data) => {
-    const dbPath = getTradesDbPath();
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+const readTradesLedger = () => {
+    const dbPath = getTradesLedgerPath();
+    if (fs.existsSync(dbPath)) {
+        try { 
+            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+            return Array.isArray(data) ? data : []; 
+        } 
+        catch { return []; }
+    }
+    return [];
+};
+
+const appendTradeToLedger = (trade) => {
+    const dbPath = getTradesLedgerPath();
+    let trades = readTradesLedger();
+    trades.push(trade);
+    fs.writeFileSync(dbPath, JSON.stringify(trades, null, 2));
 };
 
 ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
-    const db = readTradesDb();
-    return db[sourceId] || [];
+    try {
+        const allTrades = readTradesLedger();
+        // Filter trades for the specific chart context (CSV source)
+        return allTrades.filter(t => t.sourceId === sourceId);
+    } catch (e) {
+        console.error("Error reading trades:", e);
+        return [];
+    }
 });
 
 ipcMain.handle('trades:save', async (event, trade) => {
     try {
-        const db = readTradesDb();
-        if (!db[trade.sourceId]) db[trade.sourceId] = [];
-        db[trade.sourceId].push(trade);
-        writeTradesDb(db);
+        appendTradeToLedger(trade);
         return { success: true };
     } catch (e) {
+        console.error("Error saving trade:", e);
         return { success: false, error: e.message };
     }
 });

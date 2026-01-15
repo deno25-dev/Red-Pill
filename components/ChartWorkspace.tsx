@@ -6,7 +6,7 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, Folder } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, Folder, Trade } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
 import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2 } from 'lucide-react';
@@ -93,6 +93,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   // Selection State
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [selectedDrawingIds, setSelectedDrawingIds] = useState<Set<string>>(new Set());
+  
+  // Focus Logic for Trade Navigation
+  const [focusTimestamp, setFocusTimestamp] = useState<number | null>(null);
 
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({
     color: COLORS.line,
@@ -460,6 +463,15 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`;
   }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
 
+  // Handler for Trade Click
+  const handleTradeClick = (trade: Trade) => {
+      // Set the focus timestamp to trigger chart scroll
+      setFocusTimestamp(trade.timestamp);
+      // Reset immediately so subsequent clicks on same timestamp work (if needed)
+      // Actually, standard react state update handles change, but if same trade is clicked, effect might not re-run.
+      // We'll rely on timestamp change or force update if needed.
+  };
+
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
         <div onMouseDown={handleHeaderMouseDown} style={{ left: headerPos.x, top: headerPos.y }} className="absolute z-20 bg-[#1e293b]/90 backdrop-blur-sm px-4 py-2 rounded border border-slate-700 shadow-lg flex items-center gap-4 cursor-move select-none transition-shadow hover:shadow-xl hover:ring-1 hover:ring-slate-600/50">
@@ -618,6 +630,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           isAdvancedReplay={tab.isAdvancedReplayMode}
           trades={trades}
           isDrawingSyncEnabled={isDrawingSyncEnabled}
+          focusTimestamp={focusTimestamp}
         />
         </div>
         
@@ -636,7 +649,12 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             />
         </GlobalErrorBoundary>
 
-        <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={trades} />
+        <BottomPanel 
+            isOpen={isBottomPanelOpen} 
+            onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} 
+            trades={trades}
+            onTradeClick={handleTradeClick}
+        />
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
             <div className="flex gap-4">
             <span>O: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].open.toFixed(2) : '-'}</span></span>

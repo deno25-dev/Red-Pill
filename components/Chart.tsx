@@ -68,6 +68,7 @@ interface ChartProps {
   // Trades
   trades?: Trade[];
   isDrawingSyncEnabled?: boolean;
+  focusTimestamp?: number | null; // For scrolling to trade execution
 }
 
 const OFF_SCREEN = -10000;
@@ -441,6 +442,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     isAdvancedReplay = false,
     trades = [],
     isDrawingSyncEnabled = true,
+    focusTimestamp,
   } = props;
 
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
@@ -465,6 +467,9 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   // Re-init trigger for force clear
   const [reinitCount, setReinitCount] = useState(0);
+
+  // Determine if Replay is active for option switching
+  const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
 
   // --- REGISTRY HOOK ---
   const { register, forceClear, registry } = useDrawingRegistry(chartRef, seriesRef);
@@ -641,13 +646,37 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [visibleRange]);
 
+  // Handle programmatic scrolling to a timestamp (Trade Navigation)
+  useEffect(() => {
+      if (focusTimestamp && chartRef.current && timeToIndexRef.current) {
+          const index = timeToIndexRef.current.get(focusTimestamp);
+          
+          if (index !== undefined) {
+              const timeScale = chartRef.current.timeScale();
+              // Calculate a centered range of 100 bars around the trade
+              const rangeSize = 100;
+              const from = index - (rangeSize / 2);
+              const to = index + (rangeSize / 2);
+              
+              isProgrammaticUpdate.current = true;
+              timeScale.setVisibleLogicalRange({ from, to } as LogicalRange);
+              
+              // Brief highlight/reset flag
+              setTimeout(() => { isProgrammaticUpdate.current = false; }, 300);
+          } else {
+              // Timestamp not found in current dataset, maybe try closest?
+              // For now, silently fail or log
+              debugLog('UI', 'Focus timestamp not found in current data slice');
+          }
+      }
+  }, [focusTimestamp, data]); // Re-run if data changes (e.g. loads more history)
+
   // Helper: Context-Aware Snapping logic
   // Mandate 27: Smart Auto-Scroll
   // Logic: Only snap if force=true OR if the latest candle is near/past the right edge of the screen.
   const handleSnapToRecent = useCallback((force: boolean = false) => {
       if (!chartRef.current) return;
       
-      const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
       const timeScale = chartRef.current.timeScale();
       
       // If we have no data, do nothing
@@ -686,7 +715,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               timeScale.scrollToRealTime();
           }
       }
-  }, [isPlaying, fullData, data.length]);
+  }, [isReplayActive, data.length]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -841,6 +870,18 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     };
   }, []);
 
+  // Update Chart Options for Replay Mode (Right-Edge Snap Fix)
+  useEffect(() => {
+      if (!chartRef.current) return;
+      chartRef.current.applyOptions({
+          timeScale: {
+              shiftVisibleRangeOnNewBar: !isReplayActive,
+              // @ts-ignore
+              allowShiftVisibleRangeOnWhitespaceReplacement: !isReplayActive,
+          }
+      });
+  }, [isReplayActive]);
+
   // Effect to toggle crosshair based on tool and global config
   useEffect(() => {
     if (!chartRef.current) return;
@@ -956,14 +997,28 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw();
   }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount, handleSnapToRecent]); 
 
+  // Data Update Effect (Preserve Range in Replay)
   useEffect(() => {
-    if (!seriesRef.current) return;
+    if (!seriesRef.current || !chartRef.current) return;
+    
+    // Capture range before update if in Replay Mode
+    let savedRange: LogicalRange | null = null;
+    if (isReplayActive) {
+        savedRange = chartRef.current.timeScale().getVisibleLogicalRange();
+    }
+
     try { 
         seriesRef.current.setData(processedData); 
         
-        // UPDATED: Data Update -> Smart Snap (No Force)
-        handleSnapToRecent(false);
+        if (isReplayActive && savedRange) {
+            // Restore View: Maintain exact position
+            chartRef.current.timeScale().setVisibleLogicalRange(savedRange);
+        } else {
+            // Live Mode: Smart Snap
+            handleSnapToRecent(false);
+        }
     } catch(e) {}
+
     if (volumeSeriesRef.current && config.showVolume) {
         const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish;
         const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish;
@@ -979,7 +1034,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: (data[i].time / 1000) as Time, value: smaData[i] as number }); }
         smaSeriesRef.current.setData(smaSeriesData);
     }
-  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent]); 
+  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent, isReplayActive]); 
 
   useEffect(() => {
     if (!chartRef.current) return;
