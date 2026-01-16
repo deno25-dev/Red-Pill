@@ -36,8 +36,6 @@ const COLORS_CONFIG: Record<string, { bg: string, border: string, text: string, 
 const MIN_SIZE = 150;
 const MAX_SIZE = 600;
 const HEADER_HEIGHT = 32;
-// Toolbar height approximation for offset calculations
-const TOOLBAR_OFFSET = 56; 
 
 export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove, onFocus }) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -172,10 +170,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
         // If becoming fixed (unpinned), subtract header offset because Fixed is viewport relative
         // If becoming absolute (pinned), add header offset because Absolute is container relative
         // Note: This assumes the container starts below the header (approx 56px)
-        const newY = note.isPinned 
-            ? note.position.y // Docked -> Undocked (Fixed): Usually keep Y or adjust if scrolling? For this app, keep Y is safest.
-            : note.position.y; 
-            
         // Actually, simple swap is often enough if container doesn't scroll much.
         onUpdate(note.id, { isPinned: !note.isPinned });
     };

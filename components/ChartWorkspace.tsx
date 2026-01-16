@@ -1,6 +1,4 @@
 
-
-
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
@@ -425,7 +423,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const handleSelectDrawing = (id: string | null, e?: React.MouseEvent) => {
     const isMultiSelect = e?.ctrlKey || e?.metaKey;
-    const isRangeSelect = e?.shiftKey;
 
     if (id) {
         if (isMultiSelect) {
@@ -587,8 +584,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 onClose={onToggleLayers || (() => {})} 
                 position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 
                 onHeaderMouseDown={handleLayersMouseDown} 
-                isDrawingSyncEnabled={isDrawingSyncEnabled}
-                onToggleDrawingSync={onToggleDrawingSync}
                 folders={tab.folders}
                 onUpdateFolders={(folders: Folder[]) => updateTab({ folders })}
                 sourceId={tab.sourceId}

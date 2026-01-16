@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import { 
   X, 
   Eye, 
@@ -10,9 +10,6 @@ import {
   GripVertical, 
   Layers,
   Folder as FolderIcon,
-  FolderOpen,
-  Link,
-  Unlink,
   ChevronDown,
   ChevronRight,
   FolderPlus
@@ -24,14 +21,11 @@ import { debugLog } from '../utils/logger';
 interface LayersPanelProps {
   drawings: Drawing[];
   onUpdateDrawings: (drawings: Drawing[]) => void;
-  selectedDrawingId: string | null;
   selectedDrawingIds?: Set<string>;
   onSelectDrawing: (id: string | null, e?: React.MouseEvent) => void;
   onClose: () => void;
   position?: { x: number; y: number };
   onHeaderMouseDown?: (e: React.MouseEvent) => void;
-  isDrawingSyncEnabled?: boolean;
-  onToggleDrawingSync?: () => void;
   folders?: FolderType[];
   onUpdateFolders?: (folders: FolderType[]) => void;
   sourceId?: string;
@@ -163,14 +157,11 @@ const TreeNode = React.memo(({
 export const LayersPanel: React.FC<LayersPanelProps> = ({
   drawings,
   onUpdateDrawings,
-  selectedDrawingId,
   selectedDrawingIds = new Set(),
   onSelectDrawing,
   onClose,
   position,
   onHeaderMouseDown,
-  isDrawingSyncEnabled = true,
-  onToggleDrawingSync,
   folders = [],
   onUpdateFolders,
   sourceId
@@ -338,7 +329,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
       e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleDragOver = (e: React.DragEvent, id: string, type: 'drawing' | 'folder') => {
+  const handleDragOver = (e: React.DragEvent, _id: string, type: 'drawing' | 'folder') => {
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
@@ -431,7 +422,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
       // Combine for display order (Folders first, then drawings, reversed for visual stack)
       // Note: Reversing array so newest is top, consistent with layer logic (top = index 0 visually)
       
-      const elements = [];
+      const elements: React.ReactNode[] = [];
       
       // Render Folders
       folderList.forEach(folder => {
@@ -447,7 +438,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                       level={0}
                       isSelected={false} 
                       isExpanded={folder.isExpanded}
-                      onSelect={(id, e) => { /* Folder selection logic if needed */ }}
+                      onSelect={(_id, _e) => { /* Folder selection logic if needed */ }}
                       onDelete={(e, id) => handleDeleteFolder(e, id)}
                       onToggleExpand={handleToggleFolder}
                       onDragStart={handleDragStart}
