@@ -25,7 +25,6 @@ import {
   Download,
   Plus,
   Layers,
-  Link,
   FileDown,
   FileInput,
   RefreshCw,
@@ -64,10 +63,6 @@ interface ToolbarProps {
   onToggleLibrary?: () => void;
   onToggleLayers?: () => void;
   isLayersOpen?: boolean;
-  isSymbolSync?: boolean;
-  isIntervalSync?: boolean;
-  isCrosshairSync?: boolean;
-  isTimeSync?: boolean;
   onOpenCandleSettings?: () => void;
   onOpenBackgroundSettings?: () => void;
   tickerSymbol?: string;
@@ -109,10 +104,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleLibrary,
   onToggleLayers,
   isLayersOpen,
-  isSymbolSync,
-  isIntervalSync,
-  isCrosshairSync,
-  isTimeSync,
   onOpenCandleSettings,
   onOpenBackgroundSettings,
   tickerSymbol,
@@ -414,25 +405,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <button onClick={() => handleLayoutClick('split-2x')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Columns2 size={16} /><span>Split Chart 2x</span></button>
                 <button onClick={() => handleLayoutClick('split-4x')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Grid2x2 size={16} /><span>Split Chart 4x</span></button>
                 
-                <div className="h-px bg-[#334155] my-1 mx-2"></div>
-                <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Independence / Sync</div>
-                <button onClick={() => handleLayoutClick('sync-symbol')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
-                    <div className="flex items-center gap-3"><Link size={14} className={isSymbolSync ? 'text-blue-400' : 'text-slate-600'} /><span>Symbol Sync</span></div>
-                    {isSymbolSync && <Check size={12} className="text-blue-400" />}
-                </button>
-                <button onClick={() => handleLayoutClick('sync-interval')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
-                    <div className="flex items-center gap-3"><Link size={14} className={isIntervalSync ? 'text-blue-400' : 'text-slate-600'} /><span>Interval Sync</span></div>
-                    {isIntervalSync && <Check size={12} className="text-blue-400" />}
-                </button>
-                <button onClick={() => handleLayoutClick('sync-crosshair')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
-                    <div className="flex items-center gap-3"><Link size={14} className={isCrosshairSync ? 'text-blue-400' : 'text-slate-600'} /><span>Crosshair Sync</span></div>
-                    {isCrosshairSync && <Check size={12} className="text-blue-400" />}
-                </button>
-                <button onClick={() => handleLayoutClick('sync-time')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between">
-                    <div className="flex items-center gap-3"><Link size={14} className={isTimeSync ? 'text-blue-400' : 'text-slate-600'} /><span>Time Sync</span></div>
-                    {isTimeSync && <Check size={12} className="text-blue-400" />}
-                </button>
-
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Storage</div>
                 <button onClick={() => handleLayoutClick('save')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Save size={16} className="text-emerald-400" /><span>Save Layout to DB</span></button>

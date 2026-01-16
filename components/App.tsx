@@ -14,7 +14,7 @@ import { SplashController } from './SplashController';
 import { StickyNoteOverlay } from './StickyNoteOverlay';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from '../types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from '../utils/storage';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './DeveloperTools';
 import { debugLog } from '../utils/logger';
@@ -64,11 +64,8 @@ const App: React.FC = () => {
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('single');
   
-  // Synchronization Toggles
-  const [isSymbolSync, setIsSymbolSync] = useState(false);
-  const [isIntervalSync, setIsIntervalSync] = useState(false);
-  const [isCrosshairSync, setIsCrosshairSync] = useState(false);
-  const [isTimeSync, setIsTimeSync] = useState(false);
+  // Master Sync State (Mandate 2.11.2)
+  const [isMasterSyncActive, setIsMasterSyncActive] = useState(false);
 
   // Layout Slots: Tracks which tab is in which pane position
   const [layoutTabIds, setLayoutTabIds] = useState<string[]>([]);
@@ -124,6 +121,22 @@ const App: React.FC = () => {
     return () => window.removeEventListener('chart-render-perf', handlePerf);
   }, []);
 
+  // Load Master Sync Persistence
+  useEffect(() => {
+      loadUILayout().then(layout => {
+          if (layout && typeof layout.isMasterSyncActive === 'boolean') {
+              setIsMasterSyncActive(layout.isMasterSyncActive);
+          }
+      });
+  }, []);
+
+  // Save Master Sync Persistence
+  useEffect(() => {
+      loadUILayout().then(currentLayout => {
+          saveUILayout({ ...currentLayout, isMasterSyncActive });
+      });
+  }, [isMasterSyncActive]);
+
   const toggleFavorite = (id: string) => {
     setFavoriteTools(prev => 
       prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
@@ -144,11 +157,10 @@ const App: React.FC = () => {
           if (electron.getDrawingsState) {
               electron.getDrawingsState().then(() => {
                   // The global lock state is now derived from active tab's drawings.
-                  // This avoids stale state from a JSON file.
               });
           }
       }
-  }, []); // Run once on mount
+  }, []);
 
   // Tab Management
   const [tabs, setTabs] = useState<TabSession[]>([]);
@@ -245,7 +257,6 @@ const App: React.FC = () => {
           }
       };
 
-      // Poll check every 2 seconds if in Bridge mode
       const interval = setInterval(validateActiveFiles, 2000);
       return () => clearInterval(interval);
   }, [tabs, isBridgeAvailable, checkFileExists]);
@@ -260,23 +271,19 @@ const App: React.FC = () => {
           debugLog('Data', `Executing NUCLEAR CLEAR for ${tab.sourceId}`);
 
           try {
-              // 1. Clear Backend via Dedicated Endpoint (Mandate 12.3)
               const electron = (window as any).electronAPI;
               
               if (electron && electron.deleteAllDrawings) {
                   await electron.deleteAllDrawings(tab.sourceId);
               } else if (electron && electron.saveMasterDrawings) {
-                  // Fallback for older electron bridge
                   const res = await electron.loadMasterDrawings();
                   const master = res?.data || {};
                   delete master[tab.sourceId];
                   await electron.saveMasterDrawings(master);
               } else {
-                  // Web Fallback
                   await deleteChartMeta(tab.sourceId);
               }
 
-              // 2. Clear Active Tab State
               updateTab(activeTabId, { drawings: [], folders: [] });
               
               alert("Chart metadata completely purged.");
@@ -315,7 +322,6 @@ const App: React.FC = () => {
     }
   }, [activeTabId, updateTab, tabs]);
   
-  // FIX: Destructure 'isHydrating' from the hook to make it available in the component scope.
   const { isHydrating } = useSymbolPersistence({
       symbol: activeSourceId,
       onStateLoaded: handleStateLoaded,
@@ -344,10 +350,7 @@ const App: React.FC = () => {
           setIsMagnetMode(savedState.isMagnetMode ?? false);
           setLayoutMode(savedState.layoutMode || 'single');
           setLayoutTabIds(savedState.layoutTabIds || []);
-          setIsSymbolSync(savedState.isSymbolSync ?? false);
-          setIsIntervalSync(savedState.isIntervalSync ?? false);
-          setIsCrosshairSync(savedState.isCrosshairSync ?? false);
-          setIsTimeSync(savedState.isTimeSync ?? false);
+          
           debugLog('Data', 'Session restored from local storage');
         }
 
@@ -385,7 +388,7 @@ const App: React.FC = () => {
     } else {
         const timer = setTimeout(() => {
             setAppStatus('LIBRARY');
-        }, 1000); // Small delay to avoid flash of library on boot
+        }, 1000);
         return () => clearTimeout(timer);
     }
   }, [activeTabId, isRestoreComplete, tabs.length]);
@@ -412,10 +415,7 @@ const App: React.FC = () => {
         isMagnetMode,
         layoutMode,
         layoutTabIds,
-        isSymbolSync,
-        isIntervalSync,
-        isCrosshairSync,
-        isTimeSync
+        isMasterSyncActive
       };
       
       saveAppState(stateToSave).catch((e: any) => {
@@ -425,7 +425,7 @@ const App: React.FC = () => {
     }, 1000); 
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isDrawingSyncEnabled, isMagnetMode, appStatus, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync]);
+  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isDrawingSyncEnabled, isMagnetMode, appStatus, layoutMode, layoutTabIds, isMasterSyncActive]);
 
 
   const updateActiveTab = useCallback((updates: Partial<TabSession>) => {
@@ -450,31 +450,41 @@ const App: React.FC = () => {
     });
   }, [activeTab, updateActiveTab]);
   
+  // Updated Range Handler for Master Sync
   const handleVisibleRangeChange = useCallback((newRange: { from: number; to: number }) => {
       if (!activeTab) return;
 
-      if (!activeTab.visibleRange) {
+      // Master Sync Logic: Broadcast range
+      if (isMasterSyncActive && layoutTabIds.length > 1) {
+          layoutTabIds.forEach(id => {
+              // Update all visible charts (assuming Quantum Entanglement logic implies mirroring view)
+              updateTab(id, { visibleRange: newRange });
+          });
+      } else {
+          if (!activeTab.visibleRange) {
+              updateActiveTab({ visibleRange: newRange });
+              return;
+          }
+          
+          const prevRange = activeTab.visibleRange;
+          if (Math.abs(prevRange.from - newRange.from) < 0.01 && Math.abs(prevRange.to - newRange.to) < 0.01) {
+              return;
+          }
+
           updateActiveTab({ visibleRange: newRange });
-          return;
       }
       
-      const prevRange = activeTab.visibleRange;
-      if (Math.abs(prevRange.from - newRange.from) < 0.01 && Math.abs(prevRange.to - newRange.to) < 0.01) {
-          return;
-      }
-
       const snapshot: HistorySnapshot = {
           drawings: activeTab.drawings,
           folders: activeTab.folders,
-          visibleRange: prevRange
+          visibleRange: activeTab.visibleRange || newRange
       };
 
       updateActiveTab({
-          visibleRange: newRange,
           undoStack: [...activeTab.undoStack.slice(-49), snapshot],
           redoStack: []
       });
-  }, [activeTab, updateActiveTab]);
+  }, [activeTab, updateActiveTab, isMasterSyncActive, layoutTabIds, updateTab]);
 
 
   const handleUndo = useCallback(() => {
@@ -621,9 +631,7 @@ const App: React.FC = () => {
               filePath = fileSource.path;
           }
 
-          // Use loadProtectedSession wrapper for read-only enforcement
           const result = await loadProtectedSession(actualSource, CHUNK_SIZE);
-          
           const { rawData, cursor, leftover, fileSize } = result;
           
           let displayTitle = getBaseSymbolName(fileName);
@@ -652,10 +660,8 @@ const App: React.FC = () => {
               if (idx !== -1) replayIndex = idx;
           }
 
-          // Use the robust source ID generator which handles timeframe stripping
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
 
-          // Base update object with new data
           const baseUpdates: Partial<TabSession> = {
               title: displayTitle,
               symbolId: getSymbolId(displayTitle),
@@ -678,7 +684,7 @@ const App: React.FC = () => {
               isReplayMode: preservedReplay?.isReplayMode ?? false,
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
               replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              visibleRange: null // Reset view on new data load
+              visibleRange: null
           };
 
           const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
@@ -687,27 +693,19 @@ const App: React.FC = () => {
               const targetTabExists = currentTabs.find(t => t.id === tabIdToUpdate);
               
               if (!targetTabExists) {
-                  // Create new tab
                   const newTab = createNewTab(tabIdToUpdate);
-                  // New tabs start empty drawings
                   const fullUpdates = { ...baseUpdates, drawings: [], folders: [] };
-                  // Update layout and active state as side effects outside this reducer? 
-                  // No, we need to do it here or after. 
-                  // Since we are inside setTabs updater, we can't side-effect easily.
-                  // We'll return the new array.
                   return [...currentTabs, { ...newTab, ...fullUpdates }];
               }
 
-              // Update existing tabs (Single or Sync)
+              // Update existing tabs - Master Sync Logic
               return currentTabs.map(t => {
-                  const shouldUpdate = (t.id === tabIdToUpdate) || (isSymbolSync && layoutTabIds.includes(t.id));
+                  const shouldUpdate = 
+                    (t.id === tabIdToUpdate) || 
+                    (isMasterSyncActive && layoutTabIds.includes(t.id));
                   
                   if (shouldUpdate) {
-                      // STATE LIFT: Check if we are staying on the same source (e.g. timeframe switch)
-                      // If sourceId matches, KEEP existing drawings/folders.
-                      // If sourceId changes, RESET them (to be rehydrated by persistence hook).
                       const isSameSource = t.sourceId === sourceId;
-                      
                       return {
                           ...t,
                           ...baseUpdates,
@@ -719,7 +717,6 @@ const App: React.FC = () => {
               });
           });
 
-          // Ensure active tab and layout if it was a new tab
           if (!tabs.find(t => t.id === tabIdToUpdate)) {
               setActiveTabId(tabIdToUpdate);
               setLayoutTabIds([tabIdToUpdate]);
@@ -735,7 +732,7 @@ const App: React.FC = () => {
       } finally {
           setLoading(false);
       }
-  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab]);
+  }, [explorerFolderName, activeTabId, isMasterSyncActive, layoutTabIds, isBridgeAvailable, tabs, createNewTab]);
 
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
@@ -835,7 +832,9 @@ const App: React.FC = () => {
     if (!tab) return;
     
     debugLog('UI', `Timeframe change request: ${tf} for tab ${id}`);
-    const targets = (isIntervalSync && layoutTabIds.length > 1) ? layoutTabIds : [id];
+    
+    // Master Sync Logic
+    const targets = (isMasterSyncActive && layoutTabIds.length > 1) ? layoutTabIds : [id];
 
     targets.forEach(async (targetId) => {
         const targetTab = tabs.find(t => t.id === targetId);
@@ -1067,11 +1066,7 @@ const App: React.FC = () => {
             setTabs(prev => [...prev, ...newTabsToAdd]);
         }
         setLayoutTabIds(newLayoutIds);
-    } else if (action === 'sync-symbol') setIsSymbolSync(!isSymbolSync);
-    else if (action === 'sync-interval') setIsIntervalSync(!isIntervalSync);
-    else if (action === 'sync-crosshair') setIsCrosshairSync(!isCrosshairSync);
-    else if (action === 'sync-time') setIsTimeSync(!isTimeSync);
-    else if (action === 'save') {
+    } else if (action === 'save') {
         const stateToSave = {
             tabs: tabs.map(t => ({ ...t, fileState: undefined })),
             activeTabId,
@@ -1083,10 +1078,7 @@ const App: React.FC = () => {
             isMagnetMode,
             layoutMode,
             layoutTabIds,
-            isSymbolSync,
-            isIntervalSync,
-            isCrosshairSync,
-            isTimeSync
+            isMasterSyncActive
         };
         await saveAppState(stateToSave);
         alert("Layout successfully saved to local storage.");
@@ -1097,7 +1089,7 @@ const App: React.FC = () => {
             layout: {
                 mode: layoutMode,
                 tabIds: layoutTabIds,
-                sync: { symbol: isSymbolSync, interval: isIntervalSync, crosshair: isCrosshairSync, time: isTimeSync }
+                sync: { master: isMasterSyncActive }
             },
             tabs: tabs.map(t => ({
                 id: t.id,
@@ -1109,7 +1101,7 @@ const App: React.FC = () => {
                 trades: t.trades
             })),
             activeTabId,
-            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode, favoriteTimeframes, isDrawingSyncEnabled }
+            settings: { favorites: favoriteTools, favoritesVisible: isFavoritesBarVisible, magnet: isMagnetMode, stayInDrawing: isStayInDrawingMode, favoriteTimeframes, isDrawingSyncEnabled, isMasterSyncActive }
         };
         const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1150,10 +1142,7 @@ const App: React.FC = () => {
                     setLayoutMode(imported.layout.mode || 'single');
                     setLayoutTabIds(imported.layout.tabIds || []);
                     if (imported.layout.sync) {
-                        setIsSymbolSync(imported.layout.sync.symbol ?? false);
-                        setIsIntervalSync(imported.layout.sync.interval ?? false);
-                        setIsCrosshairSync(imported.layout.sync.crosshair ?? false);
-                        setIsTimeSync(imported.layout.sync.time ?? false);
+                        setIsMasterSyncActive(imported.layout.sync.master ?? false);
                     }
                 }
                 if (imported.settings) {
@@ -1162,6 +1151,7 @@ const App: React.FC = () => {
                     setIsMagnetMode(imported.settings.magnet ?? false);
                     setIsStayInDrawingMode(imported.settings.stayInDrawing ?? false);
                     setIsDrawingSyncEnabled(imported.settings.isDrawingSyncEnabled ?? true);
+                    setIsMasterSyncActive(imported.settings.isMasterSyncActive ?? false);
                     if (imported.settings.favoriteTimeframes) setFavoriteTimeframes(imported.settings.favoriteTimeframes);
                 }
 
@@ -1330,6 +1320,8 @@ const App: React.FC = () => {
                         drawings={activeTab.drawings}
                         onUpdateDrawings={(newDrawings: Drawing[]) => updateActiveTab({ drawings: newDrawings })}
                         isHydrating={loading || isHydrating}
+                        isMasterSyncActive={isMasterSyncActive}
+                        onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
                     />
                 )}
             </div>
@@ -1368,14 +1360,22 @@ const App: React.FC = () => {
                             isStayInDrawingMode={isStayInDrawingMode}
                             isLayersPanelOpen={tab.id === activeTabId ? isLayersPanelOpen : false}
                             onToggleLayers={tab.id === activeTabId ? () => setIsLayersPanelOpen(false) : undefined}
-                            isSyncing={isCrosshairSync || isTimeSync}
                             onVisibleRangeChange={tab.id === activeTabId ? handleVisibleRangeChange : undefined}
                             favoriteTimeframes={favoriteTimeframes}
                             onBackToLibrary={() => setAppStatus('LIBRARY')}
                             isDrawingSyncEnabled={isDrawingSyncEnabled}
                             drawings={tab.drawings}
-                            onUpdateDrawings={(newDrawings: Drawing[]) => updateTab(tab.id, { drawings: newDrawings })}
+                            onUpdateDrawings={(newDrawings: Drawing[]) => {
+                                // Master Sync Drawing Logic (Optional, usually covered by separate hooks, but simple here)
+                                if (isMasterSyncActive) {
+                                    layoutTabIds.forEach(targetId => updateTab(targetId, { drawings: newDrawings }));
+                                } else {
+                                    updateTab(tab.id, { drawings: newDrawings });
+                                }
+                            }}
                             isHydrating={isHydrating && tab.id === activeTabId}
+                            isMasterSyncActive={isMasterSyncActive}
+                            onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
                         />
                     </div>
                 );
@@ -1393,7 +1393,7 @@ const App: React.FC = () => {
                 <>
                     <AssetLibrary
                         isOpen={true}
-                        onClose={() => {}} // Cannot close in this state
+                        onClose={() => {}} 
                         onSelect={(file: any, tf: Timeframe) => handleFileSelect(file, tf)}
                         databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
                         files={isBridgeAvailable ? [] : explorerFiles}
@@ -1410,7 +1410,7 @@ const App: React.FC = () => {
                 </>
             );
         case 'ACTIVE':
-            if (!activeTab) return null; // Guard against render before activeTab is set
+            if (!activeTab) return null;
             return (
                 <div className="flex flex-col h-screen bg-app-bg text-text-primary overflow-hidden">
                     <DeveloperTools 
@@ -1471,10 +1471,6 @@ const App: React.FC = () => {
                         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
                         onOpenLocalData={() => setIsAssetLibraryOpen(true)}
                         onLayoutAction={handleLayoutAction}
-                        isSymbolSync={isSymbolSync}
-                        isIntervalSync={isIntervalSync}
-                        isCrosshairSync={isCrosshairSync}
-                        isTimeSync={isTimeSync}
                         onToggleTradingPanel={() => setIsTradingPanelOpen(!isTradingPanelOpen)}
                         isTradingPanelOpen={isTradingPanelOpen}
                         isLibraryOpen={isLibraryOpen}
