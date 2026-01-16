@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   Play, 
@@ -19,6 +20,7 @@ interface ReplayControlsProps {
   progress: number; // 0 to 100 percentage
   position?: { x: number; y: number };
   onHeaderMouseDown?: (e: React.MouseEvent) => void;
+  isAdvancedMode?: boolean; // Mandate 0.9.2: Flag to lock UI
 }
 
 export const ReplayControls: React.FC<ReplayControlsProps> = ({
@@ -31,7 +33,8 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
   onSpeedChange,
   progress,
   position,
-  onHeaderMouseDown
+  onHeaderMouseDown,
+  isAdvancedMode
 }) => {
   return (
     <div 
@@ -71,28 +74,37 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
             {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-0.5" />}
           </button>
 
-          {/* Step Forward */}
-          <button 
-            onClick={onStepForward}
-            disabled={isPlaying}
-            className="p-2 text-slate-400 hover:text-white hover:bg-[#334155] rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Step Forward"
-          >
-            <ChevronRight size={18} />
-          </button>
+          {/* Step Forward (Standard Mode Only) */}
+          {!isAdvancedMode && (
+            <button 
+                onClick={onStepForward}
+                disabled={isPlaying}
+                className="p-2 text-slate-400 hover:text-white hover:bg-[#334155] rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Step Forward"
+            >
+                <ChevronRight size={18} />
+            </button>
+          )}
 
-          {/* Speed Toggle */}
-          <button 
-              onClick={() => {
-                  const speeds = [0.5, 1, 2, 5, 10, 20, 50, 100]; 
-                  const nextIdx = (speeds.indexOf(speed) + 1) % speeds.length;
-                  onSpeedChange(speeds[nextIdx]);
-              }}
-              className="w-12 h-8 mx-1 flex items-center justify-center rounded-md hover:bg-[#334155] text-slate-400 hover:text-white transition-colors font-mono text-xs font-bold"
-              title="Playback Speed"
-          >
-              {speed}x
-          </button>
+          {/* Speed Toggle vs Status Indicator */}
+          {isAdvancedMode ? (
+             <div className="mx-3 px-2 py-1 bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded text-[9px] font-bold tracking-wider whitespace-nowrap shadow-[0_0_10px_rgba(168,85,247,0.1)] flex items-center gap-1.5 animate-pulse select-none">
+                 <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping" />
+                 MODE: 1:1 REAL-TIME SIMULATION
+             </div>
+          ) : (
+             <button 
+                onClick={() => {
+                    const speeds = [0.5, 1, 2, 5, 10, 20, 50, 100]; 
+                    const nextIdx = (speeds.indexOf(speed) + 1) % speeds.length;
+                    onSpeedChange(speeds[nextIdx]);
+                }}
+                className="w-12 h-8 mx-1 flex items-center justify-center rounded-md transition-colors font-mono text-xs font-bold hover:bg-[#334155] text-slate-400 hover:text-white"
+                title="Playback Speed"
+            >
+                {speed}x
+            </button>
+          )}
 
           <div className="w-px h-6 bg-[#334155] mx-1"></div>
 
@@ -109,7 +121,7 @@ export const ReplayControls: React.FC<ReplayControlsProps> = ({
       {/* Progress Bar - Integrated at bottom */}
       <div className="h-1 bg-[#0f172a] w-full">
          <div 
-            className="h-full bg-blue-500/80 transition-all duration-200"
+            className={`h-full transition-all duration-200 ${isAdvancedMode ? 'bg-purple-500/80' : 'bg-blue-500/80'}`}
             style={{ width: `${progress}%` }}
          />
       </div>

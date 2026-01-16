@@ -31,6 +31,7 @@ interface ChartWorkspaceProps {
   isStayInDrawingMode?: boolean;
   isLayersPanelOpen?: boolean;
   onToggleLayers?: () => void;
+  isSyncing?: boolean;
   
   onVisibleRangeChange?: (range: { from: number; to: number }) => void;
   
@@ -38,6 +39,7 @@ interface ChartWorkspaceProps {
   onBackToLibrary?: () => void;
 
   isDrawingSyncEnabled?: boolean;
+  onToggleDrawingSync?: () => void;
 
   // New props for global drawing state
   drawings: Drawing[];
@@ -65,6 +67,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   isStayInDrawingMode = false,
   isLayersPanelOpen = false,
   onToggleLayers,
+  isSyncing = false,
   onVisibleRangeChange,
   favoriteTimeframes,
   onBackToLibrary,
@@ -366,7 +369,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       if (!isDraggingLayers.current) return;
       setLayersPanelPos({ x: layersStartPos.current.x + (ev.clientX - layersDragStart.current.x), y: layersStartPos.current.y + (ev.clientY - layersDragStart.current.y) });
     };
-    const handleMouseUp = (ev: MouseEvent) => {
+    const handleMouseUp = () => {
       isDraggingLayers.current = false;
       win.removeEventListener('mousemove', handleMouseMove);
       win.removeEventListener('mouseup', handleMouseUp);
@@ -451,6 +454,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         setSelectedDrawingId(null);
         setSelectedDrawingIds(new Set());
     }
+    
+    // MANDATE 3.1: REMOVED AUTO-POSITIONING LOGIC
+    // The bar stays in its persisted 'Sticky' position.
   };
 
   const activeProperties = useMemo(() => {
@@ -470,8 +476,13 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
       return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`;
   }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
 
+  // Handler for Trade Click
   const handleTradeClick = (trade: Trade) => {
+      // Set the focus timestamp to trigger chart scroll
       setFocusTimestamp(trade.timestamp);
+      // Reset immediately so subsequent clicks on same timestamp work (if needed)
+      // Actually, standard react state update handles change, but if same trade is clicked, effect might not re-run.
+      // We'll rely on timestamp change or force update if needed.
   };
 
   return (
@@ -618,6 +629,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
               progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} 
               position={replayPos.x !== 0 ? replayPos : undefined} 
               onHeaderMouseDown={handleReplayMouseDown} 
+              isAdvancedMode={tab.isAdvancedReplayMode}
             />
         )}
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
@@ -644,7 +656,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           onRequestMoreData={onRequestHistory} 
           areDrawingsLocked={areDrawingsLocked} 
           isMagnetMode={isMagnetMode} 
-          isSyncing={isMasterSyncActive} // Pass Master Sync as the syncing flag
+          isSyncing={isSyncing}
           visibleRange={tab.visibleRange}
           onVisibleRangeChange={onVisibleRangeChange}
           fullData={tab.data}

@@ -25,6 +25,7 @@ import {
   Download,
   Plus,
   Layers,
+  Link,
   FileDown,
   FileInput,
   RefreshCw,
@@ -63,6 +64,10 @@ interface ToolbarProps {
   onToggleLibrary?: () => void;
   onToggleLayers?: () => void;
   isLayersOpen?: boolean;
+  isSymbolSync?: boolean;
+  isIntervalSync?: boolean;
+  isCrosshairSync?: boolean;
+  isTimeSync?: boolean;
   onOpenCandleSettings?: () => void;
   onOpenBackgroundSettings?: () => void;
   tickerSymbol?: string;
@@ -104,6 +109,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleLibrary,
   onToggleLayers,
   isLayersOpen,
+  isSymbolSync,
+  isIntervalSync,
+  isCrosshairSync,
+  isTimeSync,
   onOpenCandleSettings,
   onOpenBackgroundSettings,
   tickerSymbol,

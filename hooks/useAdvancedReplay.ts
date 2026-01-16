@@ -97,15 +97,22 @@ export const useAdvancedReplay = ({
   const animate = useCallback((time: number) => {
     if (!isActive || !seriesRef.current || !fullData || fullData.length === 0) return;
 
+    // Initialize frame time
     if (lastFrameTimeRef.current === 0) {
       lastFrameTimeRef.current = time;
       requestRef.current = requestAnimationFrame(animate);
       return;
     }
 
+    // MANDATE 0.9.2: Precision Loop
+    // Calculate Real-Time Delta using performance.now() (provided via RAF 'time')
     const deltaTime = time - lastFrameTimeRef.current;
     lastFrameTimeRef.current = time;
-    const effectiveDelta = deltaTime * speed;
+    
+    // STRICT 1:1 Ratio. Ignore 'speed' prop.
+    // New ticks/candles are revealed only when the real-world clock advances.
+    const effectiveDelta = deltaTime; 
+    
     virtualNowRef.current += effectiveDelta;
 
     const currentIdx = currentIndexRef.current;
@@ -116,17 +123,19 @@ export const useAdvancedReplay = ({
     }
 
     const targetCandle = fullData[currentIdx];
-    let duration = 60000;
+    let duration = 60000; // Default fallback
 
     if (currentIdx > 0) {
         const prevTime = fullData[currentIdx - 1].time;
+        // Exact time difference as recorded in data timestamps
         duration = targetCandle.time - prevTime;
     }
     
     if (duration <= 0) duration = 60000;
     
-    // Check if current virtual candle is complete
+    // Check if current virtual candle is complete based on Real-Time passage
     if (virtualNowRef.current >= duration) {
+        // Commit the full candle
         seriesRef.current.update({
             time: (targetCandle.time / 1000) as Time,
             open: targetCandle.open,
@@ -137,6 +146,7 @@ export const useAdvancedReplay = ({
         
         const nextIndex = currentIdx + 1;
         currentIndexRef.current = nextIndex;
+        // Carry over excess time to next candle to maintain precision
         virtualNowRef.current = virtualNowRef.current - duration;
         
         // Store for deferred sync
@@ -145,12 +155,14 @@ export const useAdvancedReplay = ({
 
     } else {
         // Interpolate within the candle
+        // This visualizes the "Tick" based on how much real time has passed
         const progress = virtualNowRef.current / duration;
         
         let simulatedPrice = targetCandle.open;
         let simulatedHigh = targetCandle.open;
         let simulatedLow = targetCandle.open;
 
+        // Simple Tick Generation Logic (3-phase)
         if (progress < 0.33) {
             const p = progress / 0.33;
             simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
@@ -182,7 +194,7 @@ export const useAdvancedReplay = ({
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [isActive, fullData, speed, onSyncState, onComplete, seriesRef]);
+  }, [isActive, fullData, onSyncState, onComplete, seriesRef]); // Removed `speed` dependency
 
   // Start/Stop Loop
   useEffect(() => {

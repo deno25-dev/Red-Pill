@@ -13,7 +13,7 @@ import { AssetLibrary } from './AssetLibrary';
 import { SplashController } from './SplashController';
 import { StickyNoteOverlay } from './StickyNoteOverlay';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from '../types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from '../utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './DeveloperTools';
@@ -64,6 +64,12 @@ const App: React.FC = () => {
   const [isTradingPanelDetached, setIsTradingPanelDetached] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('single');
   
+  // Synchronization Toggles
+  const [isSymbolSync, setIsSymbolSync] = useState(false);
+  const [isIntervalSync, setIsIntervalSync] = useState(false);
+  const [isCrosshairSync, setIsCrosshairSync] = useState(false);
+  const [isTimeSync, setIsTimeSync] = useState(false);
+
   // Master Sync State (Mandate 2.11.2)
   const [isMasterSyncActive, setIsMasterSyncActive] = useState(false);
 
@@ -350,7 +356,10 @@ const App: React.FC = () => {
           setIsMagnetMode(savedState.isMagnetMode ?? false);
           setLayoutMode(savedState.layoutMode || 'single');
           setLayoutTabIds(savedState.layoutTabIds || []);
-          
+          setIsSymbolSync(savedState.isSymbolSync ?? false);
+          setIsIntervalSync(savedState.isIntervalSync ?? false);
+          setIsCrosshairSync(savedState.isCrosshairSync ?? false);
+          setIsTimeSync(savedState.isTimeSync ?? false);
           debugLog('Data', 'Session restored from local storage');
         }
 
@@ -415,6 +424,10 @@ const App: React.FC = () => {
         isMagnetMode,
         layoutMode,
         layoutTabIds,
+        isSymbolSync,
+        isIntervalSync,
+        isCrosshairSync,
+        isTimeSync,
         isMasterSyncActive
       };
       
@@ -425,7 +438,7 @@ const App: React.FC = () => {
     }, 1000); 
 
     return () => clearTimeout(saveTimeout);
-  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isDrawingSyncEnabled, isMagnetMode, appStatus, layoutMode, layoutTabIds, isMasterSyncActive]);
+  }, [tabs, activeTabId, favoriteTools, favoriteTimeframes, isFavoritesBarVisible, isStayInDrawingMode, isDrawingSyncEnabled, isMagnetMode, appStatus, layoutMode, layoutTabIds, isSymbolSync, isIntervalSync, isCrosshairSync, isTimeSync, isMasterSyncActive]);
 
 
   const updateActiveTab = useCallback((updates: Partial<TabSession>) => {
@@ -656,8 +669,22 @@ const App: React.FC = () => {
 
           let replayIndex = displayData.length - 1;
           if (preservedReplay?.replayGlobalTime) {
-              const idx = displayData.findIndex((d: OHLCV) => d.time >= preservedReplay.replayGlobalTime!);
-              if (idx !== -1) replayIndex = idx;
+              // Mandate 0.9.3: Robust Unix Timestamp Replay Anchoring
+              // Search backwards for the candle that covers the preserved global time
+              let idx = -1;
+              for(let i = displayData.length - 1; i >= 0; i--) {
+                  if (displayData[i].time <= preservedReplay.replayGlobalTime) {
+                      idx = i;
+                      break;
+                  }
+              }
+              
+              if (idx !== -1) {
+                  newReplayIndex = idx;
+              } else {
+                  // Time is before all data in this timeframe
+                  newReplayIndex = 0;
+              }
           }
 
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
@@ -698,14 +725,15 @@ const App: React.FC = () => {
                   return [...currentTabs, { ...newTab, ...fullUpdates }];
               }
 
-              // Update existing tabs - Master Sync Logic
               return currentTabs.map(t => {
                   const shouldUpdate = 
                     (t.id === tabIdToUpdate) || 
-                    (isMasterSyncActive && layoutTabIds.includes(t.id));
+                    (isSymbolSync && layoutTabIds.includes(t.id)) || 
+                    (isMasterSyncActive && layoutTabIds.includes(t.id)); 
                   
                   if (shouldUpdate) {
                       const isSameSource = t.sourceId === sourceId;
+                      
                       return {
                           ...t,
                           ...baseUpdates,
@@ -732,7 +760,7 @@ const App: React.FC = () => {
       } finally {
           setLoading(false);
       }
-  }, [explorerFolderName, activeTabId, isMasterSyncActive, layoutTabIds, isBridgeAvailable, tabs, createNewTab]);
+  }, [explorerFolderName, activeTabId, isSymbolSync, isMasterSyncActive, layoutTabIds, isBridgeAvailable, tabs, createNewTab]);
 
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
@@ -794,47 +822,14 @@ const App: React.FC = () => {
       }
   }, [tabs, updateTab]);
 
-
-  const handleFileUpload = useCallback((file: File) => {
-    startFileStream(file, file.name);
-  }, [startFileStream]);
-
-  const handleLibraryFileSelect = async (fileHandle: any) => {
-    setLoading(true);
-    try {
-      let file, name;
-      
-      if (fileHandle.path) {
-          file = fileHandle;
-          name = fileHandle.name;
-      } else {
-          file = await fileHandle.getFile();
-          name = file.name;
-      }
-      
-      startFileStream(file, name);
-    } catch (e: any) {
-      console.error("Error reading file from library:", e);
-      debugLog('Data', 'Error reading library file', e.message);
-      setLastError(e.message);
-      alert('Error reading selected file.');
-      setLoading(false);
-    }
-  };
-  
-  const handleFileSelect = async (fileHandle: any, timeframe: Timeframe) => {
-    await startFileStream(fileHandle, fileHandle.name, undefined, timeframe, undefined);
-    setAppStatus('ACTIVE');
-  };
-  
   const handleTimeframeChange = async (id: string, tf: Timeframe) => {
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
     
     debugLog('UI', `Timeframe change request: ${tf} for tab ${id}`);
     
-    // Master Sync Logic
-    const targets = (isMasterSyncActive && layoutTabIds.length > 1) ? layoutTabIds : [id];
+    // Updated Target Logic: Respect Master Sync
+    const targets = (isMasterSyncActive || (isIntervalSync && layoutTabIds.length > 1)) ? layoutTabIds : [id];
 
     targets.forEach(async (targetId) => {
         const targetTab = tabs.find(t => t.id === targetId);
@@ -884,11 +879,18 @@ const App: React.FC = () => {
 
         if (preservedReplay.isReplayMode || preservedReplay.isAdvancedReplayMode) {
             if (newGlobalTime) {
-                const idx = resampled.findIndex((d: OHLCV) => d.time >= newGlobalTime!);
+                let idx = -1;
+                for(let i = resampled.length - 1; i >= 0; i--) {
+                    if (resampled[i].time <= newGlobalTime) {
+                        idx = i;
+                        break;
+                    }
+                }
+                
                 if (idx !== -1) {
                     newReplayIndex = idx;
                 } else {
-                    newReplayIndex = resampled.length - 1;
+                    newReplayIndex = 0;
                 }
             }
         } else {
@@ -941,70 +943,28 @@ const App: React.FC = () => {
 
   const handleToggleReplay = () => {
     if (!activeTab) return;
-    
-    // If currently selecting, cancel selection (Exit)
     if (activeTab.isReplaySelecting) {
-        updateActiveTab({ 
-            isReplayMode: false, 
-            isReplaySelecting: false, 
-            isReplayPlaying: false,
-            simulatedPrice: null,
-            replayGlobalTime: null,
-            isAdvancedReplayMode: false
-        });
+        updateActiveTab({ isReplayMode: false, isReplaySelecting: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null, isAdvancedReplayMode: false });
         return;
     }
-
-    // If already in standard replay, enter selection mode (Recut)
     if (activeTab.isReplayMode) {
-        updateActiveTab({ 
-            isReplaySelecting: true,
-            isReplayPlaying: false
-        });
+        updateActiveTab({ isReplaySelecting: true, isReplayPlaying: false });
         return;
     }
-
-    // Start fresh standard replay selection
-    updateActiveTab({ 
-        isReplaySelecting: true,
-        isReplayMode: false,
-        isAdvancedReplayMode: false,
-        isReplayPlaying: false
-    });
+    updateActiveTab({ isReplaySelecting: true, isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false });
   };
 
   const handleToggleAdvancedReplay = () => {
     if (!activeTab) return;
-    
-    // If currently selecting, cancel selection (Exit)
     if (activeTab.isReplaySelecting) {
-        updateActiveTab({ 
-            isReplayMode: false,
-            isReplaySelecting: false, 
-            isReplayPlaying: false,
-            simulatedPrice: null,
-            replayGlobalTime: null,
-            isAdvancedReplayMode: false
-        });
+        updateActiveTab({ isReplayMode: false, isReplaySelecting: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null, isAdvancedReplayMode: false });
         return;
     }
-
-    // If already in advanced replay, enter selection mode (Recut)
     if (activeTab.isAdvancedReplayMode) {
-        updateActiveTab({ 
-            isReplaySelecting: true, 
-            isReplayPlaying: false 
-        });
+        updateActiveTab({ isReplaySelecting: true, isReplayPlaying: false });
         return;
     }
-     
-    // Start fresh advanced replay selection
-    updateActiveTab({ 
-        isAdvancedReplayMode: true, 
-        isReplaySelecting: true, 
-        isReplayMode: false,
-        isReplayPlaying: false
-    });
+    updateActiveTab({ isAdvancedReplayMode: true, isReplaySelecting: true, isReplayMode: false, isReplayPlaying: false });
     alert("Advanced Replay: Select a starting point. This mode plays back in real-time speed.");
   };
 
@@ -1066,7 +1026,11 @@ const App: React.FC = () => {
             setTabs(prev => [...prev, ...newTabsToAdd]);
         }
         setLayoutTabIds(newLayoutIds);
-    } else if (action === 'save') {
+    } else if (action === 'sync-symbol') setIsSymbolSync(!isSymbolSync);
+    else if (action === 'sync-interval') setIsIntervalSync(!isIntervalSync);
+    else if (action === 'sync-crosshair') setIsCrosshairSync(!isCrosshairSync);
+    else if (action === 'sync-time') setIsTimeSync(!isTimeSync);
+    else if (action === 'save') {
         const stateToSave = {
             tabs: tabs.map(t => ({ ...t, fileState: undefined })),
             activeTabId,
@@ -1078,6 +1042,10 @@ const App: React.FC = () => {
             isMagnetMode,
             layoutMode,
             layoutTabIds,
+            isSymbolSync,
+            isIntervalSync,
+            isCrosshairSync,
+            isTimeSync,
             isMasterSyncActive
         };
         await saveAppState(stateToSave);
@@ -1089,7 +1057,7 @@ const App: React.FC = () => {
             layout: {
                 mode: layoutMode,
                 tabIds: layoutTabIds,
-                sync: { master: isMasterSyncActive }
+                sync: { symbol: isSymbolSync, interval: isIntervalSync, crosshair: isCrosshairSync, time: isTimeSync }
             },
             tabs: tabs.map(t => ({
                 id: t.id,
@@ -1142,7 +1110,10 @@ const App: React.FC = () => {
                     setLayoutMode(imported.layout.mode || 'single');
                     setLayoutTabIds(imported.layout.tabIds || []);
                     if (imported.layout.sync) {
-                        setIsMasterSyncActive(imported.layout.sync.master ?? false);
+                        setIsSymbolSync(imported.layout.sync.symbol ?? false);
+                        setIsIntervalSync(imported.layout.sync.interval ?? false);
+                        setIsCrosshairSync(imported.layout.sync.crosshair ?? false);
+                        setIsTimeSync(imported.layout.sync.time ?? false);
                     }
                 }
                 if (imported.settings) {
@@ -1238,6 +1209,38 @@ const App: React.FC = () => {
       updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
       
   }, [activeTab, tradeSourceId, updateActiveTab]);
+
+  const handleFileUpload = useCallback((file: File) => {
+    startFileStream(file, file.name);
+  }, [startFileStream]);
+
+  const handleLibraryFileSelect = async (fileHandle: any) => {
+    setLoading(true);
+    try {
+      let file, name;
+      
+      if (fileHandle.path) {
+          file = fileHandle;
+          name = fileHandle.name;
+      } else {
+          file = await fileHandle.getFile();
+          name = file.name;
+      }
+      
+      startFileStream(file, name);
+    } catch (e: any) {
+      console.error("Error reading file from library:", e);
+      debugLog('Data', 'Error reading library file', e.message);
+      setLastError(e.message);
+      alert('Error reading selected file.');
+      setLoading(false);
+    }
+  };
+  
+  const handleFileSelect = async (fileHandle: any, timeframe: Timeframe) => {
+    await startFileStream(fileHandle, fileHandle.name, undefined, timeframe, undefined);
+    setAppStatus('ACTIVE');
+  };
 
   const { currentPrice, prevPrice } = useMemo(() => {
     if (!activeTab || activeTab.data.length === 0) return { currentPrice: 0, prevPrice: 0 };
@@ -1366,7 +1369,7 @@ const App: React.FC = () => {
                             isDrawingSyncEnabled={isDrawingSyncEnabled}
                             drawings={tab.drawings}
                             onUpdateDrawings={(newDrawings: Drawing[]) => {
-                                // Master Sync Drawing Logic (Optional, usually covered by separate hooks, but simple here)
+                                // Master Sync Drawing Logic
                                 if (isMasterSyncActive) {
                                     layoutTabIds.forEach(targetId => updateTab(targetId, { drawings: newDrawings }));
                                 } else {
@@ -1393,7 +1396,7 @@ const App: React.FC = () => {
                 <>
                     <AssetLibrary
                         isOpen={true}
-                        onClose={() => {}} 
+                        onClose={() => {}} // Cannot close in this state
                         onSelect={(file: any, tf: Timeframe) => handleFileSelect(file, tf)}
                         databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
                         files={isBridgeAvailable ? [] : explorerFiles}
@@ -1410,7 +1413,7 @@ const App: React.FC = () => {
                 </>
             );
         case 'ACTIVE':
-            if (!activeTab) return null;
+            if (!activeTab) return null; // Guard against render before activeTab is set
             return (
                 <div className="flex flex-col h-screen bg-app-bg text-text-primary overflow-hidden">
                     <DeveloperTools 
@@ -1471,6 +1474,10 @@ const App: React.FC = () => {
                         isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
                         onOpenLocalData={() => setIsAssetLibraryOpen(true)}
                         onLayoutAction={handleLayoutAction}
+                        isSymbolSync={isSymbolSync}
+                        isIntervalSync={isIntervalSync}
+                        isCrosshairSync={isCrosshairSync}
+                        isTimeSync={isTimeSync}
                         onToggleTradingPanel={() => setIsTradingPanelOpen(!isTradingPanelOpen)}
                         isTradingPanelOpen={isTradingPanelOpen}
                         isLibraryOpen={isLibraryOpen}
