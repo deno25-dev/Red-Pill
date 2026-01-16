@@ -9,7 +9,7 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties, Drawing, Folder, Trade } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2 } from 'lucide-react';
+import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2, Link as LinkIcon } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 import { loadUILayout, saveUILayout } from '../utils/storage';
@@ -45,6 +45,10 @@ interface ChartWorkspaceProps {
   drawings: Drawing[];
   onUpdateDrawings: (newDrawings: Drawing[]) => void;
   isHydrating: boolean;
+
+  // Master Sync
+  isMasterSyncActive?: boolean;
+  onToggleMasterSync?: () => void;
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -71,6 +75,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   drawings,
   onUpdateDrawings,
   isHydrating,
+  isMasterSyncActive,
+  onToggleMasterSync
 }) => {
   // Trade Persistence Hook - Remains local to the workspace context, keyed by file/source ID
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
@@ -519,6 +525,17 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           )}
 
           <div className="h-4 w-px bg-slate-600"></div>
+          {onToggleMasterSync && (
+              <button 
+                  onClick={onToggleMasterSync}
+                  className={`p-1 rounded transition-colors ${isMasterSyncActive ? 'text-blue-400 bg-blue-400/10 shadow-[0_0_10px_rgba(59,130,246,0.3)] ring-1 ring-blue-500/30' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`}
+                  title={isMasterSyncActive ? "Master Sync Active (All charts follow)" : "Enable Master Sync"}
+                  onMouseDown={(e) => e.stopPropagation()}
+              >
+                  <LinkIcon size={14} className={isMasterSyncActive ? "fill-current" : ""} />
+              </button>
+          )}
+          
           <div className="relative" ref={settingsRef}>
              <button onClick={(e) => { e.stopPropagation(); setIsChartSettingsOpen(!isChartSettingsOpen); }} className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-white transition-colors" title="Chart Settings" onMouseDown={(e) => e.stopPropagation()}><Settings size={14} /></button>
              {isChartSettingsOpen && (
