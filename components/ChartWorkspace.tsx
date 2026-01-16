@@ -68,7 +68,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   favoriteTimeframes,
   onBackToLibrary,
   isDrawingSyncEnabled = true,
-  onToggleDrawingSync,
   drawings,
   onUpdateDrawings,
   isHydrating,
@@ -578,7 +577,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <LayersPanel 
                 drawings={drawings} 
                 onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
-                selectedDrawingId={selectedDrawingId}
                 selectedDrawingIds={selectedDrawingIds}
                 onSelectDrawing={handleSelectDrawing} 
                 onClose={onToggleLayers || (() => {})} 

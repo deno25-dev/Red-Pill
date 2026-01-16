@@ -1,27 +1,27 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Toolbar } from './components/Toolbar';
-import { Sidebar } from './components/Sidebar';
-import { FilePanel } from './components/FilePanel';
-import { TabBar } from './components/TabBar';
-import { ChartWorkspace } from './components/ChartWorkspace';
-import { Popout } from './components/Popout';
-import { TradingPanel } from './components/TradingPanel';
-import { CandleSettingsDialog } from './components/CandleSettingsDialog';
-import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
-import { AssetLibrary } from './components/AssetLibrary';
-import { SplashController } from './components/SplashController';
-import { StickyNoteOverlay } from './components/StickyNoteOverlay';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from './utils/storage';
+import { Toolbar } from './Toolbar';
+import { Sidebar } from './Sidebar';
+import { FilePanel } from './FilePanel';
+import { TabBar } from './TabBar';
+import { ChartWorkspace } from './ChartWorkspace';
+import { Popout } from './Popout';
+import { TradingPanel } from './TradingPanel';
+import { CandleSettingsDialog } from './CandleSettingsDialog';
+import { BackgroundSettingsDialog } from './BackgroundSettingsDialog';
+import { AssetLibrary } from './AssetLibrary';
+import { SplashController } from './SplashController';
+import { StickyNoteOverlay } from './StickyNoteOverlay';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from '../types';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from '../utils/dataUtils';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
-import { DeveloperTools } from './components/DeveloperTools';
-import { debugLog } from './utils/logger';
-import { useFileSystem } from './hooks/useFileSystem';
-import { useTradePersistence } from './hooks/useTradePersistence';
-import { useSymbolPersistence } from './hooks/useSymbolPersistence';
-import { useStickyNotes } from './hooks/useStickyNotes';
+import { DeveloperTools } from './DeveloperTools';
+import { debugLog } from '../utils/logger';
+import { useFileSystem } from '../hooks/useFileSystem';
+import { useTradePersistence } from '../hooks/useTradePersistence';
+import { useSymbolPersistence } from '../hooks/useSymbolPersistence';
+import { useStickyNotes } from '../hooks/useStickyNotes';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -418,7 +418,7 @@ const App: React.FC = () => {
         isTimeSync
       };
       
-      saveAppState(stateToSave).catch(e => {
+      saveAppState(stateToSave).catch((e: any) => {
         console.warn("Auto-save failed:", e);
         debugLog('Data', 'Auto-save failed', e);
       });
@@ -648,7 +648,7 @@ const App: React.FC = () => {
 
           let replayIndex = displayData.length - 1;
           if (preservedReplay?.replayGlobalTime) {
-              const idx = displayData.findIndex(d => d.time >= preservedReplay.replayGlobalTime!);
+              const idx = displayData.findIndex((d: OHLCV) => d.time >= preservedReplay.replayGlobalTime!);
               if (idx !== -1) replayIndex = idx;
           }
 
@@ -750,7 +750,7 @@ const App: React.FC = () => {
           if (result) {
               const { newPoints, newCursor, newLeftover, hasMore } = result;
               
-              newPoints.sort((a, b) => a.time - b.time);
+              newPoints.sort((a: OHLCV, b: OHLCV) => a.time - b.time);
               
               const tfMs = getTimeframeDuration(tab.timeframe);
               const { data: cleanNewPoints } = sanitizeData(newPoints, tfMs);
@@ -885,7 +885,7 @@ const App: React.FC = () => {
 
         if (preservedReplay.isReplayMode || preservedReplay.isAdvancedReplayMode) {
             if (newGlobalTime) {
-                const idx = resampled.findIndex(d => d.time >= newGlobalTime!);
+                const idx = resampled.findIndex((d: OHLCV) => d.time >= newGlobalTime!);
                 if (idx !== -1) {
                     newReplayIndex = idx;
                 } else {
@@ -1015,7 +1015,7 @@ const App: React.FC = () => {
     if (action === 'save-csv') {
         if (activeTab.data.length === 0) return;
         const headers = ['time','open','high','low','close','volume'];
-        const rows = activeTab.data.map(d => 
+        const rows = activeTab.data.map((d: OHLCV) => 
            `${new Date(d.time).toISOString()},${d.open},${d.high},${d.low},${d.close},${d.volume}`
         );
         const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
@@ -1277,12 +1277,12 @@ const App: React.FC = () => {
 
   const areAllDrawingsLocked = useMemo(() => {
     if (!activeTab || !activeTab.drawings || activeTab.drawings.length === 0) return false;
-    return activeTab.drawings.every(d => d.properties.locked);
+    return activeTab.drawings.every((d: Drawing) => d.properties.locked);
   }, [activeTab]);
 
   const areAllDrawingsHidden = useMemo(() => {
       if (!activeTab || !activeTab.drawings || activeTab.drawings.length === 0) return false;
-      return activeTab.drawings.every(d => !(d.properties.visible ?? true));
+      return activeTab.drawings.every((d: Drawing) => !(d.properties.visible ?? true));
   }, [activeTab]);
 
   const renderLayout = () => {
@@ -1309,8 +1309,8 @@ const App: React.FC = () => {
                     <ChartWorkspace 
                         key={activeTab.sourceId || activeTab.id}
                         tab={activeTab} 
-                        updateTab={(updates) => updateActiveTab(updates)}
-                        onTimeframeChange={(tf) => handleTimeframeChange(activeTab.id, tf)}
+                        updateTab={(updates: Partial<TabSession>) => updateActiveTab(updates)}
+                        onTimeframeChange={(tf: Timeframe) => handleTimeframeChange(activeTab.id, tf)}
                         loading={loading}
                         favoriteTools={favoriteTools}
                         onSelectTool={setActiveToolId}
@@ -1327,9 +1327,8 @@ const App: React.FC = () => {
                         favoriteTimeframes={favoriteTimeframes}
                         onBackToLibrary={() => setAppStatus('LIBRARY')}
                         isDrawingSyncEnabled={isDrawingSyncEnabled}
-                        onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                         drawings={activeTab.drawings}
-                        onUpdateDrawings={(newDrawings) => updateActiveTab({ drawings: newDrawings })}
+                        onUpdateDrawings={(newDrawings: Drawing[]) => updateActiveTab({ drawings: newDrawings })}
                         isHydrating={loading || isHydrating}
                     />
                 )}
@@ -1355,8 +1354,8 @@ const App: React.FC = () => {
                         <ChartWorkspace 
                             key={tab.sourceId || tab.id}
                             tab={tab} 
-                            updateTab={(updates) => updateTab(tab.id, updates)}
-                            onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
+                            updateTab={(updates: Partial<TabSession>) => updateTab(tab.id, updates)}
+                            onTimeframeChange={(tf: Timeframe) => handleTimeframeChange(tab.id, tf)}
                             loading={false} 
                             favoriteTools={tab.id === activeTabId ? favoriteTools : []}
                             onSelectTool={tab.id === activeTabId ? setActiveToolId : undefined}
@@ -1374,9 +1373,8 @@ const App: React.FC = () => {
                             favoriteTimeframes={favoriteTimeframes}
                             onBackToLibrary={() => setAppStatus('LIBRARY')}
                             isDrawingSyncEnabled={isDrawingSyncEnabled}
-                            onToggleDrawingSync={() => setIsDrawingSyncEnabled(prev => !prev)}
                             drawings={tab.drawings}
-                            onUpdateDrawings={(newDrawings) => updateTab(tab.id, { drawings: newDrawings })}
+                            onUpdateDrawings={(newDrawings: Drawing[]) => updateTab(tab.id, { drawings: newDrawings })}
                             isHydrating={isHydrating && tab.id === activeTabId}
                         />
                     </div>
@@ -1396,7 +1394,7 @@ const App: React.FC = () => {
                     <AssetLibrary
                         isOpen={true}
                         onClose={() => {}} // Cannot close in this state
-                        onSelect={handleFileSelect}
+                        onSelect={(file: any, tf: Timeframe) => handleFileSelect(file, tf)}
                         databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
                         files={isBridgeAvailable ? [] : explorerFiles}
                         onRefresh={isBridgeAvailable ? undefined : connectDefaultDatabase}
@@ -1425,20 +1423,20 @@ const App: React.FC = () => {
                         isOpen={isCandleSettingsOpen}
                         onClose={() => setIsCandleSettingsOpen(false)}
                         config={activeTab.config}
-                        onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
+                        onUpdateConfig={(updates: Partial<ChartConfig>) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
                     />
 
                     <BackgroundSettingsDialog 
                         isOpen={isBackgroundSettingsOpen}
                         onClose={() => setIsBackgroundSettingsOpen(false)}
                         config={activeTab.config}
-                        onUpdateConfig={(updates) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
+                        onUpdateConfig={(updates: Partial<ChartConfig>) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
                     />
                     
                     <AssetLibrary
                         isOpen={isAssetLibraryOpen}
                         onClose={() => setIsAssetLibraryOpen(false)}
-                        onSelect={(file, tf) => {
+                        onSelect={(file: any, tf: Timeframe) => {
                             startFileStream(file, file.name, undefined, tf);
                             setIsAssetLibraryOpen(false);
                         }}
@@ -1560,8 +1558,8 @@ const App: React.FC = () => {
                                     <ChartWorkspace 
                                         key={tab.sourceId || tab.id}
                                         tab={tab}
-                                        updateTab={(updates) => updateTab(tab.id, updates)}
-                                        onTimeframeChange={(tf) => handleTimeframeChange(tab.id, tf)}
+                                        updateTab={(updates: Partial<TabSession>) => updateTab(tab.id, updates)}
+                                        onTimeframeChange={(tf: Timeframe) => handleTimeframeChange(tab.id, tf)}
                                         favoriteTools={[]} 
                                         onSelectTool={() => {}}
                                         activeToolId=""
@@ -1570,7 +1568,7 @@ const App: React.FC = () => {
                                         favoriteTimeframes={favoriteTimeframes}
                                         onBackToLibrary={() => setAppStatus('LIBRARY')}
                                         drawings={tab.drawings}
-                                        onUpdateDrawings={(newDrawings) => updateTab(tab.id, { drawings: newDrawings })}
+                                        onUpdateDrawings={(newDrawings: Drawing[]) => updateTab(tab.id, { drawings: newDrawings })}
                                         isHydrating={isHydrating && tab.id === activeTabId}
                                     />
                                 </Popout>
