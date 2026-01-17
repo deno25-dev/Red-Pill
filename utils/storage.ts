@@ -277,3 +277,23 @@ export const loadStickyNotesWeb = async () => {
     const data = localStorage.getItem('redpill_sticky_notes');
     return data ? JSON.parse(data) : [];
 };
+
+// --- CHANGELOG PERSISTENCE ---
+export const saveChangelog = async (data: any) => {
+  const electron = (window as any).electronAPI;
+  if (electron && electron.saveSettings) {
+      await electron.saveSettings('changelog.json', data);
+  } else {
+      localStorage.setItem('redpill_changelog', JSON.stringify(data));
+  }
+};
+
+export const loadChangelog = async () => {
+  const electron = (window as any).electronAPI;
+  if (electron && electron.loadSettings) {
+      const res = await electron.loadSettings('changelog.json');
+      if (res.success && res.data) return res.data;
+  }
+  const local = localStorage.getItem('redpill_changelog');
+  return local ? JSON.parse(local) : null;
+};

@@ -1,5 +1,5 @@
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -152,6 +152,24 @@ const runBootScan = () => {
 };
 
 // --- IPC HANDLERS ---
+
+// --- System Shell Handlers ---
+ipcMain.handle('shell:open-folder', async (event, subpath) => {
+    try {
+        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const fullPath = subpath ? path.join(root, subpath) : root;
+        // shell.openPath returns error string if failed, or empty string if success
+        const error = await shell.openPath(fullPath);
+        if (error) {
+            console.error('Failed to open path:', fullPath, error);
+            return { success: false, error };
+        }
+        return { success: true };
+    } catch (e) {
+        console.error('Exception opening path:', e);
+        return { success: false, error: e.message };
+    }
+});
 
 // --- Storage Handlers (Mandate 0.31) ---
 

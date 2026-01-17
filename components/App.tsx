@@ -9,6 +9,8 @@ import { Popout } from './Popout';
 import { TradingPanel } from './TradingPanel';
 import { CandleSettingsDialog } from './CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './BackgroundSettingsDialog';
+import { LatestAdditionsDialog } from './LatestAdditionsDialog';
+import { ChangelogEditor } from './ChangelogEditor';
 import { AssetLibrary } from './AssetLibrary';
 import { SplashController } from './SplashController';
 import { StickyNoteOverlay } from './StickyNoteOverlay';
@@ -79,6 +81,8 @@ const App: React.FC = () => {
   // Settings Dialogs State
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
   const [isBackgroundSettingsOpen, setIsBackgroundSettingsOpen] = useState(false);
+  const [isLatestAddOpen, setIsLatestAddOpen] = useState(false);
+  const [isChangelogEditorOpen, setIsChangelogEditorOpen] = useState(false);
 
   // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
@@ -669,8 +673,6 @@ const App: React.FC = () => {
 
           let replayIndex = displayData.length - 1;
           if (preservedReplay?.replayGlobalTime) {
-              // Mandate 0.9.3: Robust Unix Timestamp Replay Anchoring
-              // Search backwards for the candle that covers the preserved global time
               let idx = -1;
               for(let i = displayData.length - 1; i >= 0; i--) {
                   if (displayData[i].time <= preservedReplay.replayGlobalTime) {
@@ -680,10 +682,9 @@ const App: React.FC = () => {
               }
               
               if (idx !== -1) {
-                  newReplayIndex = idx;
+                  replayIndex = idx;
               } else {
-                  // Time is before all data in this timeframe
-                  newReplayIndex = 0;
+                  replayIndex = 0;
               }
           }
 
@@ -1050,6 +1051,13 @@ const App: React.FC = () => {
         };
         await saveAppState(stateToSave);
         alert("Layout successfully saved to local storage.");
+    } else if (action === 'open-layout-folder') {
+        const electron = (window as any).electronAPI;
+        if (electron && electron.openFolder) {
+            electron.openFolder('Database/Settings');
+        } else {
+            alert("Layouts are stored in LocalStorage in web mode.");
+        }
     } else if (action === 'export-layout') {
         const exportObj = {
             version: '1.0',
@@ -1242,6 +1250,15 @@ const App: React.FC = () => {
     setAppStatus('ACTIVE');
   };
 
+  const handleOpenStickyNotesFolder = useCallback(() => {
+      const electron = (window as any).electronAPI;
+      if (electron && electron.openFolder) {
+          electron.openFolder('Database/Workspaces');
+      } else {
+          alert("Sticky notes are stored in your browser's local storage in web mode.");
+      }
+  }, []);
+
   const { currentPrice, prevPrice } = useMemo(() => {
     if (!activeTab || activeTab.data.length === 0) return { currentPrice: 0, prevPrice: 0 };
     
@@ -1420,6 +1437,10 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
+                        onOpenChangelogEditor={() => {
+                            debugLog('UI', 'Toggling Changelog Editor');
+                            setIsChangelogEditorOpen(true);
+                        }}
                     />
 
                     <CandleSettingsDialog 
@@ -1434,6 +1455,16 @@ const App: React.FC = () => {
                         onClose={() => setIsBackgroundSettingsOpen(false)}
                         config={activeTab.config}
                         onUpdateConfig={(updates: Partial<ChartConfig>) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
+                    />
+
+                    <LatestAdditionsDialog 
+                        isOpen={isLatestAddOpen} 
+                        onClose={() => setIsLatestAddOpen(false)} 
+                    />
+
+                    <ChangelogEditor 
+                        isOpen={isChangelogEditorOpen}
+                        onClose={() => setIsChangelogEditorOpen(false)}
                     />
                     
                     <AssetLibrary
@@ -1486,6 +1517,7 @@ const App: React.FC = () => {
                         isLayersOpen={isLayersPanelOpen}
                         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
                         onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
+                        onOpenLatestAdd={() => setIsLatestAddOpen(true)}
                         tickerSymbol={currentSymbolName}
                         tickerPrice={currentPrice}
                         tickerPrevPrice={prevPrice}
@@ -1499,6 +1531,7 @@ const App: React.FC = () => {
                         onAddStickyNote={addStickyNote}
                         isStickyNotesVisible={isStickyNotesVisible}
                         onToggleStickyNotes={toggleStickyNotes}
+                        onOpenStickyNotesFolder={handleOpenStickyNotesFolder}
                     />
 
                     <div className="flex flex-1 overflow-hidden relative">
