@@ -552,7 +552,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     fullData,
     startIndex: replayIndex || 0,
     isPlaying,
-    speed: replaySpeed || 1,
     onSyncState: onReplaySync,
     onComplete: onReplayComplete,
     isActive: isAdvancedReplay

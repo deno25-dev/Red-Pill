@@ -8,7 +8,6 @@ interface UseAdvancedReplayProps {
   fullData?: OHLCV[];
   startIndex: number;
   isPlaying: boolean;
-  speed: number;
   onSyncState?: (index: number, time: number, price: number) => void;
   onComplete?: () => void;
   isActive: boolean; // Flag to enable/disable this specific hook
@@ -19,7 +18,6 @@ export const useAdvancedReplay = ({
   fullData,
   startIndex,
   isPlaying,
-  speed,
   onSyncState,
   onComplete,
   isActive
@@ -194,7 +192,7 @@ export const useAdvancedReplay = ({
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [isActive, fullData, onSyncState, onComplete, seriesRef]); // Removed `speed` dependency
+  }, [isActive, fullData, onSyncState, onComplete, seriesRef]); 
 
   // Start/Stop Loop
   useEffect(() => {

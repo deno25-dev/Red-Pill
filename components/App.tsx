@@ -114,7 +114,7 @@ const App: React.FC = () => {
       addNote: addStickyNote, 
       updateNote: updateStickyNote, 
       removeNote: removeStickyNote, 
-      toggleVisibility: toggleStickyNotes,
+      toggleVisibility: toggleStickyNotes, 
       bringToFront: bringStickyNoteToFront
   } = useStickyNotes();
 
@@ -673,17 +673,17 @@ const App: React.FC = () => {
               // Search backwards for the candle that covers the preserved global time
               let idx = -1;
               for(let i = displayData.length - 1; i >= 0; i--) {
-                  if (displayData[i].time <= preservedReplay.replayGlobalTime) {
+                  if (displayData[i].time <= preservedReplay.replayGlobalTime!) {
                       idx = i;
                       break;
                   }
               }
               
               if (idx !== -1) {
-                  newReplayIndex = idx;
+                  replayIndex = idx;
               } else {
                   // Time is before all data in this timeframe
-                  newReplayIndex = 0;
+                  replayIndex = 0;
               }
           }
 
