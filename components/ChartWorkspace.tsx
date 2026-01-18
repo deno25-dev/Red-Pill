@@ -206,7 +206,24 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             </div>
         )}
         <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== -1 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
-        {isLayersPanelOpen && (<LayersPanel drawings={drawings} onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} selectedDrawingIds={selectedDrawingIds} onSelectDrawing={handleSelectDrawing} onClose={onToggleLayers || (() => {})} position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} onHeaderMouseDown={handleLayersMouseDown} folders={tab.folders} onUpdateFolders={(folders: Folder[]) => updateTab({ folders })} sourceId={tab.sourceId} />)}
+        {isLayersPanelOpen && (
+            <LayersPanel 
+                drawings={drawings} 
+                onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
+                selectedDrawingIds={selectedDrawingIds} 
+                onSelectDrawing={handleSelectDrawing} 
+                onClose={onToggleLayers || (() => {})} 
+                position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 
+                onHeaderMouseDown={handleLayersMouseDown} 
+                folders={tab.folders} 
+                onUpdateFolders={(folders: Folder[]) => { 
+                    // DIAGNOSTIC LOGGING FOR APP STATE
+                    console.log('STATE: onUpdateFolders triggered with count:', folders.length);
+                    updateTab({ folders }); 
+                }} 
+                sourceId={tab.sourceId} 
+            />
+        )}
         {(tab.isReplayMode || tab.isAdvancedReplayMode) && (<ReplayControls isPlaying={tab.isReplayPlaying} onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} onStepForward={() => { if (tab.isReplayMode) { const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1); updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close }); } else { const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe); let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime); if (nextIndex === -1) nextIndex = tab.data.length - 1; updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open }); } }} onReset={() => { const newIdx = Math.max(0, tab.data.length - 100); updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open }) }} onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} speed={tab.replaySpeed} onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} position={replayPos.x !== 0 ? replayPos : undefined} onHeaderMouseDown={handleReplayMouseDown} isAdvancedMode={tab.isAdvancedReplayMode} />)}
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
         <div className="flex-1 w-full relative overflow-hidden">

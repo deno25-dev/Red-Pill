@@ -97,6 +97,8 @@ export interface Folder {
   id: string;
   name: string;
   isExpanded: boolean;
+  visible?: boolean; // New: Folder visibility toggle (affects children)
+  locked?: boolean;  // New: Folder lock toggle (affects children)
 }
 
 export interface FileStreamState {

@@ -1,5 +1,5 @@
 
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { 
   X, 
   Eye, 
@@ -46,6 +46,11 @@ interface TreeNodeProps {
   onDragStart: (e: React.DragEvent, id: string, type: 'drawing' | 'folder') => void;
   onDragOver: (e: React.DragEvent, id: string, type: 'drawing' | 'folder') => void;
   onDrop: (e: React.DragEvent, id: string, type: 'drawing' | 'folder') => void;
+  
+  // Renaming Props
+  isRenaming?: boolean;
+  onRenameSubmit?: (id: string, newName: string) => void;
+  onRenameCancel?: () => void;
 }
 
 const TreeNode = React.memo(({
@@ -61,10 +66,18 @@ const TreeNode = React.memo(({
   onToggleExpand,
   onDragStart,
   onDragOver,
-  onDrop
+  onDrop,
+  isRenaming,
+  onRenameSubmit,
+  onRenameCancel
 }: TreeNodeProps) => {
-  const isVisible = type === 'drawing' ? ((item as Drawing).properties.visible ?? true) : true;
-  const isLocked = type === 'drawing' ? ((item as Drawing).properties.locked ?? false) : false;
+  const isVisible = type === 'drawing' 
+    ? ((item as Drawing).properties.visible ?? true) 
+    : ((item as FolderType).visible ?? true);
+    
+  const isLocked = type === 'drawing' 
+    ? ((item as Drawing).properties.locked ?? false) 
+    : ((item as FolderType).locked ?? false);
   
   // Get Icon and Label
   let Icon = FolderIcon;
@@ -84,14 +97,13 @@ const TreeNode = React.memo(({
   }
 
   // --- Visual Feedback for Multi-Select ---
-  // Apply a darker/richer blue for selected items
   const bgClass = isSelected 
     ? 'bg-blue-900/40 text-blue-100 border-l-2 border-l-blue-500' 
     : 'hover:bg-[#334155]/50 text-slate-400 hover:text-slate-200 border-l-2 border-l-transparent';
 
   return (
     <div
-      draggable
+      draggable={!isRenaming}
       onDragStart={(e) => onDragStart(e, item.id, type)}
       onDragOver={(e) => onDragOver(e, item.id, type)}
       onDrop={(e) => onDrop(e, item.id, type)}
@@ -118,38 +130,68 @@ const TreeNode = React.memo(({
       {/* Dynamic Icon */}
       <Icon size={14} className={isSelected ? 'text-blue-400' : type === 'folder' ? 'text-amber-400' : 'text-slate-500'} />
 
-      <span className={`flex-1 truncate text-xs font-medium ${type === 'folder' ? 'text-amber-100/90' : ''}`}>{displayName}</span>
+      {/* Renaming Input or Label */}
+      {isRenaming && onRenameSubmit ? (
+          <input 
+              autoFocus
+              type="text"
+              defaultValue={displayName}
+              onClick={(e) => e.stopPropagation()}
+              onBlur={(e) => onRenameSubmit(item.id, e.target.value)}
+              onKeyDown={(e) => {
+                  if (e.key === 'Enter') onRenameSubmit(item.id, e.currentTarget.value);
+                  if (e.key === 'Escape') onRenameCancel?.();
+              }}
+              className="flex-1 min-w-0 bg-[#0f172a] border border-blue-500 text-xs text-white px-1 py-0.5 rounded outline-none"
+          />
+      ) : (
+          <span 
+            className={`flex-1 truncate text-xs font-medium ${type === 'folder' ? 'text-amber-100/90' : ''}`}
+            onDoubleClick={(e) => {
+                if (type === 'folder' && onRenameSubmit) {
+                    e.stopPropagation();
+                    // Trigger rename mode (parent must handle this via setting renamingId)
+                    // Since we don't have a direct callback to set renamingId here, we rely on parent managing state
+                    // For now, double click to rename is not wired up in this component prop, but logic can be added if needed.
+                }
+            }}
+          >
+              {displayName}
+          </span>
+      )}
 
       {/* Actions (Visible on Hover or Selected) */}
-      <div className={`flex items-center gap-1 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-        {type === 'drawing' && onToggleVisible && (
-            <button 
-            onClick={(e) => onToggleVisible(e, item.id)}
-            className={`p-1 rounded hover:bg-slate-700 transition-colors ${!isVisible ? 'text-slate-500' : 'hover:text-white'}`}
-            title={isVisible ? "Hide" : "Show"}
-            >
-            {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
-            </button>
-        )}
-        
-        {type === 'drawing' && onToggleLock && (
-            <button 
-            onClick={(e) => onToggleLock(e, item.id)}
-            className={`p-1 rounded hover:bg-slate-700 transition-colors ${isLocked ? 'text-amber-500' : 'hover:text-white'}`}
-            title={isLocked ? "Unlock" : "Lock"}
-            >
-            {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
-            </button>
-        )}
+      {!isRenaming && (
+          <div className={`flex items-center gap-1 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+            {onToggleVisible && (
+                <button 
+                onClick={(e) => onToggleVisible(e, item.id)}
+                className={`p-1 rounded hover:bg-slate-700 transition-colors ${!isVisible ? 'text-slate-500' : 'hover:text-white'}`}
+                title={isVisible ? "Hide" : "Show"}
+                >
+                {isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
+                </button>
+            )}
+            
+            {onToggleLock && (
+                <button 
+                onClick={(e) => onToggleLock(e, item.id)}
+                className={`p-1 rounded hover:bg-slate-700 transition-colors ${isLocked ? 'text-amber-500' : 'hover:text-white'}`}
+                title={isLocked ? "Unlock" : "Lock"}
+                >
+                {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
+                </button>
+            )}
 
-        <button 
-          onClick={(e) => onDelete(e, item.id)}
-          className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-red-900/30 transition-colors"
-          title="Remove"
-        >
-          <Trash2 size={12} />
-        </button>
-      </div>
+            <button 
+              onClick={(e) => onDelete(e, item.id)}
+              className="p-1 text-slate-500 hover:text-red-400 rounded hover:bg-red-900/30 transition-colors"
+              title="Remove"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+      )}
     </div>
   );
 });
@@ -173,6 +215,9 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   const onUpdateFoldersRef = useRef(onUpdateFolders);
   const scrollRef = useRef<HTMLDivElement>(null);
   
+  // Renaming State
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  
   drawingsRef.current = drawings;
   foldersRef.current = folders;
   onUpdateRef.current = onUpdateDrawings;
@@ -187,8 +232,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
               timestamp: Date.now(),
               sourceId: sourceId || 'global',
               folders: folders
-          }).then(() => {
-              // Saved
           }).catch((err: any) => {
               console.error("Failed to save Object Tree:", err);
           });
@@ -200,29 +243,42 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
       if (!onUpdateFoldersRef.current) return;
 
       const currentFolders = foldersRef.current || [];
-      const defaultName = `Folder ${currentFolders.length + 1}`;
+      const newId = crypto.randomUUID();
       
-      // Prompt user for name
-      const name = window.prompt("Enter folder name:", defaultName);
-      if (name === null) return; // User cancelled
-
       const newFolder: FolderType = {
-          id: crypto.randomUUID(),
-          name: name.trim() || defaultName,
-          isExpanded: true
+          id: newId,
+          name: `Folder ${currentFolders.length + 1}`,
+          isExpanded: true,
+          visible: true,
+          locked: false
       };
       
       const newFolders = [...currentFolders, newFolder];
       onUpdateFoldersRef.current(newFolders);
       
-      // Auto-scroll to show the new folder
+      // Immediate Focus Mode
+      setRenamingId(newId);
+      
+      // Auto-scroll
       setTimeout(() => {
           if (scrollRef.current) {
               scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
           }
-      }, 100);
+      }, 50);
       
-      debugLog('UI', `Created new folder: ${newFolder.name}`);
+      console.log('SUCCESS: Folder added to state with ID:', newFolder.id);
+  }, []);
+
+  const handleRenameSubmit = useCallback((id: string, newName: string) => {
+      setRenamingId(null);
+      if (!newName.trim()) return; // Keep old name if empty
+      
+      if (onUpdateFoldersRef.current) {
+          const newFolders = (foldersRef.current || []).map(f => 
+              f.id === id ? { ...f, name: newName.trim() } : f
+          );
+          onUpdateFoldersRef.current(newFolders);
+      }
   }, []);
 
   const handleToggleFolder = useCallback((folderId: string) => {
@@ -253,18 +309,49 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   // --- Item Actions ---
   const handleToggleVisible = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    const newDrawings = drawingsRef.current.map(d => 
-        d.id === id ? { ...d, properties: { ...d.properties, visible: !(d.properties.visible ?? true) } } : d
-    );
-    onUpdateRef.current(newDrawings);
+    // Check if it's a folder or drawing
+    const folder = foldersRef.current?.find(f => f.id === id);
+    if (folder && onUpdateFoldersRef.current) {
+        // Toggle folder visibility
+        const newVisible = !folder.visible;
+        const newFolders = foldersRef.current!.map(f => f.id === id ? { ...f, visible: newVisible } : f);
+        onUpdateFoldersRef.current(newFolders);
+        
+        // Propagate to children (Bulk update)
+        const newDrawings = drawingsRef.current.map(d => 
+            d.folderId === id ? { ...d, properties: { ...d.properties, visible: newVisible } } : d
+        );
+        onUpdateRef.current(newDrawings);
+    } else {
+        // Toggle drawing visibility
+        const newDrawings = drawingsRef.current.map(d => 
+            d.id === id ? { ...d, properties: { ...d.properties, visible: !(d.properties.visible ?? true) } } : d
+        );
+        onUpdateRef.current(newDrawings);
+    }
   }, []);
 
   const handleToggleLock = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    const newDrawings = drawingsRef.current.map(d => 
-        d.id === id ? { ...d, properties: { ...d.properties, locked: !d.properties.locked } } : d
-    );
-    onUpdateRef.current(newDrawings);
+    const folder = foldersRef.current?.find(f => f.id === id);
+    if (folder && onUpdateFoldersRef.current) {
+        // Toggle folder lock
+        const newLocked = !folder.locked;
+        const newFolders = foldersRef.current!.map(f => f.id === id ? { ...f, locked: newLocked } : f);
+        onUpdateFoldersRef.current(newFolders);
+        
+        // Propagate to children
+        const newDrawings = drawingsRef.current.map(d => 
+            d.folderId === id ? { ...d, properties: { ...d.properties, locked: newLocked } } : d
+        );
+        onUpdateRef.current(newDrawings);
+    } else {
+        // Toggle drawing lock
+        const newDrawings = drawingsRef.current.map(d => 
+            d.id === id ? { ...d, properties: { ...d.properties, locked: !d.properties.locked } } : d
+        );
+        onUpdateRef.current(newDrawings);
+    }
   }, []);
 
   const handleDelete = useCallback((e: React.MouseEvent, id: string) => {
@@ -294,7 +381,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
       // If dragging an unselected item, select it first (exclusive)
       if (type === 'drawing' && !selectedDrawingIds?.has(id)) {
           onSelectDrawing(id); 
-          // Note: State might not update immediately for this drag, so we construct payload manually
           const payload = [id];
           e.dataTransfer.setData('redpill/ids', JSON.stringify(payload));
           e.dataTransfer.setData('redpill/type', type);
@@ -304,24 +390,16 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           e.dataTransfer.setData('redpill/ids', JSON.stringify(payload));
           e.dataTransfer.setData('redpill/type', type);
           
-          // Create Ghost Image for multiple items
           if (payload.length > 1) {
               const ghost = document.createElement('div');
               ghost.style.position = 'absolute';
               ghost.style.top = '-1000px';
-              ghost.style.background = '#3b82f6';
-              ghost.style.color = 'white';
-              ghost.style.padding = '4px 8px';
-              ghost.style.borderRadius = '4px';
-              ghost.style.fontWeight = 'bold';
-              ghost.style.fontSize = '12px';
               ghost.innerText = `${payload.length} items`;
               document.body.appendChild(ghost);
               e.dataTransfer.setDragImage(ghost, 0, 0);
               setTimeout(() => document.body.removeChild(ghost), 0);
           }
       } else {
-          // Folder drag (Single only for now)
           e.dataTransfer.setData('redpill/folderId', id);
           e.dataTransfer.setData('redpill/type', type);
       }
@@ -333,8 +411,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
-      
-      // Visual feedback: Highlight Drop Target (Folder)
       if (type === 'folder') {
           (e.currentTarget as HTMLElement).style.background = 'rgba(59, 130, 246, 0.2)';
       }
@@ -343,7 +419,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   const handleDrop = (e: React.DragEvent, targetId: string, targetType: 'drawing' | 'folder') => {
       e.preventDefault();
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).style.background = ''; // Clear highlight
+      (e.currentTarget as HTMLElement).style.background = '';
 
       const dragType = e.dataTransfer.getData('redpill/type');
       
@@ -355,15 +431,13 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           const currentDrawings = [...drawingsRef.current];
           
           if (targetType === 'folder') {
-              // NESTING: Move all dragged items into the target folder
               const updated = currentDrawings.map(d => {
                   if (movedIds.includes(d.id)) {
-                      return { ...d, folderId: targetId }; // Assign folderId
+                      return { ...d, folderId: targetId };
                   }
                   return d;
               });
               onUpdateRef.current(updated);
-              // Auto-expand folder
               if (onUpdateFoldersRef.current) {
                   const updatedFolders = (foldersRef.current || []).map(f => 
                       f.id === targetId ? { ...f, isExpanded: true } : f
@@ -371,26 +445,19 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                   onUpdateFoldersRef.current(updatedFolders);
               }
           } else {
-              // REORDERING: (Only if dropping on another drawing)
               const targetIndex = currentDrawings.findIndex(d => d.id === targetId);
               if (targetIndex === -1) return;
               
-              // 1. Extract items
               const itemsToMove = currentDrawings.filter(d => movedIds.includes(d.id));
               const remaining = currentDrawings.filter(d => !movedIds.includes(d.id));
               
-              // 2. Adjust target index for removed items
-              // Find the item currently at targetId in the remaining array
               let insertIndex = remaining.findIndex(d => d.id === targetId);
-              if (insertIndex === -1) insertIndex = remaining.length; // fallback
+              if (insertIndex === -1) insertIndex = remaining.length;
               
-              // 3. Update folderId to match target's folderId (or null)
               const targetFolderId = currentDrawings.find(d => d.id === targetId)?.folderId;
               const updatedItems = itemsToMove.map(d => ({ ...d, folderId: targetFolderId }));
               
-              // 4. Insert
               remaining.splice(insertIndex, 0, ...updatedItems);
-              
               onUpdateRef.current(remaining);
           }
       }
@@ -404,7 +471,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           if (!rawIds) return;
           const movedIds: string[] = JSON.parse(rawIds);
           
-          // Move to Root (folderId = undefined)
           const newDrawings = drawingsRef.current.map(d => 
               movedIds.includes(d.id) ? { ...d, folderId: undefined } : d
           );
@@ -412,22 +478,13 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
       }
   };
 
-  // --- Recursive Rendering Helper ---
-  // Renders folders and root items. Nested items render inside folders.
   const renderTree = () => {
-      // 1. Separate Root Drawings and Folders
       const rootDrawings = drawings.filter(d => !d.folderId);
       const folderList = folders || [];
-      
-      // Combine for display order (Folders first, then drawings, reversed for visual stack)
-      // Note: Reversing array so newest is top, consistent with layer logic (top = index 0 visually)
-      
       const elements: React.ReactNode[] = [];
       
-      // Render Folders
       folderList.forEach(folder => {
           const children = drawings.filter(d => d.folderId === folder.id);
-          // Reverse children for stack order too
           const reversedChildren = [...children].reverse();
           
           elements.push(
@@ -438,9 +495,14 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                       level={0}
                       isSelected={false} 
                       isExpanded={folder.isExpanded}
+                      isRenaming={renamingId === folder.id}
+                      onRenameSubmit={handleRenameSubmit}
+                      onRenameCancel={() => setRenamingId(null)}
                       onSelect={(_id, _e) => { /* Folder selection logic if needed */ }}
                       onDelete={(e, id) => handleDeleteFolder(e, id)}
                       onToggleExpand={handleToggleFolder}
+                      onToggleVisible={handleToggleVisible}
+                      onToggleLock={handleToggleLock}
                       onDragStart={handleDragStart}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
@@ -468,7 +530,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
           );
       });
 
-      // Render Root Drawings
       [...rootDrawings].reverse().forEach(d => {
           elements.push(
               <TreeNode
@@ -509,7 +570,10 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
             <button 
                 className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white"
                 title="New Folder"
-                onClick={(e) => { e.stopPropagation(); handleCreateFolder(); }}
+                onClick={(e) => { 
+                    e.stopPropagation(); 
+                    handleCreateFolder(); 
+                }}
             >
                 <FolderPlus size={14} />
             </button>
@@ -531,7 +595,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
         ref={scrollRef}
         className="flex-1 overflow-y-auto custom-scrollbar max-h-[400px] min-h-[100px]"
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-        onDrop={handleRootDrop} // Drop on empty space moves to root
+        onDrop={handleRootDrop} 
       >
         {drawings.length === 0 && folders.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-500">No drawings on chart.</div>
