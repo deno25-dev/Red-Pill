@@ -1,7 +1,8 @@
 
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { ISeriesApi, Time } from 'lightweight-charts';
-import { OHLCV } from '../types';
+import { OHLCV, Timeframe } from '../types';
+import { getTimeframeDuration } from '../utils/dataUtils';
 
 interface UseAdvancedReplayProps {
   seriesRef: React.MutableRefObject<ISeriesApi<"Candlestick"> | null>;
@@ -11,8 +12,10 @@ interface UseAdvancedReplayProps {
   speed: number;
   onSyncState?: (index: number, time: number, price: number) => void;
   onComplete?: () => void;
-  isActive: boolean; // Flag to enable/disable this specific hook
-  liveTimeRef?: React.MutableRefObject<number | null>; // New Prop
+  isActive: boolean; 
+  liveTimeRef?: React.MutableRefObject<number | null>; 
+  timeframe: Timeframe;
+  chartType?: string; 
 }
 
 export const useAdvancedReplay = ({
@@ -24,7 +27,9 @@ export const useAdvancedReplay = ({
   onSyncState,
   onComplete,
   isActive,
-  liveTimeRef
+  liveTimeRef,
+  timeframe,
+  chartType
 }: UseAdvancedReplayProps) => {
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -35,6 +40,9 @@ export const useAdvancedReplay = ({
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
   
+  // Virtual Overlay State (Reactive)
+  const [displayState, setDisplayState] = useState({ price: 0, label: '', visible: false });
+
   // NUCLEAR RESET LISTENER
   useEffect(() => {
     const handleGlobalReset = () => {
@@ -43,12 +51,137 @@ export const useAdvancedReplay = ({
         virtualNowRef.current = 0;
         lastFrameTimeRef.current = 0;
         currentIndexRef.current = 0;
+        setDisplayState({ price: 0, label: '', visible: false });
     };
     window.addEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
     return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleGlobalReset);
+  }, [seriesRef]);
+
+  // --- 1. Accurate Timer Formatter (HH:MM:SS / MM:SS) ---
+  const formatTimer = useCallback((elapsedMs: number, totalDurationMs: number) => {
+      // Calculate strict remaining time
+      const remainingMs = Math.max(0, totalDurationMs - elapsedMs);
+      const totalSeconds = Math.ceil(remainingMs / 1000);
+      
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+
+      // Conditional formatting based on duration
+      if (h > 0) {
+          return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   }, []);
 
-  // Initialization & "Slice & Set" Logic
+  // --- Animation Loop ---
+  const animate = useCallback((time: number) => {
+    if (!isActive || !seriesRef.current || !fullData || fullData.length === 0) return;
+
+    if (lastFrameTimeRef.current === 0) {
+      lastFrameTimeRef.current = time;
+      requestRef.current = requestAnimationFrame(animate);
+      return;
+    }
+
+    const deltaTime = time - lastFrameTimeRef.current;
+    lastFrameTimeRef.current = time;
+    
+    virtualNowRef.current += deltaTime;
+
+    const currentIdx = currentIndexRef.current;
+    
+    if (currentIdx >= fullData.length) {
+        if (onComplete) onComplete();
+        setDisplayState(prev => ({ ...prev, visible: false }));
+        return;
+    }
+
+    const targetCandle = fullData[currentIdx];
+    let duration = 60000;
+
+    if (currentIdx > 0) {
+        const prevTime = fullData[currentIdx - 1].time;
+        duration = targetCandle.time - prevTime;
+    }
+    
+    if (duration <= 0) duration = getTimeframeDuration(timeframe);
+    
+    // Check if candle complete
+    if (virtualNowRef.current >= duration) {
+        seriesRef.current.update({
+            time: (targetCandle.time / 1000) as Time,
+            open: targetCandle.open,
+            high: targetCandle.high,
+            low: targetCandle.low,
+            close: targetCandle.close
+        });
+        
+        const nextIndex = currentIdx + 1;
+        currentIndexRef.current = nextIndex;
+        virtualNowRef.current = virtualNowRef.current - duration;
+        
+        currentTimeRef.current = targetCandle.time;
+        currentPriceRef.current = targetCandle.close;
+        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
+        
+        // Update Overlay State (Reset timer for next candle)
+        // Note: We use the next candle's probable duration or current duration as baseline for the label
+        setDisplayState({
+            price: targetCandle.close,
+            label: formatTimer(virtualNowRef.current, getTimeframeDuration(timeframe)),
+            visible: true
+        });
+
+    } else {
+        // Interpolate
+        const progress = virtualNowRef.current / duration;
+        
+        let simulatedPrice = targetCandle.open;
+        let simulatedHigh = targetCandle.open;
+        let simulatedLow = targetCandle.open;
+
+        if (progress < 0.33) {
+            const p = progress / 0.33;
+            simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
+            simulatedHigh = Math.max(targetCandle.open, simulatedPrice);
+            simulatedLow = Math.min(targetCandle.open, simulatedPrice);
+        } else if (progress < 0.66) {
+            const p = (progress - 0.33) / 0.33;
+            simulatedPrice = targetCandle.high - (targetCandle.high - targetCandle.low) * p;
+            simulatedHigh = targetCandle.high;
+            simulatedLow = Math.min(targetCandle.low, simulatedPrice);
+        } else {
+            const p = (progress - 0.66) / 0.34;
+            simulatedPrice = targetCandle.low + (targetCandle.close - targetCandle.low) * p;
+            simulatedHigh = targetCandle.high;
+            simulatedLow = targetCandle.low;
+        }
+
+        seriesRef.current.update({
+            time: (targetCandle.time / 1000) as Time,
+            open: targetCandle.open,
+            high: simulatedHigh,
+            low: simulatedLow,
+            close: simulatedPrice
+        });
+
+        currentTimeRef.current = targetCandle.time;
+        currentPriceRef.current = simulatedPrice;
+        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
+        
+        // Update Overlay State
+        setDisplayState({
+            price: simulatedPrice,
+            label: formatTimer(virtualNowRef.current, duration),
+            visible: true
+        });
+    }
+
+    requestRef.current = requestAnimationFrame(animate);
+  }, [isActive, fullData, onSyncState, onComplete, seriesRef, liveTimeRef, timeframe, formatTimer]);
+
+  // --- Initialization / Slice Logic ---
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
@@ -76,9 +209,17 @@ export const useAdvancedReplay = ({
           currentTimeRef.current = fullData[startIndex].time;
           currentPriceRef.current = fullData[startIndex].close;
           if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
+          
+          // Initial Overlay State
+          setDisplayState({
+              price: fullData[startIndex].close,
+              label: formatTimer(0, getTimeframeDuration(timeframe)),
+              visible: true
+          });
       }
+      
     } else {
-        // Restore full data
+        // RESTORE FULL DATA
         const fullSeriesData = fullData.map(d => ({
             time: (d.time / 1000) as Time,
             open: d.open,
@@ -87,119 +228,23 @@ export const useAdvancedReplay = ({
             close: d.close,
         }));
         seriesRef.current.setData(fullSeriesData);
+        setDisplayState(prev => ({ ...prev, visible: false }));
     }
-  }, [isActive, startIndex, fullData, seriesRef]);
+  }, [isActive, startIndex, fullData, seriesRef, timeframe, chartType, formatTimer]);
 
-  // Sync on Pause/Stop - MANDATE 15.2
+  // --- Sync on Pause/Stop ---
   useEffect(() => {
       if (!isPlaying && isActive && onSyncState && currentIndexRef.current !== startIndex) {
           onSyncState(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
+          
+          // Update label on pause
+          setDisplayState({
+              price: currentPriceRef.current,
+              label: formatTimer(virtualNowRef.current, getTimeframeDuration(timeframe)),
+              visible: true
+          });
       }
-  }, [isPlaying, isActive, onSyncState, startIndex]);
-
-  const animate = useCallback((time: number) => {
-    if (!isActive || !seriesRef.current || !fullData || fullData.length === 0) return;
-
-    // Initialize frame time
-    if (lastFrameTimeRef.current === 0) {
-      lastFrameTimeRef.current = time;
-      requestRef.current = requestAnimationFrame(animate);
-      return;
-    }
-
-    // MANDATE 0.9.2: Precision Loop
-    // Calculate Real-Time Delta using performance.now() (provided via RAF 'time')
-    const deltaTime = time - lastFrameTimeRef.current;
-    lastFrameTimeRef.current = time;
-    
-    // STRICT 1:1 Ratio. Ignore 'speed' prop.
-    // New ticks/candles are revealed only when the real-world clock advances.
-    const effectiveDelta = deltaTime; 
-    
-    virtualNowRef.current += effectiveDelta;
-
-    const currentIdx = currentIndexRef.current;
-    
-    if (currentIdx >= fullData.length) {
-        if (onComplete) onComplete();
-        return;
-    }
-
-    const targetCandle = fullData[currentIdx];
-    let duration = 60000; // Default fallback
-
-    if (currentIdx > 0) {
-        const prevTime = fullData[currentIdx - 1].time;
-        // Exact time difference as recorded in data timestamps
-        duration = targetCandle.time - prevTime;
-    }
-    
-    if (duration <= 0) duration = 60000;
-    
-    // Check if current virtual candle is complete based on Real-Time passage
-    if (virtualNowRef.current >= duration) {
-        // Commit the full candle
-        seriesRef.current.update({
-            time: (targetCandle.time / 1000) as Time,
-            open: targetCandle.open,
-            high: targetCandle.high,
-            low: targetCandle.low,
-            close: targetCandle.close
-        });
-        
-        const nextIndex = currentIdx + 1;
-        currentIndexRef.current = nextIndex;
-        // Carry over excess time to next candle to maintain precision
-        virtualNowRef.current = virtualNowRef.current - duration;
-        
-        // Store for deferred sync
-        currentTimeRef.current = targetCandle.time;
-        currentPriceRef.current = targetCandle.close;
-        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
-
-    } else {
-        // Interpolate within the candle
-        // This visualizes the "Tick" based on how much real time has passed
-        const progress = virtualNowRef.current / duration;
-        
-        let simulatedPrice = targetCandle.open;
-        let simulatedHigh = targetCandle.open;
-        let simulatedLow = targetCandle.open;
-
-        // Simple Tick Generation Logic (3-phase)
-        if (progress < 0.33) {
-            const p = progress / 0.33;
-            simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
-            simulatedHigh = Math.max(targetCandle.open, simulatedPrice);
-            simulatedLow = Math.min(targetCandle.open, simulatedPrice);
-        } else if (progress < 0.66) {
-            const p = (progress - 0.33) / 0.33;
-            simulatedPrice = targetCandle.high - (targetCandle.high - targetCandle.low) * p;
-            simulatedHigh = targetCandle.high;
-            simulatedLow = Math.min(targetCandle.low, simulatedPrice);
-        } else {
-            const p = (progress - 0.66) / 0.34;
-            simulatedPrice = targetCandle.low + (targetCandle.close - targetCandle.low) * p;
-            simulatedHigh = targetCandle.high;
-            simulatedLow = targetCandle.low;
-        }
-
-        seriesRef.current.update({
-            time: (targetCandle.time / 1000) as Time,
-            open: targetCandle.open,
-            high: simulatedHigh,
-            low: simulatedLow,
-            close: simulatedPrice
-        });
-
-        // Store for deferred sync
-        currentTimeRef.current = targetCandle.time;
-        currentPriceRef.current = simulatedPrice;
-        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
-    }
-
-    requestRef.current = requestAnimationFrame(animate);
-  }, [isActive, fullData, onSyncState, onComplete, seriesRef, liveTimeRef]);
+  }, [isPlaying, isActive, onSyncState, startIndex, formatTimer, timeframe]);
 
   // Start/Stop Loop
   useEffect(() => {
@@ -213,4 +258,6 @@ export const useAdvancedReplay = ({
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
   }, [isActive, isPlaying, animate]);
+
+  return { displayState };
 };

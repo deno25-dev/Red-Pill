@@ -65,7 +65,8 @@ function drawMeasureLabel(ctx: CanvasRenderingContext2D, x: number, y: number, l
     const rectW = maxWidth + padding * 2;
     const rectH = (lineHeight * lines.length) + padding;
     const rectX = x - rectW / 2;
-    const rectY = y - rectH / 2;
+    const rectH_half = rectH / 2;
+    const rectY = y - rectH_half;
     ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
     ctx.beginPath(); ctx.roundRect(rectX, rectY, rectW, rectH, 6); ctx.fill();
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
@@ -204,7 +205,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             target.fillStyle = isFilled ? d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)' : 'transparent';
             
             // ... (Rest of drawing logic: lines, shapes, etc. - Identical to previous) ...
-            // Simplified for brevity in update, but full content must be preserved
             if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') {
                 if (screenPoints.length < 2) { target.restore(); return; }
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
@@ -395,7 +395,7 @@ interface ChartProps {
   onReplaySync?: (index: number, time: number, price: number) => void;
   onReplayComplete?: () => void;
   isAdvancedReplay?: boolean; 
-  liveTimeRef?: React.MutableRefObject<number | null>; // NEW PROP
+  liveTimeRef?: React.MutableRefObject<number | null>; 
 
   trades?: Trade[];
   isDrawingSyncEnabled?: boolean;
@@ -436,7 +436,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     isMasterSyncActive = false
   } = props;
 
-  // ... (Keep existing refs and effects) ...
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
   const chartContainerRef = useRef<HTMLDivElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null); 
   const chartRef = useRef<IChartApi | null>(null); 
@@ -453,7 +452,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
   const { register, forceClear, registry } = useDrawingRegistry(chartRef, seriesRef);
 
-  // ... (Keep Cursor Guard Effect) ...
   useEffect(() => {
       const container = chartContainerRef.current;
       if (!container) return;
@@ -472,7 +470,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const visibleDrawingsRef = useRef(visibleDrawings);
   useEffect(() => { visibleDrawingsRef.current = visibleDrawings; }, [visibleDrawings]);
 
-  // ... (Keep Force Clear Listener) ...
   useEffect(() => {
     const handleForceClear = () => { forceClear(); setReinitCount(c => c + 1); };
     window.addEventListener('redpill-force-clear', handleForceClear);
@@ -489,10 +486,10 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     speed: replaySpeed,
     onSyncState: onReplaySync,
     onComplete: onReplayComplete,
-    liveTimeRef // Pass the ref
+    liveTimeRef 
   });
 
-  useAdvancedReplay({
+  const { displayState } = useAdvancedReplay({
     seriesRef,
     fullData,
     startIndex: replayIndex || 0,
@@ -501,11 +498,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onSyncState: onReplaySync,
     onComplete: onReplayComplete,
     isActive: isAdvancedReplay,
-    liveTimeRef // Pass the ref
+    liveTimeRef,
+    timeframe: timeframe as Timeframe,
+    chartType: config.chartType 
   });
 
-  // ... (Rest of Chart.tsx remains strictly identical) ...
-  const interactionState = useRef<{ isDragging: boolean; isCreating: boolean; dragDrawingId: string | null; dragHandleIndex: number | null; startPoint: { x: number; y: number } | null; creatingPoints: DrawingPoint[]; creationStep: number; activeToolId: string; initialDrawingPoints: DrawingPoint[] | null; draggedDrawingPoints: DrawingPoint[] | null; }>({ isDragging: false, isCreating: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: activeToolId, initialDrawingPoints: null, draggedDrawingPoints: null });
+  // Calculate dynamic position for the advanced replay overlay
+  // Ensure we round the coordinate to snap to pixel grid (avoids sub-pixel blurring)
+  const timerY = (isAdvancedReplay && displayState.visible && seriesRef.current) 
+      ? Math.round(seriesRef.current.priceToCoordinate(displayState.price) ?? 0)
+      : null;
+
+  // ... (Rest of Chart.tsx logic) ...
+  const interactionState = useRef<{ isDragging: boolean; isCreating: boolean; dragDrawingId: string | null; dragHandleIndex: number | null; startPoint: { x: number; y: number } | null; creatingPoints: DrawingPoint[]; creationStep: number; activeToolId: string; initialDrawingPoints: DrawingPoint[] | null; draggedDrawingPoints: DrawingPoint[] | null; }>({ isDragging: false, isCreating: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: propsRef.current.activeToolId, initialDrawingPoints: null, draggedDrawingPoints: null });
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
   useEffect(() => { const handleReset = () => { interactionState.current = { isDragging: false, isCreating: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: propsRef.current.activeToolId, initialDrawingPoints: null, draggedDrawingPoints: null }; setTextInputState(null); }; window.addEventListener('GLOBAL_ASSET_CHANGE', handleReset); return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleReset); }, []);
   const processedData = useMemo(() => { if (config.chartType === 'line' || config.chartType === 'area') { return data.map(d => ({ time: (d.time / 1000) as Time, value: d.close })); } return data.map(d => ({ time: (d.time / 1000) as Time, open: d.open, high: d.high, low: d.low, close: d.close })); }, [data, config.chartType]);
@@ -553,6 +558,34 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         onMouseUp={handleCanvasMouseUp}
       />
       
+      {/* --- Advanced Replay Overlay --- */}
+      {isAdvancedReplay && displayState.visible && timerY !== null && (
+          <div 
+            style={{ 
+              position: 'absolute', 
+              top: timerY - 9, // Vertically centered (height is approx 18px with padding)
+              right: '72px', // Adjusted to 72px to align flush with standard price scale
+              marginRight: '0px', 
+              zIndex: 20, 
+              pointerEvents: 'none',
+              borderRadius: '3px',
+              fontWeight: 500,
+              letterSpacing: '0.5px',
+              padding: '2px 5px',
+              backgroundColor: '#6b21a8',
+              color: 'white',
+              fontSize: '10px',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              minWidth: '40px',
+              textAlign: 'center',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.5)'
+            }}
+            className="flex items-center justify-center select-none"
+          >
+            {displayState.label}
+          </div>
+      )}
+
       {showScrollButton && (
           <button
             onClick={() => {

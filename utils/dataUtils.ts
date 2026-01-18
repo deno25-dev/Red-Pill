@@ -321,6 +321,11 @@ export const getTimeframeDuration = (timeframe: Timeframe): number => {
     return map[timeframe] || 60 * 1000;
 };
 
+// Helper to convert Timeframe strings to seconds
+export const getTimeframeSeconds = (timeframe: Timeframe): number => {
+    return getTimeframeDuration(timeframe) / 1000;
+};
+
 // Format ms duration to human readable
 export const formatDuration = (ms: number): string => {
     const absMs = Math.abs(ms);
