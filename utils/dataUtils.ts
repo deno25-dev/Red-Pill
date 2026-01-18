@@ -98,6 +98,36 @@ export const readChunk = async (fileSource: File | string, start: number, end: n
     throw new Error("Invalid file source for current environment");
 };
 
+// --- BINARY SEARCH UTILITY ---
+// Efficiently finds the index of a candle closest to or equal to the target timestamp.
+// Used for Replay synchronization during timeframe switches.
+export const findIndexForTimestamp = (data: OHLCV[], targetTime: number): number => {
+    if (!data || data.length === 0) return 0;
+    
+    // Optimization: Check boundaries
+    if (targetTime < data[0].time) return 0;
+    if (targetTime >= data[data.length - 1].time) return data.length - 1;
+
+    let low = 0;
+    let high = data.length - 1;
+    let result = 0;
+
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        if (data[mid].time <= targetTime) {
+            result = mid;
+            // Continue searching right to find the LATEST bar that is <= targetTime?
+            // Actually, for replay "state", we usually want the exact bar or the one immediately preceding the future.
+            // If data[mid].time <= target, it's a valid candidate for "current playback position".
+            // We move low up to see if there is a later bar that is still <= target.
+            low = mid + 1; 
+        } else {
+            high = mid - 1;
+        }
+    }
+    return result;
+};
+
 // --- DATA SANITIZER ---
 
 export const sanitizeData = (

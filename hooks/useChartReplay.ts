@@ -11,6 +11,7 @@ interface UseChartReplayProps {
   speed: number;
   onSyncState?: (index: number, time: number, price: number) => void;
   onComplete?: () => void;
+  liveTimeRef?: React.MutableRefObject<number | null>; // New Prop for live tracking
 }
 
 export const useChartReplay = ({
@@ -20,7 +21,8 @@ export const useChartReplay = ({
   isPlaying,
   speed,
   onSyncState,
-  onComplete
+  onComplete,
+  liveTimeRef
 }: UseChartReplayProps) => {
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -32,7 +34,7 @@ export const useChartReplay = ({
   const currentIndexRef = useRef<number>(startIndex);
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
-
+  
   // State Tracking for Pause Logic
   const prevStartIndexRef = useRef<number | null>(null);
   const prevDataRef = useRef<OHLCV[] | null>(null);
@@ -62,7 +64,7 @@ export const useChartReplay = ({
     // MANDATE 16 & 23 FIX: 
     // If data changes (e.g. timeframe switch), we MUST re-initialize the buffer immediately,
     // even if playing. If only index changes (user seek), we only re-init if paused.
-    const shouldInit = dataChanged || (!isPlaying && indexChanged);
+    const shouldInit = dataChanged || (!isPlaying && indexChanged) || (isPlaying && indexChanged && dataChanged);
 
     if (shouldInit) {
         // Update trackers
@@ -91,9 +93,6 @@ export const useChartReplay = ({
         }
         
         // 4. RESET CURSOR
-        // This satisfies the requirement: "update the bufferCursorRef to that index immediately"
-        // Since we rebuilt the buffer starting exactly after the Cut (startIndex), 
-        // the cursor (offset) is 0.
         bufferCursorRef.current = 0;
         lastFrameTimeRef.current = 0;
         currentIndexRef.current = startIndex;
@@ -102,13 +101,15 @@ export const useChartReplay = ({
         if (fullData[startIndex]) {
             currentTimeRef.current = fullData[startIndex].time;
             currentPriceRef.current = fullData[startIndex].close;
+            // Sync live time immediately on init so it's available even if paused
+            if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
         }
     } else if (isPlaying) {
         // If playing without data change (just continuing), keep trackers synced
         prevStartIndexRef.current = startIndex;
         prevDataRef.current = fullData;
     }
-  }, [fullData, startIndex, isPlaying, seriesRef]); 
+  }, [fullData, startIndex, isPlaying, seriesRef, liveTimeRef]); 
 
   // Sync on Pause/Stop - MANDATE 15.2 State Deferral
   useEffect(() => {
@@ -156,6 +157,7 @@ export const useChartReplay = ({
                 currentIndexRef.current = startIndex + 1 + i;
                 currentTimeRef.current = candle.time;
                 currentPriceRef.current = candle.close;
+                if (liveTimeRef) liveTimeRef.current = candle.time;
             }
         }
     }
@@ -196,6 +198,7 @@ export const useChartReplay = ({
         
         // Update refs for interpolation
         currentPriceRef.current = simulatedPrice;
+        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
     }
 
     if (floorNext >= replayBufferRef.current.length) {
@@ -208,10 +211,8 @@ export const useChartReplay = ({
         return;
     }
 
-    // Do NOT call onSyncState here (State Deferral)
-
     requestRef.current = requestAnimationFrame(animate);
-  }, [speed, onComplete, onSyncState, seriesRef, fullData, startIndex]);
+  }, [speed, onComplete, onSyncState, seriesRef, fullData, startIndex, liveTimeRef]);
 
   // Start/Stop Loop
   useEffect(() => {

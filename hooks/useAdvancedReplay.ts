@@ -12,6 +12,7 @@ interface UseAdvancedReplayProps {
   onSyncState?: (index: number, time: number, price: number) => void;
   onComplete?: () => void;
   isActive: boolean; // Flag to enable/disable this specific hook
+  liveTimeRef?: React.MutableRefObject<number | null>; // New Prop
 }
 
 export const useAdvancedReplay = ({
@@ -22,7 +23,8 @@ export const useAdvancedReplay = ({
   speed,
   onSyncState,
   onComplete,
-  isActive
+  isActive,
+  liveTimeRef
 }: UseAdvancedReplayProps) => {
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -32,7 +34,7 @@ export const useAdvancedReplay = ({
   const currentIndexRef = useRef<number>(startIndex);
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
-
+  
   // NUCLEAR RESET LISTENER
   useEffect(() => {
     const handleGlobalReset = () => {
@@ -73,6 +75,7 @@ export const useAdvancedReplay = ({
       if (fullData[startIndex]) {
           currentTimeRef.current = fullData[startIndex].time;
           currentPriceRef.current = fullData[startIndex].close;
+          if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
       }
     } else {
         // Restore full data
@@ -152,6 +155,7 @@ export const useAdvancedReplay = ({
         // Store for deferred sync
         currentTimeRef.current = targetCandle.time;
         currentPriceRef.current = targetCandle.close;
+        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
 
     } else {
         // Interpolate within the candle
@@ -191,10 +195,11 @@ export const useAdvancedReplay = ({
         // Store for deferred sync
         currentTimeRef.current = targetCandle.time;
         currentPriceRef.current = simulatedPrice;
+        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [isActive, fullData, onSyncState, onComplete, seriesRef]); // Removed `speed` dependency
+  }, [isActive, fullData, onSyncState, onComplete, seriesRef, liveTimeRef]);
 
   // Start/Stop Loop
   useEffect(() => {

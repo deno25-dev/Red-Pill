@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './Toolbar';
 import { Sidebar } from './Sidebar';
 import { FilePanel } from './FilePanel';
@@ -14,7 +14,7 @@ import { SplashController } from './SplashController';
 import { StickyNoteOverlay } from './StickyNoteOverlay';
 import { DatabaseBrowser } from './DatabaseBrowser';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from '../types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive } from '../utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from '../utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './DeveloperTools';
@@ -110,6 +110,18 @@ const App: React.FC = () => {
   // Dev Diagnostic States
   const [lastError, setLastError] = useState<string | null>(null);
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
+
+  // Replay Time Refs (Mandate: Timestamp-Anchored Replay)
+  // This mutable map tracks the current live timestamp of each running replay engine.
+  const replayTimeRefs = useRef<Record<string, React.MutableRefObject<number | null>>>({});
+
+  // Helper to ensure ref exists
+  const getReplayTimeRef = (id: string) => {
+      if (!replayTimeRefs.current[id]) {
+          replayTimeRefs.current[id] = { current: null };
+      }
+      return replayTimeRefs.current[id];
+  };
 
   // Electron File System Hook
   const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase } = useFileSystem();
@@ -637,7 +649,7 @@ const App: React.FC = () => {
       };
   };
 
-  const startFileStream = useCallback(async (fileSource: File | any, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null }) => {
+  const startFileStream = useCallback(async (fileSource: File | any, fileName: string, targetTabId?: string, forceTimeframe?: Timeframe, preservedReplay?: { isReplayMode: boolean, isAdvancedReplayMode: boolean, replayGlobalTime: number | null, isReplayPlaying: boolean }) => {
       window.dispatchEvent(new CustomEvent('GLOBAL_ASSET_CHANGE'));
       
       setLoading(true);
@@ -676,23 +688,68 @@ const App: React.FC = () => {
           
           debugLog('Data', `Sanitization Report for ${displayTitle}`, sanitizationReport);
 
-          const displayData = resampleData(cleanRawData, initialTf);
+          // --- BUFFER MANAGEMENT: Load history loop ---
+          let currentRaw = cleanRawData;
+          let currentFileState = {
+              file: (actualSource instanceof File) ? actualSource : null,
+              path: (typeof actualSource === 'string') ? actualSource : undefined,
+              cursor: cursor,
+              leftover: leftover,
+              isLoading: false,
+              hasMore: cursor > 0,
+              fileSize
+          };
 
-          let replayIndex = displayData.length - 1;
           if (preservedReplay?.replayGlobalTime) {
-              let idx = -1;
-              for(let i = displayData.length - 1; i >= 0; i--) {
-                  if (displayData[i].time <= preservedReplay.replayGlobalTime) {
-                      idx = i;
+              const target = preservedReplay.replayGlobalTime;
+              let attempts = 0;
+              const MAX_ATTEMPTS = 5; // Prevent infinite loop, load up to 10MB extra
+              
+              // While we have more data on disk AND the oldest loaded point is still NEWER than our target
+              while (
+                  currentFileState.hasMore && 
+                  currentRaw.length > 0 && 
+                  currentRaw[0].time > target && 
+                  attempts < MAX_ATTEMPTS
+              ) {
+                  const chunkRes = await loadPreviousChunk({ filePath } as any, currentFileState);
+                  if (chunkRes) {
+                      const { newPoints, newCursor, newLeftover, hasMore } = chunkRes;
+                      // Sanitize new chunk
+                      const { data: cleanNew } = sanitizeData(newPoints, tfMs);
+                      
+                      // Prepend and sort (inefficient but safe)
+                      const combined = [...cleanNew, ...currentRaw];
+                      combined.sort((a,b) => a.time - b.time);
+                      
+                      // Simple dedupe on time
+                      const unique: OHLCV[] = [];
+                      if(combined.length > 0) {
+                          unique.push(combined[0]);
+                          for(let i=1; i<combined.length; i++) {
+                              if(combined[i].time !== combined[i-1].time) unique.push(combined[i]);
+                          }
+                      }
+                      
+                      currentRaw = unique;
+                      currentFileState = { ...currentFileState, cursor: newCursor, leftover: newLeftover, hasMore };
+                      debugLog('Replay', `Buffer: Loaded extra chunk to reach ${new Date(target).toISOString()}. Range: ${new Date(currentRaw[0].time).toISOString()} - ${new Date(currentRaw[currentRaw.length-1].time).toISOString()}`);
+                  } else {
                       break;
                   }
+                  attempts++;
               }
-              
-              if (idx !== -1) {
-                  replayIndex = idx;
-              } else {
-                  replayIndex = 0;
-              }
+          }
+
+          const displayData = resampleData(currentRaw, initialTf);
+
+          // --- RESYNC LOGIC: Find Index by Timestamp ---
+          let replayIndex = displayData.length - 1;
+          if (preservedReplay?.replayGlobalTime) {
+              // Binary Search for precise or nearest previous timestamp
+              const idx = findIndexForTimestamp(displayData, preservedReplay.replayGlobalTime);
+              replayIndex = idx;
+              debugLog('Replay', `Resync: Found target time at index ${idx}`);
           }
 
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
@@ -701,25 +758,17 @@ const App: React.FC = () => {
               title: displayTitle,
               symbolId: getSymbolId(displayTitle),
               sourceId: sourceId,
-              rawData: cleanRawData,
+              rawData: currentRaw,
               data: displayData,
               timeframe: initialTf,
               filePath: filePath,
-              fileState: {
-                  file: (actualSource instanceof File) ? actualSource : null,
-                  path: (typeof actualSource === 'string') ? actualSource : undefined,
-                  cursor: cursor,
-                  leftover: leftover,
-                  isLoading: false,
-                  hasMore: cursor > 0,
-                  fileSize
-              },
+              fileState: currentFileState,
               replayIndex: replayIndex,
-              isReplayPlaying: false,
+              isReplayPlaying: preservedReplay?.isReplayPlaying ?? false, // Seamless Resume
               isReplayMode: preservedReplay?.isReplayMode ?? false,
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
               replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              visibleRange: null
+              visibleRange: null // Reset view on new data load
           };
 
           const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
@@ -741,7 +790,6 @@ const App: React.FC = () => {
                   
                   if (shouldUpdate) {
                       const isSameSource = t.sourceId === sourceId;
-                      
                       return {
                           ...t,
                           ...baseUpdates,
@@ -758,7 +806,7 @@ const App: React.FC = () => {
               setLayoutTabIds([tabIdToUpdate]);
           }
           
-          debugLog('Data', `File stream started successfully. Records: ${cleanRawData.length}`);
+          debugLog('Data', `File stream started successfully. Records: ${currentRaw.length}`);
 
       } catch (e: any) {
           console.error("Error starting stream:", e);
@@ -843,10 +891,23 @@ const App: React.FC = () => {
         const targetTab = tabs.find(t => t.id === targetId);
         if (!targetTab) return;
 
+        // TIMESTAMP-ANCHORED REPLAY LOGIC
+        // If playing, prefer the live ref value. If paused, use the state value.
+        let currentReplayTime = targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null);
+        
+        if (targetTab.isReplayPlaying) {
+            const liveRef = getReplayTimeRef(targetId);
+            if (liveRef.current !== null) {
+                currentReplayTime = liveRef.current;
+                debugLog('Replay', `Captured LIVE replay timestamp: ${new Date(currentReplayTime).toISOString()}`);
+            }
+        }
+
         const preservedReplay = {
             isReplayMode: targetTab.isReplayMode,
             isAdvancedReplayMode: targetTab.isAdvancedReplayMode,
-            replayGlobalTime: targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null)
+            isReplayPlaying: targetTab.isReplayPlaying, // Capture Playing Status
+            replayGlobalTime: currentReplayTime
         };
 
         const electron = (window as any).electronAPI;
@@ -861,6 +922,7 @@ const App: React.FC = () => {
 
         let matchingFileHandle = findFileForTimeframe(searchList, targetTab.title, tf);
         
+        // FILE SWITCH PATH: Different source file (e.g. 1h.csv -> 5m.csv)
         if (matchingFileHandle) {
             try {
                 let file, name;
@@ -880,6 +942,7 @@ const App: React.FC = () => {
             return; 
         }
 
+        // RESAMPLE PATH: Same source, different resolution
         const resampled = resampleData(targetTab.rawData, tf);
         
         let newReplayIndex = resampled.length - 1;
@@ -887,19 +950,10 @@ const App: React.FC = () => {
 
         if (preservedReplay.isReplayMode || preservedReplay.isAdvancedReplayMode) {
             if (newGlobalTime) {
-                let idx = -1;
-                for(let i = resampled.length - 1; i >= 0; i--) {
-                    if (resampled[i].time <= newGlobalTime) {
-                        idx = i;
-                        break;
-                    }
-                }
-                
-                if (idx !== -1) {
-                    newReplayIndex = idx;
-                } else {
-                    newReplayIndex = 0;
-                }
+                // Use Binary Search for Resync
+                const idx = findIndexForTimestamp(resampled, newGlobalTime);
+                newReplayIndex = idx;
+                debugLog('Replay', `Resampled Resync: Index ${idx} for time ${new Date(newGlobalTime).toISOString()}`);
             }
         } else {
             newGlobalTime = null;
@@ -912,7 +966,8 @@ const App: React.FC = () => {
           replayGlobalTime: newGlobalTime, 
           simulatedPrice: null,
           isReplayMode: preservedReplay.isReplayMode,
-          isAdvancedReplayMode: preservedReplay.isAdvancedReplayMode
+          isAdvancedReplayMode: preservedReplay.isAdvancedReplayMode,
+          isReplayPlaying: preservedReplay.isReplayPlaying // Resume Playback if was playing
         });
     });
   };
@@ -1381,6 +1436,7 @@ const App: React.FC = () => {
                         isHydrating={loading || isHydrating}
                         isMasterSyncActive={isMasterSyncActive}
                         onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
+                        liveTimeRef={getReplayTimeRef(activeTab.id)}
                     />
                 )}
             </div>
@@ -1435,6 +1491,7 @@ const App: React.FC = () => {
                             isHydrating={isHydrating && tab.id === activeTabId}
                             isMasterSyncActive={isMasterSyncActive}
                             onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
+                            liveTimeRef={getReplayTimeRef(tab.id)}
                         />
                     </div>
                 );

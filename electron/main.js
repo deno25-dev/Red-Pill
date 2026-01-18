@@ -9,9 +9,14 @@ let watcher = null;
 // --- INTERNAL LIBRARY STORAGE (BOOT CACHE) ---
 let internalLibraryStorage = [];
 
+// --- HELPER: ROOT PATH ---
+const getRootPath = () => {
+    return app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+};
+
 // --- STORAGE INITIALIZATION (Mandate 0.31) ---
 const initializeDatabase = () => {
-    const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    const rootPath = getRootPath();
     const dbPath = path.join(rootPath, 'Database');
     // Mandate 0.33: Added 'Trades' to subfolders
     const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades'];
@@ -156,7 +161,7 @@ const runBootScan = () => {
 // --- System Shell Handlers ---
 ipcMain.handle('shell:open-folder', async (event, subpath) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const root = getRootPath();
         const fullPath = subpath ? path.join(root, subpath) : root;
         // shell.openPath returns error string if failed, or empty string if success
         const error = await shell.openPath(fullPath);
@@ -175,8 +180,11 @@ ipcMain.handle('shell:open-folder', async (event, subpath) => {
 
 ipcMain.handle('storage:save-object-tree', async (event, data) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
-        const p = path.join(root, 'Database', 'ObjectTree', 'tree_state.json');
+        const root = getRootPath();
+        const dir = path.join(root, 'Database', 'ObjectTree');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        
+        const p = path.join(dir, 'tree_state.json');
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
@@ -188,15 +196,16 @@ ipcMain.handle('storage:save-object-tree', async (event, data) => {
 ipcMain.handle('storage:save-drawing', async (event, symbol, data) => {
     try {
         // MANDATE 0.30: Backend Safety Interlock
-        // Prevent writing to CSV even if frontend check failed
         if (symbol.toLowerCase().endsWith('.csv') || symbol.toLowerCase().endsWith('.txt')) {
             throw new Error("Safety Interlock: Cannot use source extension as persistence key");
         }
 
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
-        // Sanitize symbol for safe filename (replace slashes, colons etc)
+        const root = getRootPath();
+        const dir = path.join(root, 'Database', 'Drawings');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
         const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
-        const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
+        const p = path.join(dir, `${safeSymbol}.json`);
         
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
@@ -208,7 +217,7 @@ ipcMain.handle('storage:save-drawing', async (event, symbol, data) => {
 
 ipcMain.handle('storage:load-drawing', async (event, symbol) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const root = getRootPath();
         const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
         const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
         
@@ -226,8 +235,12 @@ ipcMain.handle('storage:load-drawing', async (event, symbol) => {
 // --- SETTINGS STORAGE (UI LAYOUT) ---
 ipcMain.handle('storage:save-settings', async (event, filename, data) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
-        const p = path.join(root, 'Database', 'Settings', filename);
+        const root = getRootPath();
+        const dir = path.join(root, 'Database', 'Settings');
+        // Atomic Write Guarantee
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        
+        const p = path.join(dir, filename);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
@@ -238,7 +251,7 @@ ipcMain.handle('storage:save-settings', async (event, filename, data) => {
 
 ipcMain.handle('storage:load-settings', async (event, filename) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const root = getRootPath();
         const p = path.join(root, 'Database', 'Settings', filename);
         if (fs.existsSync(p)) {
             return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
@@ -251,26 +264,36 @@ ipcMain.handle('storage:load-settings', async (event, filename) => {
 });
 
 ipcMain.handle('storage:list-layouts', async () => {
-    const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
-    const settingsPath = path.join(rootPath, 'Database', 'Settings');
-    
     try {
-        if (!fs.existsSync(settingsPath)) return [];
+        const rootPath = getRootPath();
+        const settingsPath = path.join(rootPath, 'Database', 'Settings');
+        
+        if (!fs.existsSync(settingsPath)) {
+            // If it doesn't exist, return empty, don't crash
+            return { success: true, data: [] };
+        }
+        
         const files = fs.readdirSync(settingsPath);
-        return files.filter(f => f.endsWith('.json')).map(f => ({
+        const data = files.filter(f => f.endsWith('.json')).map(f => ({
             filename: f,
             path: path.join(settingsPath, f)
         }));
+        return { success: true, data };
     } catch (e) {
-        return [];
+        console.error('Failed to list layouts:', e);
+        return { success: false, error: e.message };
     }
 });
 
 // --- STICKY NOTES PERSISTENCE (Mandate 4.4) ---
 ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
-        const p = path.join(root, 'Database', 'Workspaces', 'sticky_notes.json');
+        const root = getRootPath();
+        const dir = path.join(root, 'Database', 'Workspaces');
+        // Atomic Write Guarantee
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        
+        const p = path.join(dir, 'sticky_notes.json');
         fs.writeFileSync(p, JSON.stringify(notes, null, 2));
         return { success: true };
     } catch (e) {
@@ -281,7 +304,7 @@ ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
 
 ipcMain.handle('storage:load-sticky-notes', async (event) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const root = getRootPath();
         const p = path.join(root, 'Database', 'Workspaces', 'sticky_notes.json');
         if (fs.existsSync(p)) {
             return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
@@ -300,7 +323,7 @@ ipcMain.handle('get-user-data-path', async () => {
 });
 
 ipcMain.handle('get-database-path', async () => {
-    const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    const root = getRootPath();
     return path.join(root, 'Database');
 });
 
@@ -370,7 +393,7 @@ ipcMain.handle('drawings:get-state', async () => {
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
     try {
-        const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+        const root = getRootPath();
         const safeSymbol = sourceId.replace(/[^a-z0-9_\-\.]/gi, '_');
         const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
         
@@ -462,7 +485,7 @@ ipcMain.handle('master-drawings:save', async (event, data) => {
 
 // --- Trade Persistence (Mandate 0.33) ---
 const getTradesLedgerPath = () => {
-    const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    const rootPath = getRootPath();
     return path.join(rootPath, 'Database', 'Trades', 'ledger.json');
 };
 
@@ -480,6 +503,9 @@ const readTradesLedger = () => {
 
 const appendTradeToLedger = (trade) => {
     const dbPath = getTradesLedgerPath();
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    
     let trades = readTradesLedger();
     trades.push(trade);
     fs.writeFileSync(dbPath, JSON.stringify(trades, null, 2));

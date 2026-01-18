@@ -27,18 +27,18 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                 }
                 else if (mode === 'layouts') {
                     if (electron.listLayouts) {
-                        res = await electron.listLayouts(); // Expects array of objects { filename, ... }
+                        res = await electron.listLayouts(); // Expects { success: true, data: [...] }
                     }
                     else throw new Error("listLayouts API not available");
                 }
                 
-                // Handle response formats (Standard wrapper vs Direct array)
+                // Handle response formats
                 if (res && res.success !== false) {
                     const payload = res.data !== undefined ? res.data : res;
                     setData(payload);
                 } else {
                     setData(null);
-                    setError("Failed to load data from backend.");
+                    setError(res?.error || "Failed to load data from backend.");
                 }
             } else {
                 setError("Electron API unavailable. Cannot access local database.");
@@ -69,14 +69,14 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                     // 3. Reload
                     window.location.reload(); 
                 } else {
-                    alert("Failed to load selected layout file.");
+                    alert(`Failed to load selected layout file: ${loaded?.error || 'Unknown error'}`);
                 }
             } catch (e) {
                 alert("Error restoring layout.");
             }
         } else if (mode === 'notes') {
             // Logic to highlight/focus note could go here
-            // For now just close browser
+            // For now just close browser to show notes overlay
             onClose();
         }
     };

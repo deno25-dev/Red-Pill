@@ -1,5 +1,5 @@
 
-export type LogCategory = 'Data' | 'Network' | 'Auth' | 'UI' | 'Perf';
+export type LogCategory = 'Data' | 'Network' | 'Auth' | 'UI' | 'Perf' | 'Replay';
 
 export interface LogEntry {
   id: string;
@@ -56,6 +56,7 @@ function getCategoryColor(cat: LogCategory): string {
     case 'Auth': return '#ef4444'; // Red
     case 'UI': return '#a855f7'; // Purple
     case 'Perf': return '#10b981'; // Emerald
+    case 'Replay': return '#f97316'; // Orange
     default: return '#94a3b8';
   }
 }

@@ -156,6 +156,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
               log.category === 'Network' ? 'text-yellow-400' :
               log.category === 'Data' ? 'text-blue-400' :
               log.category === 'Auth' ? 'text-red-400' :
+              log.category === 'Replay' ? 'text-orange-400' :
               'text-emerald-400'
             }`}>
               {log.category}
