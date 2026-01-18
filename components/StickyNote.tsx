@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-    Trash2, 
+    X, 
     GripVertical, 
     Type, 
     PenTool, 
@@ -288,13 +288,13 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         {isSavedVisual ? <CheckCircle2 size={12} /> : <Save size={12} />}
                     </button>
 
-                    {/* Delete */}
+                    {/* Close (Delete) */}
                     <button 
                         onClick={handleDelete}
                         className="p-1 rounded hover:bg-red-500/20 hover:text-red-600 transition-colors"
-                        title="Delete Note"
+                        title="Close Note"
                     >
-                        <Trash2 size={12} />
+                        <X size={12} />
                     </button>
                 </div>
             </div>
