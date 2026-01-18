@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './Toolbar';
 import { Sidebar } from './Sidebar';
@@ -81,7 +80,7 @@ const App: React.FC = () => {
   // Settings Dialogs State
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
   const [isBackgroundSettingsOpen, setIsBackgroundSettingsOpen] = useState(false);
-  const [isLatestAddOpen, setIsLatestAddOpen] = useState(false);
+  const [isLatestAddOpen, setIsLatestAddOpen] = useState(true);
   const [isChangelogEditorOpen, setIsChangelogEditorOpen] = useState(false);
 
   // Tools & Favorites State
@@ -118,7 +117,7 @@ const App: React.FC = () => {
       addNote: addStickyNote, 
       updateNote: updateStickyNote, 
       removeNote: removeStickyNote, 
-      toggleVisibility: toggleStickyNotes,
+      toggleVisibility: toggleStickyNotes, 
       bringToFront: bringStickyNoteToFront
   } = useStickyNotes();
 
@@ -1438,7 +1437,7 @@ const App: React.FC = () => {
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
                         onOpenChangelogEditor={() => {
-                            debugLog('UI', 'Toggling Changelog Editor');
+                            console.log('Opening Changelog');
                             setIsChangelogEditorOpen(true);
                         }}
                     />
@@ -1455,16 +1454,6 @@ const App: React.FC = () => {
                         onClose={() => setIsBackgroundSettingsOpen(false)}
                         config={activeTab.config}
                         onUpdateConfig={(updates: Partial<ChartConfig>) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
-                    />
-
-                    <LatestAdditionsDialog 
-                        isOpen={isLatestAddOpen} 
-                        onClose={() => setIsLatestAddOpen(false)} 
-                    />
-
-                    <ChangelogEditor 
-                        isOpen={isChangelogEditorOpen}
-                        onClose={() => setIsChangelogEditorOpen(false)}
                     />
                     
                     <AssetLibrary
@@ -1638,6 +1627,22 @@ const App: React.FC = () => {
 
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-app-bg">
+        {/* 1. RENDER PANELS FIRST AT ROOT LEVEL */}
+        {(() => { console.log('Rendering Overlays:', { isLatestAddOpen, isChangelogEditorOpen }); return null; })()}
+        {isLatestAddOpen && (
+            <LatestAdditionsDialog 
+                isOpen={isLatestAddOpen} 
+                onClose={() => setIsLatestAddOpen(false)} 
+            />
+        )}
+        {isChangelogEditorOpen && (
+            <ChangelogEditor 
+                isOpen={isChangelogEditorOpen}
+                onClose={() => setIsChangelogEditorOpen(false)} 
+            />
+        )}
+
+        {/* 2. MAIN APP CONTENT */}
         {renderContent()}
     </div>
   );

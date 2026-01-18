@@ -105,7 +105,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
 
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({
     color: COLORS.line,
-    lineWidth: 2,
+    lineWidth: 1,
     lineStyle: 'solid',
     filled: false,
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
