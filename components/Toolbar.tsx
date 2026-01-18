@@ -1,4 +1,3 @@
-
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -71,7 +70,6 @@ interface ToolbarProps {
   isTimeSync?: boolean;
   onOpenCandleSettings?: () => void;
   onOpenBackgroundSettings?: () => void;
-  onOpenLatestAdd?: () => void;
   tickerSymbol?: string;
   tickerPrice?: number;
   tickerPrevPrice?: number;
@@ -118,7 +116,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isTimeSync,
   onOpenCandleSettings,
   onOpenBackgroundSettings,
-  onOpenLatestAdd,
   tickerSymbol,
   tickerPrice,
   tickerPrevPrice,
@@ -520,7 +517,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <button 
                         onClick={() => { 
                             setIsSettingsOpen(false); 
-                            setTimeout(() => onOpenLatestAdd?.(), 0);
+                            window.dispatchEvent(new CustomEvent('OPEN_CHANGELOG'));
                         }}
                         className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"
                     >

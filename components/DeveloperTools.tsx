@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -8,14 +7,12 @@ interface DeveloperToolsProps {
   activeDataSource: string;
   lastError: string | null;
   chartRenderTime: number | null;
-  onOpenChangelogEditor?: () => void;
 }
 
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
-  chartRenderTime,
-  onOpenChangelogEditor
+  chartRenderTime
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -174,7 +171,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
           Report
         </button>
         <button 
-          onClick={onOpenChangelogEditor}
+          onClick={() => window.dispatchEvent(new CustomEvent('OPEN_CHANGELOG_EDITOR'))}
           className="flex items-center justify-center gap-1 bg-purple-900/30 hover:bg-purple-800/50 text-purple-400 py-2 px-2 rounded border border-purple-800 transition-colors uppercase text-[10px] font-bold tracking-wider"
           title="Edit Changelog Data"
         >

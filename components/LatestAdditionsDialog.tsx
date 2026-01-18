@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { X, Sparkles } from 'lucide-react';
 
@@ -20,16 +19,28 @@ export const LatestAdditionsDialog: React.FC<LatestAdditionsDialogProps> = ({ is
   if (!isOpen) return null;
 
   return (
+    // 1. OUTER OVERLAY: Hardcoded high z-index and flex centering
     <div 
-        className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+        style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999, // Guarantees it sits on top
+            backgroundColor: 'rgba(0, 0, 0, 0.6)', // Standard dark overlay
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+        }}
         onClick={onClose}
-        style={{ zIndex: 9999 }} // High z-index, but standard
     >
+      {/* 2. MODAL CARD: Simple relative positioning */}
       <div 
-        className="w-full max-w-md bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-md bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl flex flex-col"
         onClick={e => e.stopPropagation()}
+        style={{ position: 'relative', maxHeight: '80vh' }}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155] bg-[#0f172a]">
+        {/* HEADER */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155] bg-[#0f172a] rounded-t-xl">
            <div className="flex items-center gap-3">
               <div className="p-2 bg-purple-500/20 rounded-lg">
                 <Sparkles size={20} className="text-purple-400" />
@@ -41,16 +52,18 @@ export const LatestAdditionsDialog: React.FC<LatestAdditionsDialogProps> = ({ is
            </button>
         </div>
 
-        <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar bg-[#1e293b]">
+        {/* CONTENT AREA */}
+        <div className="p-6 overflow-y-auto custom-scrollbar bg-[#1e293b]">
             <p className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
                 {content}
             </p>
         </div>
         
-        <div className="p-4 bg-[#0f172a] border-t border-[#334155] text-center">
+        {/* FOOTER */}
+        <div className="p-4 bg-[#0f172a] border-t border-[#334155] text-center rounded-b-xl">
             <button 
                 onClick={onClose}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-blue-900/20"
+                className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg"
             >
                 Close
             </button>

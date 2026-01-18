@@ -8,8 +8,6 @@ import { Popout } from './Popout';
 import { TradingPanel } from './TradingPanel';
 import { CandleSettingsDialog } from './CandleSettingsDialog';
 import { BackgroundSettingsDialog } from './BackgroundSettingsDialog';
-import { LatestAdditionsDialog } from './LatestAdditionsDialog';
-import { ChangelogEditor } from './ChangelogEditor';
 import { AssetLibrary } from './AssetLibrary';
 import { SplashController } from './SplashController';
 import { StickyNoteOverlay } from './StickyNoteOverlay';
@@ -80,8 +78,6 @@ const App: React.FC = () => {
   // Settings Dialogs State
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
   const [isBackgroundSettingsOpen, setIsBackgroundSettingsOpen] = useState(false);
-  const [isLatestAddOpen, setIsLatestAddOpen] = useState(true);
-  const [isChangelogEditorOpen, setIsChangelogEditorOpen] = useState(false);
 
   // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
@@ -1436,10 +1432,6 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
-                        onOpenChangelogEditor={() => {
-                            console.log('Opening Changelog');
-                            setIsChangelogEditorOpen(true);
-                        }}
                     />
 
                     <CandleSettingsDialog 
@@ -1506,7 +1498,6 @@ const App: React.FC = () => {
                         isLayersOpen={isLayersPanelOpen}
                         onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
                         onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
-                        onOpenLatestAdd={() => setIsLatestAddOpen(true)}
                         tickerSymbol={currentSymbolName}
                         tickerPrice={currentPrice}
                         tickerPrevPrice={prevPrice}
@@ -1627,22 +1618,6 @@ const App: React.FC = () => {
 
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-app-bg">
-        {/* 1. RENDER PANELS FIRST AT ROOT LEVEL */}
-        {(() => { console.log('Rendering Overlays:', { isLatestAddOpen, isChangelogEditorOpen }); return null; })()}
-        {isLatestAddOpen && (
-            <LatestAdditionsDialog 
-                isOpen={isLatestAddOpen} 
-                onClose={() => setIsLatestAddOpen(false)} 
-            />
-        )}
-        {isChangelogEditorOpen && (
-            <ChangelogEditor 
-                isOpen={isChangelogEditorOpen}
-                onClose={() => setIsChangelogEditorOpen(false)} 
-            />
-        )}
-
-        {/* 2. MAIN APP CONTENT */}
         {renderContent()}
     </div>
   );
