@@ -701,7 +701,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             <span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span>
             </div>
             <div className="flex items-center gap-4">
-               <span className="hidden md:inline text-slate-600">Red Pill Charting v1.0.0 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
+               <span className="hidden md:inline text-slate-600">Red Pill Charting v1.2.5 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
                <div className="w-px h-3 bg-slate-700 hidden md:block"></div>
                <span className="font-mono text-slate-400 flex items-center gap-2">
                    <span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span>

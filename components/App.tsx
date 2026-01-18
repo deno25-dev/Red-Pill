@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './Toolbar';
 import { Sidebar } from './Sidebar';
@@ -11,8 +12,9 @@ import { BackgroundSettingsDialog } from './BackgroundSettingsDialog';
 import { AssetLibrary } from './AssetLibrary';
 import { SplashController } from './SplashController';
 import { StickyNoteOverlay } from './StickyNoteOverlay';
+import { DatabaseBrowser } from './DatabaseBrowser';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from '../types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from '../utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive } from '../utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './DeveloperTools';
@@ -79,6 +81,10 @@ const App: React.FC = () => {
   const [isCandleSettingsOpen, setIsCandleSettingsOpen] = useState(false);
   const [isBackgroundSettingsOpen, setIsBackgroundSettingsOpen] = useState(false);
 
+  // Database Browser State
+  const [isDbBrowserOpen, setIsDbBrowserOpen] = useState(false);
+  const [dbMode, setDbMode] = useState<'notes' | 'layouts'>('notes');
+
   // Tools & Favorites State
   const [activeToolId, setActiveToolId] = useState<string>('cross');
   const [favoriteTools, setFavoriteTools] = useState<string[]>(['trend_line', 'rectangle']);
@@ -98,6 +104,8 @@ const App: React.FC = () => {
   // Data Explorer (Files in the ad-hoc panel) - MANUAL
   const [explorerFiles, setExplorerFiles] = useState<any[]>([]);
   const [explorerFolderName, setExplorerFolderName] = useState<string>('');
+  const [filePanelOverride, setFilePanelOverride] = useState<{files: any[], path: string} | null>(null);
+  const [filePanelFilter, setFilePanelFilter] = useState<((f: any) => boolean) | null>(null);
   
   // Dev Diagnostic States
   const [lastError, setLastError] = useState<string | null>(null);
@@ -633,6 +641,10 @@ const App: React.FC = () => {
       window.dispatchEvent(new CustomEvent('GLOBAL_ASSET_CHANGE'));
       
       setLoading(true);
+      // Clear overrides when a file is explicitly loaded
+      setFilePanelOverride(null);
+      setFilePanelFilter(null);
+      
       debugLog('Data', `Starting file stream for ${fileName}`);
       try {
           let actualSource = fileSource;
@@ -1047,11 +1059,31 @@ const App: React.FC = () => {
         await saveAppState(stateToSave);
         alert("Layout successfully saved to local storage.");
     } else if (action === 'open-layout-folder') {
+        // --- UPDATED LAYOUT DB LOGIC ---
+        setIsLibraryOpen(true);
+        setFilePanelFilter(null);
+        
         const electron = (window as any).electronAPI;
-        if (electron && electron.openFolder) {
-            electron.openFolder('Database/Settings');
+        if (electron && electron.getDatabasePath && electron.watchFolder) {
+            try {
+                const dbPath = await electron.getDatabasePath();
+                // Or simply point to database root to allow navigation
+                electron.watchFolder(dbPath);
+            } catch(e) { console.error("Failed to watch layout DB", e); }
         } else {
-            alert("Layouts are stored in LocalStorage in web mode.");
+             // Web Mode: Populate from connected IndexedDB
+             try {
+                 const handle = await getDatabaseHandle();
+                 if (handle) {
+                     const files = await scanRecursive(handle);
+                     setFilePanelOverride({
+                         path: handle.name,
+                         files: files
+                     });
+                 } else {
+                     alert("No Database folder connected in web mode.");
+                 }
+             } catch(e) { console.error(e); }
         }
     } else if (action === 'export-layout') {
         const exportObj = {
@@ -1245,12 +1277,24 @@ const App: React.FC = () => {
     setAppStatus('ACTIVE');
   };
 
-  const handleOpenStickyNotesFolder = useCallback(() => {
+  const handleOpenStickyNotesFolder = useCallback(async () => {
+      // --- UPDATED STICKY NOTES LOGIC ---
+      setIsLibraryOpen(true);
+      // Filter logic passed to FilePanel via state
+      setFilePanelFilter(() => (f: any) => f.name.toLowerCase().endsWith('.notes') || f.name.includes('sticky_notes') || (f.path && f.path.includes('notes')));
+      
       const electron = (window as any).electronAPI;
-      if (electron && electron.openFolder) {
-          electron.openFolder('Database/Workspaces');
+      if (electron && electron.getDatabasePath && electron.watchFolder) {
+          try {
+              const dbPath = await electron.getDatabasePath();
+              electron.watchFolder(dbPath); // Watch root DB to find Workspaces/sticky_notes.json
+          } catch (e) { console.error("Failed to open Sticky Notes folder", e); }
       } else {
-          alert("Sticky notes are stored in your browser's local storage in web mode.");
+          // Web: Create virtual representation
+          setFilePanelOverride({
+              path: 'Sticky Notes (Virtual)',
+              files: [{ name: 'sticky_notes.json', kind: 'file', handle: null }]
+          });
       }
   }, []);
 
@@ -1432,6 +1476,15 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
+                        onOpenStickyNotes={() => { setDbMode('notes'); setIsDbBrowserOpen(true); }}
+                        onOpenLayoutDB={() => { setDbMode('layouts'); setIsDbBrowserOpen(true); }}
+                    />
+
+                    {/* Database Inspector Modal */}
+                    <DatabaseBrowser 
+                        isOpen={isDbBrowserOpen} 
+                        onClose={() => setIsDbBrowserOpen(false)} 
+                        mode={dbMode} 
                     />
 
                     <CandleSettingsDialog 
@@ -1537,6 +1590,9 @@ const App: React.FC = () => {
                         onFileSelect={handleLibraryFileSelect}
                         onFileListChange={setExplorerFiles}
                         onFolderNameChange={setExplorerFolderName}
+                        overrideFiles={filePanelOverride?.files}
+                        overridePath={filePanelOverride?.path}
+                        fileFilter={filePanelFilter}
                         />
 
                         {renderLayout()}
@@ -1573,7 +1629,7 @@ const App: React.FC = () => {
                                 >
                                     <ChartWorkspace 
                                         key={tab.sourceId || tab.id}
-                                        tab={tab}
+                                        tab={activeTab}
                                         updateTab={(updates: Partial<TabSession>) => updateTab(tab.id, updates)}
                                         onTimeframeChange={(tf: Timeframe) => handleTimeframeChange(tab.id, tf)}
                                         favoriteTools={[]} 

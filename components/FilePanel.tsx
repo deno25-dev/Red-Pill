@@ -11,9 +11,21 @@ interface FilePanelProps {
   onFileSelect: (fileHandle: any) => void;
   onFileListChange?: (files: any[]) => void;
   onFolderNameChange?: (name: string) => void;
+  overrideFiles?: any[] | null;
+  overridePath?: string | null;
+  fileFilter?: ((file: any) => boolean) | null;
 }
 
-export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSelect, onFileListChange, onFolderNameChange }) => {
+export const FilePanel: React.FC<FilePanelProps> = ({ 
+    isOpen, 
+    onClose, 
+    onFileSelect, 
+    onFileListChange, 
+    onFolderNameChange,
+    overrideFiles,
+    overridePath,
+    fileFilter
+}) => {
   const [files, setFiles] = useState<any[]>([]);
   const [recentFiles, setRecentFiles] = useState<any[]>([]);
   const [directoryName, setDirectoryName] = useState<string>('');
@@ -28,12 +40,36 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
   const fileSystem = useFileSystem();
   const isBridgeMode = fileSystem.isBridgeAvailable;
 
+  // Sync with Overrides or Bridge
+  useEffect(() => {
+      // 1. Priority: Override Props (e.g. from Layout DB scan)
+      if (overrideFiles) {
+          setFiles(overrideFiles);
+          if (overridePath) setDirectoryName(overridePath);
+          return;
+      }
+
+      // 2. Bridge Mode (Electron)
+      if (isBridgeMode) {
+          if (fileSystem.currentPath) {
+              const pathParts = fileSystem.currentPath.split(/[\\/]/);
+              setDirectoryName(pathParts[pathParts.length - 1] || 'Watched Folder');
+          }
+          if (fileSystem.files) {
+              setFiles(fileSystem.files);
+          }
+      }
+  }, [overrideFiles, overridePath, isBridgeMode, fileSystem.files, fileSystem.currentPath]);
+
+  // Apply Filter
+  const displayFiles = fileFilter ? files.filter(fileFilter) : files;
+
   // Propagate files up whenever they change
   useEffect(() => {
     if (onFileListChange) {
-        onFileListChange(files);
+        onFileListChange(displayFiles);
     }
-  }, [files, onFileListChange]);
+  }, [displayFiles, onFileListChange]);
 
   // Propagate folder name up whenever it changes
   useEffect(() => {
@@ -42,27 +78,13 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
     }
   }, [directoryName, onFolderNameChange]);
 
-  // Load stored handle and recents on mount
+  // Load stored handle and recents on mount (Web Mode only init)
   useEffect(() => {
-    checkStoredHandle();
+    if (!overrideFiles) {
+        checkStoredHandle();
+    }
     loadRecents();
   }, []);
-
-  // Sync with Bridge Files if active - UPDATED to always sync path even if empty
-  useEffect(() => {
-      if (isBridgeMode) {
-          // Always update path if available
-          if (fileSystem.currentPath) {
-              const pathParts = fileSystem.currentPath.split(/[\\/]/);
-              setDirectoryName(pathParts[pathParts.length - 1] || 'Watched Folder');
-          }
-          
-          // Update files
-          if (fileSystem.files) {
-              setFiles(fileSystem.files);
-          }
-      }
-  }, [isBridgeMode, fileSystem.files, fileSystem.currentPath]);
 
   const loadRecents = async () => {
       try {
@@ -74,7 +96,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
   };
 
   const checkStoredHandle = async () => {
-    if (isBridgeMode) return;
+    if (isBridgeMode || overrideFiles) return;
 
     try {
       const handle = await getExplorerHandle();
@@ -264,34 +286,36 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       />
       
       <div className="p-4 border-b border-[#334155]/50 flex flex-col gap-3">
-        {(storedHandle || (isBridgeMode && fileSystem.currentPath)) || (files.length > 0 && !needsPermission && !error) ? (
+        {(storedHandle || (isBridgeMode && fileSystem.currentPath) || overrideFiles) || (displayFiles.length > 0 && !needsPermission && !error) ? (
             <div className="space-y-3">
                 <div className="flex items-center justify-between bg-[#1e293b] p-2 rounded border border-[#334155]">
                     <div className="flex flex-col overflow-hidden">
                         <span className="text-[10px] text-slate-500 uppercase font-bold">
-                            {isBridgeMode ? 'Watching' : storedHandle ? 'Connected' : 'Loaded'}
+                            {overrideFiles ? 'System' : (isBridgeMode ? 'Watching' : storedHandle ? 'Connected' : 'Loaded')}
                         </span>
                         <span className="text-sm text-emerald-400 truncate font-medium" title={directoryName}>
                             {directoryName}
                         </span>
                     </div>
-                    <button 
-                        onClick={handleConnect} 
-                        className="text-slate-500 hover:text-white p-1"
-                        title="Change Folder"
-                    >
-                        <FolderOpen size={16} />
-                    </button>
+                    {!overrideFiles && (
+                        <button 
+                            onClick={handleConnect} 
+                            className="text-slate-500 hover:text-white p-1"
+                            title="Change Folder"
+                        >
+                            <FolderOpen size={16} />
+                        </button>
+                    )}
                 </div>
                 
                 {/* --- DISPLAY ACTIVE PATH (Debug Label) --- */}
-                {isBridgeMode && fileSystem.currentPath && (
+                {isBridgeMode && fileSystem.currentPath && !overrideFiles && (
                     <div className="text-[10px] text-slate-500 font-mono break-all bg-black/20 p-2 rounded border border-slate-800">
                         Searching in: <span className="text-blue-400 select-all">{fileSystem.currentPath}</span>
                     </div>
                 )}
 
-                {needsPermission && storedHandle && !isBridgeMode && (
+                {needsPermission && storedHandle && !isBridgeMode && !overrideFiles && (
                      <button 
                         onClick={handleReconnect}
                         className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-500 text-white py-2 px-3 rounded text-sm transition-colors font-medium shadow-sm animate-pulse"
@@ -301,13 +325,15 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
                     </button>
                 )}
 
-                <button 
-                    onClick={handleClearDatabase}
-                    className="w-full flex items-center justify-center gap-2 border border-slate-700 text-slate-400 hover:text-red-400 hover:border-red-900/50 hover:bg-red-900/10 py-2 px-3 rounded text-xs transition-all font-medium"
-                >
-                    <Trash2 size={12} />
-                    <span>{storedHandle || (isBridgeMode && fileSystem.currentPath) ? 'Disconnect' : 'Reset Selection'}</span>
-                </button>
+                {!overrideFiles && (
+                    <button 
+                        onClick={handleClearDatabase}
+                        className="w-full flex items-center justify-center gap-2 border border-slate-700 text-slate-400 hover:text-red-400 hover:border-red-900/50 hover:bg-red-900/10 py-2 px-3 rounded text-xs transition-all font-medium"
+                    >
+                        <Trash2 size={12} />
+                        <span>{storedHandle || (isBridgeMode && fileSystem.currentPath) ? 'Disconnect' : 'Reset Selection'}</span>
+                    </button>
+                )}
             </div>
         ) : (
             <button 
@@ -328,7 +354,7 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 py-2 custom-scrollbar">
-        {!isBridgeMode && recentFiles.length > 0 && (
+        {!isBridgeMode && !overrideFiles && recentFiles.length > 0 && (
             <div className="mb-4">
                  <div className="px-2 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                      <History size={10} />
@@ -350,20 +376,20 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
             </div>
         )}
 
-        {files.length === 0 && !needsPermission && !loading ? (
+        {displayFiles.length === 0 && !needsPermission && !loading ? (
           <div className="flex flex-col items-center justify-center mt-12 text-slate-500 gap-2 px-6 text-center">
             <FileText size={32} className="opacity-20" />
             <p className="text-xs">
-                {storedHandle || isBridgeMode ? "No .csv or .json files found in this folder." : "Connect a local folder to browse CSV files."}
+                {storedHandle || isBridgeMode || overrideFiles ? "No matching files found." : "Connect a local folder to browse files."}
             </p>
           </div>
         ) : (
           <div className="space-y-0.5">
-            {(files.length > 0 || loading) && (
+            {(displayFiles.length > 0 || loading) && (
                 <div className="px-2 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex justify-between items-center">
-                <span>Files ({files.length})</span>
+                <span>Files ({displayFiles.length})</span>
                 {loading && <RefreshCw size={10} className="animate-spin text-blue-400" />}
-                {storedHandle && !loading && !isBridgeMode && (
+                {storedHandle && !loading && !isBridgeMode && !overrideFiles && (
                     <button onClick={() => listFiles(storedHandle)} className="hover:text-white" title="Refresh">
                         <RefreshCw size={10} />
                     </button>
@@ -371,13 +397,13 @@ export const FilePanel: React.FC<FilePanelProps> = ({ isOpen, onClose, onFileSel
                 </div>
             )}
             
-            {needsPermission && files.length === 0 && (
+            {needsPermission && displayFiles.length === 0 && (
                 <div className="text-center text-slate-500 mt-10 text-sm">
                     Waiting for permission...
                 </div>
             )}
 
-            {files.map((file, idx) => (
+            {displayFiles.map((file, idx) => (
               <button
                 key={idx}
                 onClick={() => handleFileClick(file)}

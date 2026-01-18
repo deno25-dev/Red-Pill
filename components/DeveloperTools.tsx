@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs, getLogHistory } from '../utils/logger';
 
@@ -7,12 +8,16 @@ interface DeveloperToolsProps {
   activeDataSource: string;
   lastError: string | null;
   chartRenderTime: number | null;
+  onOpenStickyNotes?: () => void;
+  onOpenLayoutDB?: () => void;
 }
 
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
-  chartRenderTime
+  chartRenderTime,
+  onOpenStickyNotes,
+  onOpenLayoutDB
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -162,31 +167,54 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       </div>
 
       {/* Actions */}
-      <div className="p-3 border-t border-emerald-900/50 bg-black grid grid-cols-3 gap-2">
-        <button 
-          onClick={generateFeedbackReport}
-          className="flex items-center justify-center gap-1 bg-emerald-900/30 hover:bg-emerald-800/50 text-emerald-400 py-2 px-2 rounded border border-emerald-800 transition-colors uppercase text-[10px] font-bold tracking-wider"
-        >
-          <Copy size={12} />
-          Report
-        </button>
-        <button 
-          onClick={() => window.dispatchEvent(new CustomEvent('OPEN_CHANGELOG_EDITOR'))}
-          className="flex items-center justify-center gap-1 bg-purple-900/30 hover:bg-purple-800/50 text-purple-400 py-2 px-2 rounded border border-purple-800 transition-colors uppercase text-[10px] font-bold tracking-wider"
-          title="Edit Changelog Data"
-        >
-          <FileEdit size={12} />
-          Changelog
-        </button>
-        <button 
-          onClick={handleNuclearClear}
-          className="flex items-center justify-center gap-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 py-2 px-2 rounded border border-red-900/50 transition-colors uppercase text-[10px] font-bold tracking-wider"
-          title="Delete current chart metadata from DB"
-        >
-          <ShieldAlert size={12} />
-          Clear DB
-        </button>
+      <div className="bg-black border-t border-emerald-900/50">
+          <div className="p-2 grid grid-cols-2 gap-2">
+                {/* DB Inspectors */}
+                <button 
+                    onClick={onOpenStickyNotes}
+                    className="flex items-center justify-center gap-1 bg-blue-900/20 hover:bg-blue-800/40 text-blue-400 py-1.5 px-2 rounded border border-blue-800/50 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                    title="Inspect Sticky Notes JSON"
+                >
+                    <FileJson size={12} />
+                    Inspect Notes DB
+                </button>
+                <button 
+                    onClick={onOpenLayoutDB}
+                    className="flex items-center justify-center gap-1 bg-blue-900/20 hover:bg-blue-800/40 text-blue-400 py-1.5 px-2 rounded border border-blue-800/50 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                    title="Inspect UI Layout JSON"
+                >
+                    <Layout size={12} />
+                    Inspect Layout DB
+                </button>
+          </div>
+          
+          <div className="p-2 border-t border-emerald-900/30 grid grid-cols-3 gap-2">
+            <button 
+            onClick={generateFeedbackReport}
+            className="flex items-center justify-center gap-1 bg-emerald-900/30 hover:bg-emerald-800/50 text-emerald-400 py-2 px-2 rounded border border-emerald-800 transition-colors uppercase text-[10px] font-bold tracking-wider"
+            >
+            <Copy size={12} />
+            Report
+            </button>
+            <button 
+            onClick={() => window.dispatchEvent(new CustomEvent('OPEN_CHANGELOG_EDITOR'))}
+            className="flex items-center justify-center gap-1 bg-purple-900/30 hover:bg-purple-800/50 text-purple-400 py-2 px-2 rounded border border-purple-800 transition-colors uppercase text-[10px] font-bold tracking-wider"
+            title="Edit Changelog Data"
+            >
+            <FileEdit size={12} />
+            Changelog
+            </button>
+            <button 
+            onClick={handleNuclearClear}
+            className="flex items-center justify-center gap-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 py-2 px-2 rounded border border-red-900/50 transition-colors uppercase text-[10px] font-bold tracking-wider"
+            title="Delete current chart metadata from DB"
+            >
+            <ShieldAlert size={12} />
+            Clear DB
+            </button>
+        </div>
       </div>
+      
       <div className="bg-black text-center text-[10px] text-emerald-800 py-1">
           Press Ctrl + D to toggle this panel
       </div>

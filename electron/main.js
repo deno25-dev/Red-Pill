@@ -250,6 +250,22 @@ ipcMain.handle('storage:load-settings', async (event, filename) => {
     }
 });
 
+ipcMain.handle('storage:list-layouts', async () => {
+    const rootPath = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    const settingsPath = path.join(rootPath, 'Database', 'Settings');
+    
+    try {
+        if (!fs.existsSync(settingsPath)) return [];
+        const files = fs.readdirSync(settingsPath);
+        return files.filter(f => f.endsWith('.json')).map(f => ({
+            filename: f,
+            path: path.join(settingsPath, f)
+        }));
+    } catch (e) {
+        return [];
+    }
+});
+
 // --- STICKY NOTES PERSISTENCE (Mandate 4.4) ---
 ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
     try {
@@ -281,6 +297,11 @@ ipcMain.handle('storage:load-sticky-notes', async (event) => {
 
 ipcMain.handle('get-user-data-path', async () => {
     return app.getPath('userData');
+});
+
+ipcMain.handle('get-database-path', async () => {
+    const root = app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
+    return path.join(root, 'Database');
 });
 
 ipcMain.handle('get-internal-folders', async () => {

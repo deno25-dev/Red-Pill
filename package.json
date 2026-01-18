@@ -1,7 +1,8 @@
+
 {
   "name": "red-pill-charting",
   "productName": "Red Pill Charting",
-  "version": "0.2.1",
+  "version": "1.2.5",
   "private": true,
   "main": "electron/main.js",
   "scripts": {

@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readChunk: (filePath, start, length) => ipcRenderer.invoke('file:read-chunk', filePath, start, length),
     getFileDetails: (filePath) => ipcRenderer.invoke('file:get-details', filePath),
     getDefaultDatabasePath: () => ipcRenderer.invoke('get-default-database-path'),
+    getDatabasePath: () => ipcRenderer.invoke('get-database-path'),
     getInternalFolders: () => ipcRenderer.invoke('get-internal-folders'),
     getInternalLibrary: () => ipcRenderer.invoke('get-internal-folders'), // Alias for compatibility
     openFolder: (subpath) => ipcRenderer.invoke('shell:open-folder', subpath),
@@ -29,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // --- UI Settings (Mandate 3.1) ---
     saveSettings: (filename, data) => ipcRenderer.invoke('storage:save-settings', filename, data),
     loadSettings: (filename) => ipcRenderer.invoke('storage:load-settings', filename),
+    listLayouts: () => ipcRenderer.invoke('storage:list-layouts'),
 
     // --- Sticky Notes (Mandate 4.4) ---
     saveStickyNotes: (notes) => ipcRenderer.invoke('storage:save-sticky-notes', notes),
