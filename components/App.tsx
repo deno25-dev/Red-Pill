@@ -1432,7 +1432,17 @@ const App: React.FC = () => {
                         onBackToLibrary={() => setAppStatus('LIBRARY')}
                         isDrawingSyncEnabled={isDrawingSyncEnabled}
                         drawings={activeTab.drawings}
-                        onUpdateDrawings={(newDrawings: Drawing[]) => updateActiveTab({ drawings: newDrawings })}
+                        onUpdateDrawings={(newDrawings: Drawing[]) => {
+                            // Source-based syncing (Mandate 0.11 Scoped Persistence)
+                            // Broadcast update to ALL tabs that share this Source ID
+                            const sourceId = activeTab.sourceId;
+                            setTabs(prev => prev.map(t => {
+                                if (t.sourceId === sourceId) {
+                                    return { ...t, drawings: newDrawings };
+                                }
+                                return t;
+                            }));
+                        }}
                         isHydrating={loading || isHydrating}
                         isMasterSyncActive={isMasterSyncActive}
                         onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
@@ -1481,12 +1491,14 @@ const App: React.FC = () => {
                             isDrawingSyncEnabled={isDrawingSyncEnabled}
                             drawings={tab.drawings}
                             onUpdateDrawings={(newDrawings: Drawing[]) => {
-                                // Master Sync Drawing Logic
-                                if (isMasterSyncActive) {
-                                    layoutTabIds.forEach(targetId => updateTab(targetId, { drawings: newDrawings }));
-                                } else {
-                                    updateTab(tab.id, { drawings: newDrawings });
-                                }
+                                // Source-based syncing logic
+                                const sourceId = tab.sourceId;
+                                setTabs(prev => prev.map(t => {
+                                    if (t.sourceId === sourceId) {
+                                        return { ...t, drawings: newDrawings };
+                                    }
+                                    return t;
+                                }));
                             }}
                             isHydrating={isHydrating && tab.id === activeTabId}
                             isMasterSyncActive={isMasterSyncActive}

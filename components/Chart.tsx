@@ -517,6 +517,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const timeToIndex = useMemo(() => { const map = new Map<number, number>(); for(let i=0; i<data.length; i++) map.set(data[i].time, i); return map; }, [data]);
   const timeToIndexRef = useRef(timeToIndex); useEffect(() => { timeToIndexRef.current = timeToIndex; }, [timeToIndex]);
   useEffect(() => { if (drawingsPrimitiveRef.current) { const lastCandle = data.length > 0 ? data[data.length - 1] : null; drawingsPrimitiveRef.current.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data); requestDraw(); } }, [visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
+  
+  // FIX: Force redraw when drawings change, ensuring multi-chart sync
+  useEffect(() => {
+      if (drawingsPrimitiveRef.current && chartRef.current) {
+          requestDraw();
+      }
+  }, [drawings]);
+
   useEffect(() => { if (seriesRef.current && trades && Array.isArray(trades)) { const seriesApi = seriesRef.current as any; if (typeof seriesApi.setMarkers !== 'function') return; const markers: SeriesMarker<Time>[] = trades.map(t => ({ time: (t.timestamp / 1000) as Time, position: t.side === 'buy' ? 'belowBar' : 'aboveBar', color: t.side === 'buy' ? COLORS.bullish : COLORS.bearish, shape: t.side === 'buy' ? 'arrowUp' : 'arrowDown', text: `${t.side.toUpperCase()} @ ${t.price.toFixed(2)}` })); try { seriesApi.setMarkers(markers); } catch (e) {} } }, [trades, processedData]); 
   const requestDraw = () => { if (rafId.current) cancelAnimationFrame(rafId.current); rafId.current = requestAnimationFrame(renderOverlayAndSync); };
   const renderOverlayAndSync = () => { renderOverlay(); if (chartRef.current) { if ((chartRef.current as any)._renderer) (chartRef.current as any)._renderer._redrawVisible(); else chartRef.current.timeScale().applyOptions({}); } };
