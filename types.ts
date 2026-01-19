@@ -125,6 +125,8 @@ export interface Trade {
   pnl?: number;
   exitPrice?: number;
   mode?: 'live' | 'simulated'; // For replay trades
+  stopLoss?: number;
+  takeProfit?: number;
 }
 
 export interface WatchlistItem {

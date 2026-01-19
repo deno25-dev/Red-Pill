@@ -81,17 +81,18 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onToggleMasterSync,
   liveTimeRef
 }) => {
-  // ... (Keep existing body - just ensure FinancialChart receives liveTimeRef) ...
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
-  const { trades } = useTradePersistence(tradeSourceId);
+  const { trades: persistedTrades } = useTradePersistence(tradeSourceId);
 
+  // Sync Logic: Only hydrate if local state is empty but persistence has data.
+  // This prevents overwriting optimistic updates from App.tsx with stale data from DB hook.
   useEffect(() => {
-      if (trades && trades.length > 0) {
-          if (trades.length !== (tab.trades || []).length) {
-             updateTab({ trades });
+      if (persistedTrades && persistedTrades.length > 0) {
+          if (!tab.trades || tab.trades.length === 0) {
+             updateTab({ trades: persistedTrades });
           }
       }
-  }, [trades, updateTab, tab.trades]);
+  }, [persistedTrades, tab.trades, updateTab]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
@@ -259,18 +260,24 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
           onReplaySync={handleReplaySync}
           onReplayComplete={() => updateTab({ isReplayPlaying: false })}
           isAdvancedReplay={tab.isAdvancedReplayMode}
-          trades={trades}
+          trades={tab.trades || []}
           isDrawingSyncEnabled={isDrawingSyncEnabled}
           focusTimestamp={focusTimestamp}
-          liveTimeRef={liveTimeRef} // PASS THE REF HERE
+          liveTimeRef={liveTimeRef} 
         />
         </div>
         
-        {/* ... (Keep Footer/Panels as is) ... */}
         <GlobalErrorBoundary errorMessage="Market Data Unavailable" fallback={<div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-4"><span>Market data could not be loaded.</span></div>}>
             <RecentMarketDataPanel currentSymbol={tab.title} isOpen={tab.isMarketOverviewOpen} onToggle={() => updateTab({ isMarketOverviewOpen: !tab.isMarketOverviewOpen })} />
         </GlobalErrorBoundary>
-        <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={trades} onTradeClick={handleTradeClick} />
+        
+        <BottomPanel 
+            isOpen={isBottomPanelOpen} 
+            onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} 
+            trades={tab.trades || []} 
+            onTradeClick={handleTradeClick} 
+        />
+        
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
             <div className="flex gap-4"><span>O: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].open.toFixed(2) : '-'}</span></span><span>H: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].high.toFixed(2) : '-'}</span></span><span>L: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].low.toFixed(2) : '-'}</span></span><span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span></div>
             <div className="flex items-center gap-4"><span className="hidden md:inline text-slate-600">Red Pill Charting v1.2.5 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span><div className="w-px h-3 bg-slate-700 hidden md:block"></div><span className="font-mono text-slate-400 flex items-center gap-2"><span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span><span>{currentDate.toLocaleTimeString('en-GB', { hour12: false })}</span><span className="text-slate-500 text-[9px] uppercase border border-slate-700 px-1 rounded">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span></span></div>

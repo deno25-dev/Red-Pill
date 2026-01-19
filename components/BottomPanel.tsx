@@ -69,6 +69,8 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trad
                         <th className="px-4 py-2 border-b border-[#334155] text-right">Price</th>
                         <th className="px-4 py-2 border-b border-[#334155] text-right">Amount</th>
                         <th className="px-4 py-2 border-b border-[#334155] text-right">Value</th>
+                        <th className="px-4 py-2 border-b border-[#334155] text-right">S/L</th>
+                        <th className="px-4 py-2 border-b border-[#334155] text-right">T/P</th>
                         <th className="px-4 py-2 border-b border-[#334155] text-center">Status</th>
                         <th className="px-4 py-2 border-b border-[#334155] text-center">Action</th>
                     </tr>
@@ -76,7 +78,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trad
                 <tbody className="text-slate-300">
                     {displayTrades.length === 0 ? (
                         <tr>
-                            <td colSpan={9} className="px-4 py-8 text-center text-slate-500 italic">
+                            <td colSpan={11} className="px-4 py-8 text-center text-slate-500 italic">
                                 No {activeTab} found.
                             </td>
                         </tr>
@@ -98,6 +100,12 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trad
                                 <td className="px-4 py-2 text-right font-mono">{trade.price.toFixed(2)}</td>
                                 <td className="px-4 py-2 text-right font-mono">{trade.qty}</td>
                                 <td className="px-4 py-2 text-right font-mono text-slate-400">{trade.value.toFixed(2)}</td>
+                                <td className="px-4 py-2 text-right font-mono text-red-300/80">
+                                    {trade.stopLoss ? trade.stopLoss.toFixed(2) : '—'}
+                                </td>
+                                <td className="px-4 py-2 text-right font-mono text-emerald-300/80">
+                                    {trade.takeProfit ? trade.takeProfit.toFixed(2) : '—'}
+                                </td>
                                 <td className="px-4 py-2 text-center">
                                     <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-bold ${
                                         trade.status === 'filled' ? 'bg-emerald-900/30 text-emerald-400' : 'bg-slate-700/50 text-slate-400'

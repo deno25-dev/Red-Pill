@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Wallet, ArrowRightLeft, Settings2, Zap, CircleDollarSign, ExternalLink, ArrowRightToLine } from 'lucide-react';
+import { X, Wallet, ArrowRightLeft, Settings2, Zap, CircleDollarSign, ExternalLink, ArrowRightToLine, Check, Shield, Target } from 'lucide-react';
 
 interface TradingPanelProps {
   isOpen: boolean;
@@ -27,7 +27,14 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   const [price, setPrice] = useState<string>('');
   const [amount, setAmount] = useState<string>('1.0');
   const [leverage, setLeverage] = useState<number>(20);
+  const [isSuccess, setIsSuccess] = useState(false);
   
+  // Stop Loss & Take Profit State
+  const [slEnabled, setSlEnabled] = useState(false);
+  const [tpEnabled, setTpEnabled] = useState(false);
+  const [slPrice, setSlPrice] = useState<string>('');
+  const [tpPrice, setTpPrice] = useState<string>('');
+
   // Mock Balance
   const balance = 100000.00; // USD
 
@@ -40,6 +47,24 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
         setPrice(currentPrice.toFixed(2));
     }
   }, [currentPrice, orderType, price]);
+
+  // UX: Auto-suggest SL/TP based on side
+  useEffect(() => {
+      if (!currentPrice) return;
+      
+      const referencePrice = orderType === 'limit' && price ? parseFloat(price) : currentPrice;
+      const dist = referencePrice * 0.02; // 2% Default distance
+
+      if (side === 'buy') {
+          // Buy: SL below, TP above
+          if (slEnabled && !slPrice) setSlPrice((referencePrice - dist).toFixed(2));
+          if (tpEnabled && !tpPrice) setTpPrice((referencePrice + dist).toFixed(2));
+      } else {
+          // Sell: SL above, TP below
+          if (slEnabled && !slPrice) setSlPrice((referencePrice + dist).toFixed(2));
+          if (tpEnabled && !tpPrice) setTpPrice((referencePrice - dist).toFixed(2));
+      }
+  }, [side, slEnabled, tpEnabled, currentPrice, orderType, price]);
 
   if (!isOpen) return null;
   
@@ -56,16 +81,52 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
   const leveragePresets = [5, 10, 25, 50, 75, 100, 120];
 
   const handleSubmit = () => {
+      // Validation Logic
+      const slVal = slEnabled ? parseFloat(slPrice) : null;
+      const tpVal = tpEnabled ? parseFloat(tpPrice) : null;
+
+      if (slEnabled && slVal) {
+          if (side === 'buy' && slVal >= executionPrice) {
+              alert('Invalid Stop Loss: For a BUY order, Stop Loss must be BELOW the entry price.');
+              return;
+          }
+          if (side === 'sell' && slVal <= executionPrice) {
+              alert('Invalid Stop Loss: For a SELL order, Stop Loss must be ABOVE the entry price.');
+              return;
+          }
+      }
+
+      if (tpEnabled && tpVal) {
+          if (side === 'buy' && tpVal <= executionPrice) {
+              alert('Invalid Take Profit: For a BUY order, Take Profit must be ABOVE the entry price.');
+              return;
+          }
+          if (side === 'sell' && tpVal >= executionPrice) {
+              alert('Invalid Take Profit: For a SELL order, Take Profit must be BELOW the entry price.');
+              return;
+          }
+      }
+
+      const orderPayload = {
+          symbol,
+          side,
+          type: orderType,
+          price: executionPrice,
+          qty: numericAmount,
+          value: totalValue,
+          status: 'filled', // Simulating instant fill
+          stopLoss: slVal,
+          takeProfit: tpVal
+      };
+
+      console.log('BUY_CLICKED', orderPayload);
+
       if (onOrderSubmit) {
-          onOrderSubmit({
-              symbol,
-              side,
-              type: orderType,
-              price: executionPrice,
-              qty: numericAmount,
-              value: totalValue,
-              status: 'filled' // Simulating instant fill
-          });
+          onOrderSubmit(orderPayload);
+          
+          // Trigger Success Feedback
+          setIsSuccess(true);
+          setTimeout(() => setIsSuccess(false), 1000);
       }
   };
 
@@ -214,6 +275,57 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
                     </div>
                 </div>
 
+                {/* Stop Loss & Take Profit */}
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                    {/* Stop Loss */}
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2 mb-1">
+                            <input 
+                                type="checkbox" 
+                                checked={slEnabled} 
+                                onChange={(e) => setSlEnabled(e.target.checked)}
+                                className="rounded bg-[#0f172a] border-[#334155] text-blue-500 focus:ring-0 cursor-pointer"
+                            />
+                            <div className="flex items-center gap-1 text-xs text-slate-400">
+                                <Shield size={12} className={slEnabled ? "text-red-400" : ""} />
+                                <span>Stop Loss</span>
+                            </div>
+                        </div>
+                        <input 
+                            type="number" 
+                            value={slPrice}
+                            onChange={(e) => setSlPrice(e.target.value)}
+                            disabled={!slEnabled}
+                            placeholder="Price"
+                            className={`w-full bg-[#0f172a] border border-[#334155] rounded px-3 py-2 text-sm text-right focus:outline-none focus:border-blue-500 font-mono ${slEnabled ? 'text-white' : 'text-slate-600 cursor-not-allowed'}`}
+                        />
+                    </div>
+
+                    {/* Take Profit */}
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2 mb-1">
+                            <input 
+                                type="checkbox" 
+                                checked={tpEnabled} 
+                                onChange={(e) => setTpEnabled(e.target.checked)}
+                                className="rounded bg-[#0f172a] border-[#334155] text-blue-500 focus:ring-0 cursor-pointer"
+                            />
+                            <div className="flex items-center gap-1 text-xs text-slate-400">
+                                <Target size={12} className={tpEnabled ? "text-emerald-400" : ""} />
+                                <span>Take Profit</span>
+                            </div>
+                        </div>
+                        <input 
+                            type="number" 
+                            value={tpPrice}
+                            onChange={(e) => setTpPrice(e.target.value)}
+                            disabled={!tpEnabled}
+                            placeholder="Price"
+                            className={`w-full bg-[#0f172a] border border-[#334155] rounded px-3 py-2 text-sm text-right focus:outline-none focus:border-blue-500 font-mono ${tpEnabled ? 'text-white' : 'text-slate-600 cursor-not-allowed'}`}
+                        />
+                    </div>
+                </div>
+
                 {/* Leverage Slider (Futures Only) */}
                 {tradingMode === 'futures' && (
                     <div className="space-y-3 pt-2 border-t border-[#334155]/50 mt-2">
@@ -280,14 +392,27 @@ export const TradingPanel: React.FC<TradingPanelProps> = ({
             {/* Submit Button */}
             <button 
                 onClick={handleSubmit}
-                className={`w-full py-3 rounded-lg font-bold text-white shadow-lg transition-transform active:scale-[0.98] ${
-                side === 'buy' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'
+                className={`w-full py-3 rounded-lg font-bold text-white shadow-lg transition-all transform active:scale-[0.98] flex items-center justify-center gap-2 ${
+                isSuccess 
+                    ? 'bg-green-600 hover:bg-green-500 scale-105' 
+                    : side === 'buy' 
+                        ? 'bg-emerald-600 hover:bg-emerald-500' 
+                        : 'bg-red-600 hover:bg-red-500'
             }`}>
-                {side === 'buy' 
-                    ? (tradingMode === 'spot' ? 'Buy ' : 'Buy / Long ') 
-                    : (tradingMode === 'spot' ? 'Sell ' : 'Sell / Short ')
-                } 
-                {symbol.split('/')[0] || 'BTC'}
+                {isSuccess ? (
+                    <>
+                        <Check size={18} strokeWidth={3} />
+                        Order Executed
+                    </>
+                ) : (
+                    <>
+                        {side === 'buy' 
+                            ? (tradingMode === 'spot' ? 'Buy ' : 'Buy / Long ') 
+                            : (tradingMode === 'spot' ? 'Sell ' : 'Sell / Short ')
+                        } 
+                        {symbol.split('/')[0] || 'BTC'}
+                    </>
+                )}
             </button>
             
             <div className="text-center text-[10px] text-slate-600">
