@@ -204,7 +204,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             const isFilled = d.properties.filled;
             target.fillStyle = isFilled ? d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)' : 'transparent';
             
-            // ... (Rest of drawing logic: lines, shapes, etc. - Identical to previous) ...
             if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') {
                 if (screenPoints.length < 2) { target.restore(); return; }
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
@@ -633,6 +632,23 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
               </button>
           </div>
       )}
+
+      {/* Branding Watermark */}
+      <div style={{
+          position: 'absolute',
+          bottom: '40px',
+          left: '20px',
+          zIndex: 1,
+          pointerEvents: 'none',
+          opacity: 0.8,
+          userSelect: 'none'
+      }}>
+          <img 
+              src="https://i.postimg.cc/h492Kyd4/Red-pill-Branding.png" 
+              alt="Branding" 
+              style={{ width: '225px', height: 'auto' }} 
+          />
+      </div>
     </div>
   );
 };
