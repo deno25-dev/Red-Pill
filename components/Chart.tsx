@@ -29,7 +29,6 @@ import { useChartReplay } from '../hooks/useChartReplay';
 import { useAdvancedReplay } from '../hooks/useAdvancedReplay';
 import { useDrawingRegistry } from '../hooks/useDrawingRegistry';
 
-// ... (KEEP ALL EXISTING HELPER FUNCTIONS AND CLASSES: pDistance, isPointInPoly, drawMeasureLabel, DrawingsPaneRenderer, DrawingsPriceAxisPaneRenderer, DrawingsPriceAxisPaneView, DrawingsPaneView, DrawingsPrimitive, SINGLE_POINT_TOOLS, TextInputState) ...
 const OFF_SCREEN = -10000;
 
 function pDistance(x: number, y: number, x1: number, y1: number, x2: number, y2: number) {
@@ -204,7 +203,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             const isFilled = d.properties.filled;
             target.fillStyle = isFilled ? d.properties.backgroundColor || 'rgba(59, 130, 246, 0.1)' : 'transparent';
             
-            // ... (Rest of drawing logic: lines, shapes, etc. - Identical to previous) ...
             if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') {
                 if (screenPoints.length < 2) { target.restore(); return; }
                 const p1 = screenPoints[0]; const p2 = screenPoints[1];
@@ -503,13 +501,13 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     chartType: config.chartType 
   });
 
-  // Calculate dynamic position for the advanced replay overlay
-  // Ensure we round the coordinate to snap to pixel grid (avoids sub-pixel blurring)
   const timerY = (isAdvancedReplay && displayState.visible && seriesRef.current) 
       ? Math.round(seriesRef.current.priceToCoordinate(displayState.price) ?? 0)
       : null;
 
-  // ... (Rest of Chart.tsx logic) ...
+  // Determine styles for watermark
+  const watermarkBlend = config.theme === 'light' ? 'multiply' : 'screen';
+
   const interactionState = useRef<{ isDragging: boolean; isCreating: boolean; dragDrawingId: string | null; dragHandleIndex: number | null; startPoint: { x: number; y: number } | null; creatingPoints: DrawingPoint[]; creationStep: number; activeToolId: string; initialDrawingPoints: DrawingPoint[] | null; draggedDrawingPoints: DrawingPoint[] | null; }>({ isDragging: false, isCreating: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: propsRef.current.activeToolId, initialDrawingPoints: null, draggedDrawingPoints: null });
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
   useEffect(() => { const handleReset = () => { interactionState.current = { isDragging: false, isCreating: false, dragDrawingId: null, dragHandleIndex: null, startPoint: null, creatingPoints: [], creationStep: 0, activeToolId: propsRef.current.activeToolId, initialDrawingPoints: null, draggedDrawingPoints: null }; setTextInputState(null); }; window.addEventListener('GLOBAL_ASSET_CHANGE', handleReset); return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleReset); }, []);
@@ -518,7 +516,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const timeToIndexRef = useRef(timeToIndex); useEffect(() => { timeToIndexRef.current = timeToIndex; }, [timeToIndex]);
   useEffect(() => { if (drawingsPrimitiveRef.current) { const lastCandle = data.length > 0 ? data[data.length - 1] : null; drawingsPrimitiveRef.current.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data); requestDraw(); } }, [visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
   
-  // FIX: Force redraw when drawings change, ensuring multi-chart sync
   useEffect(() => {
       if (drawingsPrimitiveRef.current && chartRef.current) {
           requestDraw();
@@ -557,6 +554,32 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         className="w-full h-full relative" 
         onMouseMove={handleContainerMouseMove}
       />
+      
+      {/* Watermark - Mandate Update */}
+      <div 
+        style={{
+          position: 'absolute',
+          bottom: '12px',
+          left: '12px',
+          zIndex: 5, 
+          opacity: 0.8,
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+         <img 
+            src="https://i.postimg.cc/h492Kyd4/Red-pill-Branding.png" 
+            alt="Red Pill" 
+            style={{
+                height: '40px', 
+                width: 'auto',
+                mixBlendMode: watermarkBlend
+            }}
+         />
+      </div>
+
       <canvas 
         ref={canvasRef} 
         className="absolute top-0 left-0 w-full h-full z-10 outline-none"
