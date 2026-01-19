@@ -1,5 +1,7 @@
+
 import React, { useEffect, useState } from 'react';
 import { X, Sparkles } from 'lucide-react';
+import { DEFAULT_LATEST_ADD } from '../constants/seedData';
 
 interface LatestAdditionsDialogProps {
   isOpen: boolean;
@@ -11,8 +13,9 @@ export const LatestAdditionsDialog: React.FC<LatestAdditionsDialogProps> = ({ is
 
   useEffect(() => {
       if (isOpen) {
+          // Priority: Local Storage (Dynamic edits) -> Seed Data (Hardcoded build data) -> Fallback
           const stored = localStorage.getItem('app_changelog_data');
-          setContent(stored || 'No updates available at this time.');
+          setContent(stored || DEFAULT_LATEST_ADD || 'No updates available at this time.');
       }
   }, [isOpen]);
 
@@ -35,14 +38,14 @@ export const LatestAdditionsDialog: React.FC<LatestAdditionsDialogProps> = ({ is
     >
       {/* 2. MODAL CARD: Simple relative positioning */}
       <div 
-        className="w-full max-w-md bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl flex flex-col"
+        className="w-full max-w-md bg-[#1e293b] border border-[#334155] rounded-xl shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200"
         onClick={e => e.stopPropagation()}
         style={{ position: 'relative', maxHeight: '80vh' }}
       >
         {/* HEADER */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155] bg-[#0f172a] rounded-t-xl">
            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500/20 rounded-lg">
+              <div className="p-2 bg-purple-500/20 rounded-lg shadow-[0_0_15px_rgba(168,85,247,0.2)]">
                 <Sparkles size={20} className="text-purple-400" />
               </div>
               <h2 className="text-lg font-bold text-white">Latest Updates</h2>

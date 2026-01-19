@@ -50,7 +50,11 @@ interface ChartWorkspaceProps {
   isMasterSyncActive?: boolean;
   onToggleMasterSync?: () => void;
 
-  liveTimeRef?: React.MutableRefObject<number | null>; // NEW PROP
+  liveTimeRef?: React.MutableRefObject<number | null>;
+
+  // Trade Sync Props
+  onSyncTrades?: () => void;
+  hasUnsavedTrades?: boolean;
 }
 
 export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
@@ -79,7 +83,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   isHydrating,
   isMasterSyncActive,
   onToggleMasterSync,
-  liveTimeRef
+  liveTimeRef,
+  onSyncTrades,
+  hasUnsavedTrades
 }) => {
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
   const { trades: persistedTrades } = useTradePersistence(tradeSourceId);
@@ -218,8 +224,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 onHeaderMouseDown={handleLayersMouseDown} 
                 folders={tab.folders} 
                 onUpdateFolders={(folders: Folder[]) => { 
-                    // DIAGNOSTIC LOGGING FOR APP STATE
-                    console.log('STATE: onUpdateFolders triggered with count:', folders.length);
                     updateTab({ folders }); 
                 }} 
                 sourceId={tab.sourceId} 
@@ -275,7 +279,9 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
             isOpen={isBottomPanelOpen} 
             onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} 
             trades={tab.trades || []} 
-            onTradeClick={handleTradeClick} 
+            onTradeClick={handleTradeClick}
+            onSyncToDb={onSyncTrades}
+            hasUnsavedChanges={hasUnsavedTrades}
         />
         
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">

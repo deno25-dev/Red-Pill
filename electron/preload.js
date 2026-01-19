@@ -44,6 +44,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // --- Trade Persistence ---
     getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-by-source', sourceId),
     saveTrade: (trade) => ipcRenderer.invoke('trades:save', trade),
+    
+    // --- Global Order Book Sync (Mandate 5.0) ---
+    syncOrders: (orders) => ipcRenderer.invoke('orders:sync', orders),
 
     // --- Listeners from Main ---
     onFolderChange: (callback) => {

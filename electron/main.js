@@ -18,8 +18,8 @@ const getRootPath = () => {
 const initializeDatabase = () => {
     const rootPath = getRootPath();
     const dbPath = path.join(rootPath, 'Database');
-    // Mandate 0.33: Added 'Trades' to subfolders
-    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades'];
+    // Mandate 0.33: Added 'Trades' to subfolders. Added 'Orders' for Mandate 5.0 Hybrid Persistence.
+    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades', 'Orders'];
 
     try {
         if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
@@ -528,6 +528,22 @@ ipcMain.handle('trades:save', async (event, trade) => {
         return { success: true };
     } catch (e) {
         console.error("Error saving trade:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+// --- GLOBAL ORDERS SYNC (Mandate 5.0) ---
+ipcMain.handle('orders:sync', async (event, orders) => {
+    try {
+        const root = getRootPath();
+        const dir = path.join(root, 'Database', 'Orders');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        
+        const p = path.join(dir, 'orders_history.json');
+        fs.writeFileSync(p, JSON.stringify(orders, null, 2));
+        return { success: true };
+    } catch (e) {
+        console.error("Failed to sync orders:", e);
         return { success: false, error: e.message };
     }
 });

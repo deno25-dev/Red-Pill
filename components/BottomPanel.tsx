@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ChevronUp, ChevronDown, Target } from 'lucide-react';
+import { ChevronUp, ChevronDown, Target, Save, AlertCircle } from 'lucide-react';
 import { Trade } from '../types';
 
 interface BottomPanelProps {
@@ -8,9 +8,18 @@ interface BottomPanelProps {
   onToggle: () => void;
   trades: Trade[];
   onTradeClick?: (trade: Trade) => void;
+  onSyncToDb?: () => void;
+  hasUnsavedChanges?: boolean;
 }
 
-export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trades, onTradeClick }) => {
+export const BottomPanel: React.FC<BottomPanelProps> = ({ 
+    isOpen, 
+    onToggle, 
+    trades, 
+    onTradeClick,
+    onSyncToDb,
+    hasUnsavedChanges 
+}) => {
   const [activeTab, setActiveTab] = useState<'positions' | 'orders' | 'history'>('history');
 
   // Filter trades for display based on tab (Mock logic for now since all are filled)
@@ -51,8 +60,25 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({ isOpen, onToggle, trad
             </button>
         </div>
         
-        <div className="flex items-center gap-2 text-slate-500">
-            {isOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        <div className="flex items-center gap-3">
+            {onSyncToDb && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onSyncToDb(); }}
+                    className={`flex items-center gap-2 px-3 py-0.5 rounded text-[10px] font-bold uppercase transition-all ${
+                        hasUnsavedChanges 
+                        ? 'bg-amber-600 hover:bg-amber-500 text-white animate-pulse' 
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                    }`}
+                    title="Export orders to Database/Orders/orders_history.json"
+                >
+                    {hasUnsavedChanges ? <AlertCircle size={12} /> : <Save size={12} />}
+                    {hasUnsavedChanges ? 'Sync Needed' : 'Sync to DB'}
+                </button>
+            )}
+
+            <div className="flex items-center gap-2 text-slate-500">
+                {isOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </div>
         </div>
       </div>
 

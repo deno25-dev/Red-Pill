@@ -23,6 +23,7 @@ import { useFileSystem } from '../hooks/useFileSystem';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 import { useSymbolPersistence } from '../hooks/useSymbolPersistence';
 import { useStickyNotes } from '../hooks/useStickyNotes';
+import { useOrderPersistence } from '../hooks/useOrderPersistence';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -112,7 +113,6 @@ const App: React.FC = () => {
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
 
   // Replay Time Refs (Mandate: Timestamp-Anchored Replay)
-  // This mutable map tracks the current live timestamp of each running replay engine.
   const replayTimeRefs = useRef<Record<string, React.MutableRefObject<number | null>>>({});
 
   // Helper to ensure ref exists
@@ -136,6 +136,22 @@ const App: React.FC = () => {
       toggleVisibility: toggleStickyNotes, 
       bringToFront: bringStickyNoteToFront
   } = useStickyNotes();
+
+  // Order Persistence Hook (Global Hybrid Model)
+  const { orders: globalOrders, addOrder, syncToDb: syncOrdersToDb, hasUnsavedChanges: hasUnsavedOrders } = useOrderPersistence();
+
+  // BeforeUnload Listener for unsaved trades
+  useEffect(() => {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+          if (hasUnsavedOrders) {
+              const message = "You have new trades. Would you like to export them to your Database folder before leaving?";
+              e.returnValue = message; // Standard for browsers
+              return message;
+          }
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedOrders]);
 
   // Performance Listener
   useEffect(() => {
@@ -653,7 +669,6 @@ const App: React.FC = () => {
       window.dispatchEvent(new CustomEvent('GLOBAL_ASSET_CHANGE'));
       
       setLoading(true);
-      // Clear overrides when a file is explicitly loaded
       setFilePanelOverride(null);
       setFilePanelFilter(null);
       
@@ -688,7 +703,6 @@ const App: React.FC = () => {
           
           debugLog('Data', `Sanitization Report for ${displayTitle}`, sanitizationReport);
 
-          // --- BUFFER MANAGEMENT: Load history loop ---
           let currentRaw = cleanRawData;
           let currentFileState = {
               file: (actualSource instanceof File) ? actualSource : null,
@@ -703,9 +717,8 @@ const App: React.FC = () => {
           if (preservedReplay?.replayGlobalTime) {
               const target = preservedReplay.replayGlobalTime;
               let attempts = 0;
-              const MAX_ATTEMPTS = 5; // Prevent infinite loop, load up to 10MB extra
+              const MAX_ATTEMPTS = 5; 
               
-              // While we have more data on disk AND the oldest loaded point is still NEWER than our target
               while (
                   currentFileState.hasMore && 
                   currentRaw.length > 0 && 
@@ -715,14 +728,10 @@ const App: React.FC = () => {
                   const chunkRes = await loadPreviousChunk({ filePath } as any, currentFileState);
                   if (chunkRes) {
                       const { newPoints, newCursor, newLeftover, hasMore } = chunkRes;
-                      // Sanitize new chunk
                       const { data: cleanNew } = sanitizeData(newPoints, tfMs);
-                      
-                      // Prepend and sort (inefficient but safe)
                       const combined = [...cleanNew, ...currentRaw];
                       combined.sort((a,b) => a.time - b.time);
                       
-                      // Simple dedupe on time
                       const unique: OHLCV[] = [];
                       if(combined.length > 0) {
                           unique.push(combined[0]);
@@ -743,10 +752,8 @@ const App: React.FC = () => {
 
           const displayData = resampleData(currentRaw, initialTf);
 
-          // --- RESYNC LOGIC: Find Index by Timestamp ---
           let replayIndex = displayData.length - 1;
           if (preservedReplay?.replayGlobalTime) {
-              // Binary Search for precise or nearest previous timestamp
               const idx = findIndexForTimestamp(displayData, preservedReplay.replayGlobalTime);
               replayIndex = idx;
               debugLog('Replay', `Resync: Found target time at index ${idx}`);
@@ -764,11 +771,11 @@ const App: React.FC = () => {
               filePath: filePath,
               fileState: currentFileState,
               replayIndex: replayIndex,
-              isReplayPlaying: preservedReplay?.isReplayPlaying ?? false, // Seamless Resume
+              isReplayPlaying: preservedReplay?.isReplayPlaying ?? false,
               isReplayMode: preservedReplay?.isReplayMode ?? false,
               isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
               replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              visibleRange: null // Reset view on new data load
+              visibleRange: null
           };
 
           const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
@@ -891,22 +898,19 @@ const App: React.FC = () => {
         const targetTab = tabs.find(t => t.id === targetId);
         if (!targetTab) return;
 
-        // TIMESTAMP-ANCHORED REPLAY LOGIC
-        // If playing, prefer the live ref value. If paused, use the state value.
         let currentReplayTime = targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null);
         
         if (targetTab.isReplayPlaying) {
             const liveRef = getReplayTimeRef(targetId);
             if (liveRef.current !== null) {
                 currentReplayTime = liveRef.current;
-                debugLog('Replay', `Captured LIVE replay timestamp: ${new Date(currentReplayTime).toISOString()}`);
             }
         }
 
         const preservedReplay = {
             isReplayMode: targetTab.isReplayMode,
             isAdvancedReplayMode: targetTab.isAdvancedReplayMode,
-            isReplayPlaying: targetTab.isReplayPlaying, // Capture Playing Status
+            isReplayPlaying: targetTab.isReplayPlaying, 
             replayGlobalTime: currentReplayTime
         };
 
@@ -922,7 +926,6 @@ const App: React.FC = () => {
 
         let matchingFileHandle = findFileForTimeframe(searchList, targetTab.title, tf);
         
-        // FILE SWITCH PATH: Different source file (e.g. 1h.csv -> 5m.csv)
         if (matchingFileHandle) {
             try {
                 let file, name;
@@ -942,7 +945,6 @@ const App: React.FC = () => {
             return; 
         }
 
-        // RESAMPLE PATH: Same source, different resolution
         const resampled = resampleData(targetTab.rawData, tf);
         
         let newReplayIndex = resampled.length - 1;
@@ -950,10 +952,8 @@ const App: React.FC = () => {
 
         if (preservedReplay.isReplayMode || preservedReplay.isAdvancedReplayMode) {
             if (newGlobalTime) {
-                // Use Binary Search for Resync
                 const idx = findIndexForTimestamp(resampled, newGlobalTime);
                 newReplayIndex = idx;
-                debugLog('Replay', `Resampled Resync: Index ${idx} for time ${new Date(newGlobalTime).toISOString()}`);
             }
         } else {
             newGlobalTime = null;
@@ -967,7 +967,7 @@ const App: React.FC = () => {
           simulatedPrice: null,
           isReplayMode: preservedReplay.isReplayMode,
           isAdvancedReplayMode: preservedReplay.isAdvancedReplayMode,
-          isReplayPlaying: preservedReplay.isReplayPlaying // Resume Playback if was playing
+          isReplayPlaying: preservedReplay.isReplayPlaying
         });
     });
   };
@@ -1114,7 +1114,6 @@ const App: React.FC = () => {
         await saveAppState(stateToSave);
         alert("Layout successfully saved to local storage.");
     } else if (action === 'open-layout-folder') {
-        // --- UPDATED LAYOUT DB LOGIC ---
         setIsLibraryOpen(true);
         setFilePanelFilter(null);
         
@@ -1122,11 +1121,9 @@ const App: React.FC = () => {
         if (electron && electron.getDatabasePath && electron.watchFolder) {
             try {
                 const dbPath = await electron.getDatabasePath();
-                // Or simply point to database root to allow navigation
                 electron.watchFolder(dbPath);
             } catch(e) { console.error("Failed to watch layout DB", e); }
         } else {
-             // Web Mode: Populate from connected IndexedDB
              try {
                  const handle = await getDatabaseHandle();
                  if (handle) {
@@ -1238,32 +1235,23 @@ const App: React.FC = () => {
         return;
     }
     
-    // Clear UI state immediately
     updateActiveTab({ drawings: [], folders: [] });
-    
-    // Send event to clean chart
     window.dispatchEvent(new CustomEvent('redpill-force-clear'));
 
     const sourceId = activeTab.sourceId;
     if (sourceId) {
         try {
-            // Mandate 12.3: Nuclear Clear Backend Call
             const electron = (window as any).electronAPI;
-            
-            // Prefer dedicated clear command if available
             if (electron && electron.deleteAllDrawings) {
                 await electron.deleteAllDrawings(sourceId);
             } else if (electron && electron.saveMasterDrawings) {
                 const res = await electron.loadMasterDrawings();
                 const master = res?.data || {};
-                // Actually remove the key entirely as per "Nuclear" requirement
                 delete master[sourceId];
                 await electron.saveMasterDrawings(master);
             } else {
-                // Fallback for web
                 await deleteChartMeta(sourceId);
             }
-            
             debugLog('Data', `Drawings permanently cleared for ${sourceId}`);
         } catch (e: any) {
             console.error("Failed to clear persisted drawings:", e);
@@ -1285,20 +1273,21 @@ const App: React.FC = () => {
           ...order
       };
       
+      // 1. Update React State (UI)
+      updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
+
+      // 2. Hybrid Persistence (Local Storage + Unsaved Flag)
+      addOrder(newTrade);
+      
+      // 3. Optional: Persist to CSV-Specific store (Legacy Logic kept for compatibility)
       const electron = (window as any).electronAPI;
       if (electron) {
           try {
             await electron.saveTrade(newTrade);
-            debugLog('Data', `Trade submitted and saved for ${tradeSourceId}`, newTrade);
-          } catch (e) {
-            console.error("Failed to save trade:", e);
-            debugLog('Data', 'Trade submission failed', e);
-          }
+          } catch (e) { console.error(e); }
       }
       
-      updateActiveTab({ trades: [...(activeTab.trades || []), newTrade] });
-      
-  }, [activeTab, tradeSourceId, updateActiveTab]);
+  }, [activeTab, tradeSourceId, updateActiveTab, addOrder]);
 
   const handleFileUpload = useCallback((file: File) => {
     startFileStream(file, file.name);
@@ -1333,19 +1322,16 @@ const App: React.FC = () => {
   };
 
   const handleOpenStickyNotesFolder = useCallback(async () => {
-      // --- UPDATED STICKY NOTES LOGIC ---
       setIsLibraryOpen(true);
-      // Filter logic passed to FilePanel via state
       setFilePanelFilter(() => (f: any) => f.name.toLowerCase().endsWith('.notes') || f.name.includes('sticky_notes') || (f.path && f.path.includes('notes')));
       
       const electron = (window as any).electronAPI;
       if (electron && electron.getDatabasePath && electron.watchFolder) {
           try {
               const dbPath = await electron.getDatabasePath();
-              electron.watchFolder(dbPath); // Watch root DB to find Workspaces/sticky_notes.json
+              electron.watchFolder(dbPath); 
           } catch (e) { console.error("Failed to open Sticky Notes folder", e); }
       } else {
-          // Web: Create virtual representation
           setFilePanelOverride({
               path: 'Sticky Notes (Virtual)',
               files: [{ name: 'sticky_notes.json', kind: 'file', handle: null }]
@@ -1433,8 +1419,6 @@ const App: React.FC = () => {
                         isDrawingSyncEnabled={isDrawingSyncEnabled}
                         drawings={activeTab.drawings}
                         onUpdateDrawings={(newDrawings: Drawing[]) => {
-                            // Source-based syncing (Mandate 0.11 Scoped Persistence)
-                            // Broadcast update to ALL tabs that share this Source ID
                             const sourceId = activeTab.sourceId;
                             setTabs(prev => prev.map(t => {
                                 if (t.sourceId === sourceId) {
@@ -1447,6 +1431,10 @@ const App: React.FC = () => {
                         isMasterSyncActive={isMasterSyncActive}
                         onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
                         liveTimeRef={getReplayTimeRef(activeTab.id)}
+                        
+                        // New Sync Props
+                        onSyncTrades={syncOrdersToDb}
+                        hasUnsavedTrades={hasUnsavedOrders}
                     />
                 )}
             </div>
@@ -1491,7 +1479,6 @@ const App: React.FC = () => {
                             isDrawingSyncEnabled={isDrawingSyncEnabled}
                             drawings={tab.drawings}
                             onUpdateDrawings={(newDrawings: Drawing[]) => {
-                                // Source-based syncing logic
                                 const sourceId = tab.sourceId;
                                 setTabs(prev => prev.map(t => {
                                     if (t.sourceId === sourceId) {
@@ -1504,6 +1491,10 @@ const App: React.FC = () => {
                             isMasterSyncActive={isMasterSyncActive}
                             onToggleMasterSync={() => setIsMasterSyncActive(!isMasterSyncActive)}
                             liveTimeRef={getReplayTimeRef(tab.id)}
+                            
+                            // New Sync Props
+                            onSyncTrades={syncOrdersToDb}
+                            hasUnsavedTrades={hasUnsavedOrders}
                         />
                     </div>
                 );
