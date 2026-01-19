@@ -5,7 +5,6 @@ export interface OHLCV {
   time: number; // Unix timestamp in seconds or milliseconds
   open: number;
   high: number;
-
   low: number;
   close: number;
   volume: number;
@@ -147,6 +146,9 @@ export interface ChartState {
   folders?: Folder[];
   config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
+  // Optional metadata fields for compatibility
+  symbol?: string;
+  timeframe?: string;
 }
 
 export interface TabSession {

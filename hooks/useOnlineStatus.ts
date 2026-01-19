@@ -1,14 +1,8 @@
+
 import { useState, useEffect } from 'react';
 
-/**
- * Network Guard Hook
- * 
- * Provides a reactive boolean indicating whether the browser is currently online.
- * Used to enforce Zero-Assumption Connectivity by preventing network calls
- * unless this hook returns true.
- */
-export function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+export const useOnlineStatus = () => {
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -24,4 +18,4 @@ export function useOnlineStatus() {
   }, []);
 
   return isOnline;
-}
+};
