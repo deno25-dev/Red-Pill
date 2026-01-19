@@ -278,22 +278,34 @@ export const loadStickyNotesWeb = async () => {
     return data ? JSON.parse(data) : [];
 };
 
-// --- CHANGELOG PERSISTENCE ---
-export const saveChangelog = async (data: any) => {
+// --- DEV LOGS PERSISTENCE (Tier 2) ---
+// Used for technical system history
+export const saveDevLogs = async (logs: any[]) => {
   const electron = (window as any).electronAPI;
   if (electron && electron.saveSettings) {
-      await electron.saveSettings('changelog.json', data);
+      await electron.saveSettings('dev_logs.json', logs);
   } else {
-      localStorage.setItem('redpill_changelog', JSON.stringify(data));
+      localStorage.setItem('redpill_dev_system_logs', JSON.stringify(logs));
   }
 };
 
-export const loadChangelog = async () => {
+export const loadDevLogs = async () => {
   const electron = (window as any).electronAPI;
   if (electron && electron.loadSettings) {
-      const res = await electron.loadSettings('changelog.json');
+      const res = await electron.loadSettings('dev_logs.json');
       if (res.success && res.data) return res.data;
   }
-  const local = localStorage.getItem('redpill_changelog');
+  const local = localStorage.getItem('redpill_dev_system_logs');
   return local ? JSON.parse(local) : null;
+};
+
+// --- CHANGELOG PERSISTENCE (Tier 1: Manual Only) ---
+export const saveChangelog = async (data: any) => {
+  // Changelog is now primarily local storage for quick edits or seedData.ts for builds
+  localStorage.setItem('app_changelog_data', typeof data === 'string' ? data : JSON.stringify(data));
+};
+
+export const loadChangelog = async () => {
+  const local = localStorage.getItem('app_changelog_data');
+  return local || null;
 };

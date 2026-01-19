@@ -11,7 +11,7 @@ interface DatabaseBrowserProps {
 export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClose, mode }) => {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(false);
-    const [viewMode, setViewMode] = useState<'json' | 'table'>('table'); // Default to table for action buttons
+    const [viewMode, setViewMode] = useState<'json' | 'table'>('table');
     const [error, setError] = useState<string | null>(null);
 
     const fetchData = async () => {
@@ -27,12 +27,11 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                 }
                 else if (mode === 'layouts') {
                     if (electron.listLayouts) {
-                        res = await electron.listLayouts(); // Expects { success: true, data: [...] }
+                        res = await electron.listLayouts();
                     }
                     else throw new Error("listLayouts API not available");
                 }
                 
-                // Handle response formats
                 if (res && res.success !== false) {
                     const payload = res.data !== undefined ? res.data : res;
                     setData(payload);
@@ -61,12 +60,9 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
             if (!confirm(`Overwrite current layout with ${item.filename}?`)) return;
             
             try {
-                // 1. Load the specific layout file
                 const loaded = await electron.loadSettings(item.filename);
                 if (loaded && loaded.success) {
-                    // 2. Save it as the active ui_layout.json
                     await electron.saveSettings('ui_layout.json', loaded.data); 
-                    // 3. Reload
                     window.location.reload(); 
                 } else {
                     alert(`Failed to load selected layout file: ${loaded?.error || 'Unknown error'}`);
@@ -75,8 +71,6 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                 alert("Error restoring layout.");
             }
         } else if (mode === 'notes') {
-            // Logic to highlight/focus note could go here
-            // For now just close browser to show notes overlay
             onClose();
         }
     };
@@ -86,7 +80,6 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
     return (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 md:p-8">
             <div className="w-full max-w-5xl h-[85vh] bg-[#0f172a] border border-[#334155] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155] bg-[#1e293b]">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
@@ -126,7 +119,6 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                     </div>
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 overflow-auto bg-[#0b0f19] custom-scrollbar relative">
                     {loading ? (
                         <div className="absolute inset-0 flex items-center justify-center text-blue-400 gap-2">
@@ -195,7 +187,6 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                     )}
                 </div>
                 
-                {/* Footer */}
                 <div className="px-6 py-2 bg-[#1e293b] border-t border-[#334155] text-[10px] text-slate-500 flex justify-between">
                     <span>STATUS: {loading ? 'READING' : error ? 'ERROR' : 'READY'}</span>
                     <span>TYPE: {Array.isArray(data) ? 'ARRAY' : typeof data === 'object' ? 'OBJECT' : typeof data}</span>

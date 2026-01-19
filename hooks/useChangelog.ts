@@ -12,8 +12,13 @@ export const useChangelog = () => {
         setIsLoading(true);
         try {
             const stored = await loadChangelog();
-            if (stored && stored.version) {
-                setData(stored);
+            if (stored) {
+                // If stored is string (new Tier 1), we don't convert to VersionLog yet in this hook mostly used for Tier 2? 
+                // Actually, this hook seems legacy or mixed. Tier 1 uses direct local storage.
+                // We'll keep it simple: if stored exists and has version, use it.
+                if (typeof stored !== 'string' && (stored as any).version) {
+                     setData(stored as any);
+                }
                 debugLog('Data', 'Loaded custom changelog from storage');
             } else {
                 setData(LATEST_ADDITIONS);
@@ -35,8 +40,6 @@ export const useChangelog = () => {
             await saveChangelog(newData);
             setData(newData);
             debugLog('Data', 'Changelog updated and saved');
-            
-            // Dispatch event to update other components immediately if needed
             window.dispatchEvent(new CustomEvent('redpill-changelog-updated'));
         } catch (e) {
             console.error("Failed to save changelog", e);
@@ -45,7 +48,7 @@ export const useChangelog = () => {
 
     const reset = useCallback(async () => {
         try {
-            await saveChangelog(null); // Or delete file logic
+            await saveChangelog(null);
             setData(LATEST_ADDITIONS);
             debugLog('Data', 'Changelog reset to defaults');
             window.dispatchEvent(new CustomEvent('redpill-changelog-updated'));

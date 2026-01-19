@@ -10,8 +10,6 @@ export interface VersionLog {
     changes: ChangeLogItem[];
 }
 
-// DEVELOPER MECHANISM: Update this object to reflect the latest changes.
-// This file is compiled into the application and is not editable by the end user.
 export const LATEST_ADDITIONS: VersionLog = {
     version: "1.2.5",
     date: new Date().toISOString().split('T')[0],
