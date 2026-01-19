@@ -1,10 +1,10 @@
 
 import React, { useRef, useCallback, useEffect } from 'react';
-import { IChartApi, ISeriesApi } from 'lightweight-charts';
+import { IChartApi, ISeriesApi, SeriesType } from 'lightweight-charts';
 
 export const useDrawingRegistry = (
   chartRef: React.MutableRefObject<IChartApi | null>,
-  seriesRef: React.MutableRefObject<ISeriesApi<"Candlestick"> | null>
+  seriesRef: React.MutableRefObject<ISeriesApi<SeriesType> | null>
 ) => {
   // Registry stores { id, instance }
   const registry = useRef<Map<string, any>>(new Map());

@@ -1,10 +1,10 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
-import { ISeriesApi, Time } from 'lightweight-charts';
+import { ISeriesApi, Time, SeriesType } from 'lightweight-charts';
 import { OHLCV } from '../types';
 
 interface UseChartReplayProps {
-  seriesRef: React.MutableRefObject<ISeriesApi<"Candlestick"> | null>;
+  seriesRef: React.MutableRefObject<ISeriesApi<SeriesType> | null>;
   fullData?: OHLCV[];
   startIndex: number;
   isPlaying: boolean;
@@ -82,7 +82,7 @@ export const useChartReplay = ({
         }));
         
         // 2. SET: Apply the historical slice to the chart. This is our baseline.
-        seriesRef.current.setData(seriesData);
+        seriesRef.current.setData(seriesData as any);
         
         // 3. BUFFER: Prepare the replay buffer with all future candles.
         const bufferStart = startIndex + 1;
@@ -151,7 +151,7 @@ export const useChartReplay = ({
                     high: candle.high,
                     low: candle.low,
                     close: candle.close
-                });
+                } as any);
                 
                 // Update refs
                 currentIndexRef.current = startIndex + 1 + i;
@@ -194,7 +194,7 @@ export const useChartReplay = ({
             high: simulatedHigh,
             low: simulatedLow,
             close: simulatedPrice
-        });
+        } as any);
         
         // Update refs for interpolation
         currentPriceRef.current = simulatedPrice;

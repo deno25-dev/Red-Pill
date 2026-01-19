@@ -1,11 +1,11 @@
 
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { ISeriesApi, Time } from 'lightweight-charts';
+import { ISeriesApi, Time, SeriesType } from 'lightweight-charts';
 import { OHLCV, Timeframe } from '../types';
 import { getTimeframeDuration } from '../utils/dataUtils';
 
 interface UseAdvancedReplayProps {
-  seriesRef: React.MutableRefObject<ISeriesApi<"Candlestick"> | null>;
+  seriesRef: React.MutableRefObject<ISeriesApi<SeriesType> | null>;
   fullData?: OHLCV[];
   startIndex: number;
   isPlaying: boolean;
@@ -115,7 +115,7 @@ export const useAdvancedReplay = ({
             high: targetCandle.high,
             low: targetCandle.low,
             close: targetCandle.close
-        });
+        } as any);
         
         const nextIndex = currentIdx + 1;
         currentIndexRef.current = nextIndex;
@@ -164,7 +164,7 @@ export const useAdvancedReplay = ({
             high: simulatedHigh,
             low: simulatedLow,
             close: simulatedPrice
-        });
+        } as any);
 
         currentTimeRef.current = targetCandle.time;
         currentPriceRef.current = simulatedPrice;
@@ -197,7 +197,7 @@ export const useAdvancedReplay = ({
       }));
       
       // 2. SET
-      seriesRef.current.setData(seriesData);
+      seriesRef.current.setData(seriesData as any);
       
       // 3. RESET
       currentIndexRef.current = startIndex;
@@ -227,7 +227,7 @@ export const useAdvancedReplay = ({
             low: d.low,
             close: d.close,
         }));
-        seriesRef.current.setData(fullSeriesData);
+        seriesRef.current.setData(fullSeriesData as any);
         setDisplayState(prev => ({ ...prev, visible: false }));
     }
   }, [isActive, startIndex, fullData, seriesRef, timeframe, chartType, formatTimer]);
