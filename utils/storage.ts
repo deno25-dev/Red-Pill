@@ -1,5 +1,5 @@
 
-import { ChartState } from '../types';
+import { ChartState } from '@/types';
 
 const DB_NAME = 'RedPillChartingDB';
 const HANDLE_STORE = 'handles'; // Used for Data Explorer (Last location)
