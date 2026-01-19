@@ -12,7 +12,8 @@ import {
     Maximize2,
     Palette,
     Pin,
-    PinOff
+    PinOff,
+    Eraser
 } from 'lucide-react';
 import { StickyNoteData } from '../types';
 
@@ -43,6 +44,8 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     const [isDrawing, setIsDrawing] = useState(false);
     const [isSavedVisual, setIsSavedVisual] = useState(false);
     const [showColorPicker, setShowColorPicker] = useState(false);
+    const [inkTool, setInkTool] = useState<'pen' | 'eraser'>('pen');
+    const lastPos = useRef<{x: number, y: number} | null>(null);
     
     // --- DRAG LOGIC ---
     const dragStart = useRef<{ x: number, y: number } | null>(null);
@@ -116,11 +119,17 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
             const ctx = canvasRef.current.getContext('2d');
             if (ctx && note.inkData) {
                 const img = new Image();
-                img.onload = () => ctx.drawImage(img, 0, 0);
+                img.onload = () => {
+                    // Critical: Reset composition to default before drawing image
+                    // Otherwise if previously in eraser mode, image might not draw correctly or erase background
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
+                    ctx.drawImage(img, 0, 0);
+                };
                 img.src = note.inkData;
             }
         }
-    }, [note.mode, note.isMinimized, note.size]);
+    }, [note.mode, note.isMinimized, note.size, note.inkData]);
 
     const startDrawing = (e: React.MouseEvent) => {
         if (note.mode !== 'ink' || !canvasRef.current || note.isMinimized) return;
@@ -129,26 +138,50 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
         
         setIsDrawing(true);
         const rect = canvasRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        lastPos.current = { x, y };
+        
         ctx.beginPath();
-        ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
-        ctx.strokeStyle = note.color === 'dark' ? '#38bdf8' : '#1e293b'; 
-        ctx.lineWidth = 2;
+        ctx.moveTo(x, y);
+        
+        if (inkTool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.lineWidth = 20;
+            // Explicitly set opaque stroke for destination-out to work effectively
+            ctx.strokeStyle = 'rgba(0,0,0,1)';
+        } else {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = note.color === 'dark' ? '#38bdf8' : '#1e293b'; 
+            ctx.lineWidth = 2;
+        }
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
     };
 
     const draw = (e: React.MouseEvent) => {
-        if (!isDrawing || note.mode !== 'ink' || !canvasRef.current || note.isMinimized) return;
+        if (!isDrawing || note.mode !== 'ink' || !canvasRef.current || note.isMinimized || !lastPos.current) return;
         const ctx = canvasRef.current.getContext('2d');
         if (!ctx) return;
         
         const rect = canvasRef.current.getBoundingClientRect();
-        ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Draw segment from lastPos to currentPos
+        ctx.beginPath();
+        ctx.moveTo(lastPos.current.x, lastPos.current.y);
+        ctx.lineTo(x, y);
         ctx.stroke();
+        
+        lastPos.current = { x, y };
     };
 
     const stopDrawing = () => {
         if (isDrawing && canvasRef.current) {
             setIsDrawing(false);
+            lastPos.current = null;
+            // Always save. Even erasure is a change to the pixel data.
             onUpdate(note.id, { inkData: canvasRef.current.toDataURL() });
         }
     };
@@ -195,7 +228,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     return (
         <div 
             ref={containerRef}
-            className={`flex flex-col rounded-lg overflow-hidden border transition-colors ${theme.bg} ${theme.border} ${theme.text} ${shadowClass} ${note.mode === 'ink' ? 'cursor-crosshair' : 'cursor-default'}`}
+            className={`flex flex-col rounded-lg overflow-hidden border transition-colors ${theme.bg} ${theme.border} ${theme.text} ${shadowClass} ${note.mode === 'ink' ? (inkTool === 'eraser' ? 'cursor-cell' : 'cursor-crosshair') : 'cursor-default'}`}
             style={positionStyle}
             onMouseDown={() => onFocus(note.id)}
         >
@@ -253,16 +286,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
 
                     <div className="w-px h-3 bg-black/10 mx-1"></div>
 
-                    {/* Minimize / Maximize */}
-                    <button 
-                        onClick={() => onUpdate(note.id, { isMinimized: !note.isMinimized })}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        className="p-1 rounded hover:bg-black/10 transition-colors"
-                        title={note.isMinimized ? "Maximize" : "Minimize"}
-                    >
-                        {note.isMinimized ? <Maximize2 size={12} /> : <Minus size={12} />}
-                    </button>
-
                     {/* Mode Toggles (Only when expanded) */}
                     {!note.isMinimized && (
                         <>
@@ -275,17 +298,23 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                                 <Type size={12} />
                             </button>
                             <button 
-                                onClick={() => onUpdate(note.id, { mode: 'ink' })}
+                                onClick={() => { onUpdate(note.id, { mode: 'ink' }); setInkTool('pen'); }}
                                 onMouseDown={(e) => e.stopPropagation()}
-                                className={`p-1 rounded ${note.mode === 'ink' ? 'bg-black/20' : 'hover:bg-black/10'}`}
-                                title="Ink Mode"
+                                className={`p-1 rounded ${note.mode === 'ink' && inkTool === 'pen' ? 'bg-black/20' : 'hover:bg-black/10'}`}
+                                title="Ink Mode (Pen)"
                             >
                                 <PenTool size={12} />
                             </button>
+                            <button 
+                                onClick={() => { onUpdate(note.id, { mode: 'ink' }); setInkTool('eraser'); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className={`p-1 rounded ${note.mode === 'ink' && inkTool === 'eraser' ? 'bg-black/20' : 'hover:bg-black/10'}`}
+                                title="Ink Mode (Eraser)"
+                            >
+                                <Eraser size={12} />
+                            </button>
                         </>
                     )}
-
-                    <div className="w-px h-3 bg-black/10 mx-1"></div>
 
                     {/* Manual Save */}
                     <button 
@@ -295,6 +324,18 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         title="Save to Database"
                     >
                         {isSavedVisual ? <CheckCircle2 size={12} /> : <Save size={12} />}
+                    </button>
+
+                    <div className="w-px h-3 bg-black/10 mx-1"></div>
+
+                    {/* Minimize / Maximize */}
+                    <button 
+                        onClick={() => onUpdate(note.id, { isMinimized: !note.isMinimized })}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="p-1 rounded hover:bg-black/10 transition-colors"
+                        title={note.isMinimized ? "Maximize" : "Minimize"}
+                    >
+                        {note.isMinimized ? <Maximize2 size={12} /> : <Minus size={12} />}
                     </button>
 
                     {/* Close (Delete) - HIGH PRIORITY Z-INDEX */}
