@@ -1,3 +1,4 @@
+
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Upload, 
@@ -363,15 +364,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         <StickyNote size={16} className="text-yellow-400" />
                         <span>Add Sticky Note</span>
                     </div>
-                </button>
-                <button
-                    onClick={() => { onToggleStickyNotes?.(); setIsToolsOpen(false); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
-                >
-                    <div className="flex items-center gap-3">
-                        <span>Show Sticky Notes</span>
-                    </div>
-                    {isStickyNotesVisible && <Check size={14} className="text-emerald-400" />}
                 </button>
                 <button
                     onClick={() => { onOpenStickyNotesFolder?.(); setIsToolsOpen(false); }}
