@@ -81,9 +81,13 @@ export const useStickyNotes = () => {
         setNotes(prev => prev.map(n => n.id === id ? { ...n, ...updates, zIndex: Date.now() } : n));
     }, []);
 
-    const removeNote = useCallback((id: string) => {
-        // Confirmation is handled by UI component for better UX
-        setNotes(prev => prev.filter(n => n.id !== id));
+    const removeNote = useCallback((idToDelete: string) => {
+        console.log('DELETING:', idToDelete);
+        setNotes(currentNotes => {
+            const updatedNotes = currentNotes.filter(note => note.id !== idToDelete);
+            console.log('REMAINING NOTES:', updatedNotes.length);
+            return updatedNotes;
+        });
     }, []);
 
     const toggleVisibility = useCallback(() => {

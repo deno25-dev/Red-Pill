@@ -154,23 +154,26 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     };
 
     // --- ACTIONS ---
-    const handleManualSave = () => {
+    const handleManualSave = (e: React.MouseEvent) => {
+        e.stopPropagation();
         setIsSavedVisual(true);
         setTimeout(() => setIsSavedVisual(false), 2000);
     };
 
-    const handleDelete = () => {
-        if (confirm('Permanently delete this note?')) {
-            onRemove(note.id);
-        }
+    const handleDelete = (e: React.PointerEvent) => {
+        // Critical: Stop propagation on PointerDown to prevent DragStart or Focus
+        // which might be attached to parent elements.
+        e.stopPropagation();
+        e.preventDefault();
+
+        console.log('FINAL_DELETE_ACTION:', note.id);
+        
+        // Immediate removal to prevent race conditions with confirm() blocking the event loop
+        onRemove(note.id);
     };
 
-    const togglePin = () => {
-        // Offset Adjustment logic:
-        // If becoming fixed (unpinned), subtract header offset because Fixed is viewport relative
-        // If becoming absolute (pinned), add header offset because Absolute is container relative
-        // Note: This assumes the container starts below the header (approx 56px)
-        // Actually, simple swap is often enough if container doesn't scroll much.
+    const togglePin = (e: React.MouseEvent) => {
+        e.stopPropagation();
         onUpdate(note.id, { isPinned: !note.isPinned });
     };
 
@@ -218,13 +221,14 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                     <div className="relative">
                         <button 
                             onClick={() => setShowColorPicker(!showColorPicker)}
+                            onMouseDown={(e) => e.stopPropagation()}
                             className="p-1 rounded hover:bg-black/10 transition-colors"
                             title="Change Color"
                         >
                             <Palette size={12} />
                         </button>
                         {showColorPicker && (
-                            <div className="absolute top-full right-0 mt-1 bg-[#1e293b] border border-[#334155] p-2 rounded shadow-xl grid grid-cols-3 gap-1.5 z-50 w-24">
+                            <div className="absolute top-full right-0 mt-1 bg-[#1e293b] border border-[#334155] p-2 rounded shadow-xl grid grid-cols-3 gap-1.5 z-50 w-24" onMouseDown={(e) => e.stopPropagation()}>
                                 {Object.keys(COLORS_CONFIG).map((c) => (
                                     <button
                                         key={c}
@@ -240,6 +244,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                     {/* Pin / Unpin */}
                     <button 
                         onClick={togglePin}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className={`p-1 rounded transition-colors ${!note.isPinned ? 'text-blue-500 bg-blue-500/10' : 'hover:bg-black/10'}`}
                         title={note.isPinned ? "Undock (Float on top)" : "Dock to Workspace"}
                     >
@@ -251,6 +256,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                     {/* Minimize / Maximize */}
                     <button 
                         onClick={() => onUpdate(note.id, { isMinimized: !note.isMinimized })}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="p-1 rounded hover:bg-black/10 transition-colors"
                         title={note.isMinimized ? "Maximize" : "Minimize"}
                     >
@@ -262,6 +268,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         <>
                             <button 
                                 onClick={() => onUpdate(note.id, { mode: 'text' })}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 className={`p-1 rounded ${note.mode === 'text' ? 'bg-black/20' : 'hover:bg-black/10'}`}
                                 title="Text Mode"
                             >
@@ -269,6 +276,7 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                             </button>
                             <button 
                                 onClick={() => onUpdate(note.id, { mode: 'ink' })}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 className={`p-1 rounded ${note.mode === 'ink' ? 'bg-black/20' : 'hover:bg-black/10'}`}
                                 title="Ink Mode"
                             >
@@ -282,16 +290,18 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                     {/* Manual Save */}
                     <button 
                         onClick={handleManualSave}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className={`p-1 rounded transition-colors ${isSavedVisual ? 'text-green-600 bg-green-500/20' : 'hover:bg-black/10'}`}
                         title="Save to Database"
                     >
                         {isSavedVisual ? <CheckCircle2 size={12} /> : <Save size={12} />}
                     </button>
 
-                    {/* Close (Delete) */}
+                    {/* Close (Delete) - HIGH PRIORITY Z-INDEX */}
                     <button 
-                        onClick={handleDelete}
-                        className="p-1 rounded hover:bg-red-500/20 hover:text-red-600 transition-colors"
+                        onPointerDown={handleDelete}
+                        onClick={(e) => e.stopPropagation()} // Global Event Kill for Safety
+                        className="p-1 rounded hover:bg-red-500/20 hover:text-red-600 transition-colors z-[60] pointer-events-auto relative"
                         title="Close Note"
                     >
                         <X size={12} />
