@@ -439,6 +439,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
   const chartContainerRef = useRef<HTMLDivElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null); 
   const chartRef = useRef<IChartApi | null>(null); 
+  // Updated seriesRef type to allow union of SeriesType for dynamic switching
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null); const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const drawingsPrimitiveRef = useRef<DrawingsPrimitive | null>(null); const rangeChangeTimeout = useRef<any>(null);
