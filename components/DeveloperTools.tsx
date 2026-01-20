@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -22,13 +23,16 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'runtime' | 'system'>('runtime');
   
+  // Runtime Logs
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   
+  // System Logs (Persistent)
   const { logs: devLogs, addLog: addDevLog, clearLogs: clearDevLogs } = useDevLogs();
   
   const isOnline = useOnlineStatus();
 
+  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'd') {
@@ -40,6 +44,7 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Runtime Log listener
   useEffect(() => {
     setLogs(getLogHistory());
 
@@ -92,6 +97,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
   return (
     <div className="fixed inset-y-0 right-0 w-[500px] bg-black/95 border-l border-emerald-900/50 shadow-2xl z-[9999] flex flex-col font-mono text-sm text-emerald-500 animate-in slide-in-from-right duration-200 backdrop-blur">
       
+      {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-emerald-900/50 bg-emerald-950/20">
         <div className="flex items-center gap-2 font-bold tracking-wider">
           <Terminal size={16} />
@@ -104,6 +110,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="flex border-b border-emerald-900/50 bg-black/50">
           <button 
             onClick={() => setActiveTab('runtime')}
@@ -119,6 +126,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
           </button>
       </div>
 
+      {/* Status Grid (Only visible in Runtime Mode) */}
       {activeTab === 'runtime' && (
         <div className="grid grid-cols-2 gap-px bg-emerald-900/30 border-b border-emerald-900/50">
             <div className="bg-black/80 p-3 flex flex-col gap-1">
@@ -147,6 +155,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
         </div>
       )}
 
+      {/* Error Panel */}
       {lastError && (
         <div className="bg-red-950/30 border-b border-red-900/30 p-3">
           <div className="flex items-center gap-2 text-red-500 mb-1 text-xs font-bold uppercase">
@@ -157,6 +166,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
         </div>
       )}
 
+      {/* Log Feed */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1 bg-black relative">
         {activeTab === 'runtime' ? (
             <>
@@ -206,7 +216,9 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
         <div ref={logsEndRef} />
       </div>
 
+      {/* Actions */}
       <div className="bg-black border-t border-emerald-900/50">
+          {/* Action Row 1: DB Tools */}
           <div className="p-2 grid grid-cols-2 gap-2 border-b border-emerald-900/30">
                 <button 
                     onClick={onOpenStickyNotes}
@@ -224,6 +236,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                 </button>
           </div>
           
+          {/* Action Row 2: Logging Tools */}
           <div className="p-2 grid grid-cols-3 gap-2">
             <button 
                 onClick={activeTab === 'runtime' ? clearRuntimeLogs : clearDevLogs}
@@ -266,6 +279,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
             )}
         </div>
         
+        {/* Nuclear Option */}
         <div className="px-2 pb-2">
              <button 
                 onClick={handleNuclearClear}
