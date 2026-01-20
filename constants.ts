@@ -84,29 +84,6 @@ const HorizontalLineIcon = (props: any) => React.createElement('svg', {
   React.createElement('circle', { cx: "12", cy: "12", r: "3", key: "c" })
 ]);
 
-// Custom Icon for Measure: Diagonal line with circle anchors and arrows
-const MeasureIcon = (props: any) => React.createElement('svg', {
-  xmlns: "http://www.w3.org/2000/svg",
-  width: "24",
-  height: "24",
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: "2",
-  strokeLinecap: "round",
-  strokeLinejoin: "round",
-  ...props
-}, [
-  // Anchors
-  React.createElement('circle', { cx: "6", cy: "18", r: "2", key: "c1" }),
-  React.createElement('circle', { cx: "18", cy: "6", r: "2", key: "c2" }),
-  // Connecting Line
-  React.createElement('line', { x1: "7.5", y1: "16.5", x2: "16.5", y2: "7.5", key: "l" }),
-  // Arrow tips (corner style)
-  React.createElement('path', { d: "M 15 6 L 18 6 L 18 9", key: "a1" }), // Top-right tip
-  React.createElement('path', { d: "M 9 18 L 6 18 L 6 15", key: "a2" })  // Bottom-left tip
-]);
-
 export const COLORS = {
   bullish: '#10B981', // Emerald 500
   bearish: '#EF4444', // Red 500
@@ -141,7 +118,7 @@ export const TOOLS = {
     { id: 'rotated_rectangle', label: 'Rotated Rectangle', icon: Diamond },
   ],
   measure: [
-    { id: 'measure', label: 'Measure', icon: MeasureIcon },
+    { id: 'measure', label: 'Measure', icon: Ruler },
     { id: 'date_range', label: 'Date Range', icon: CalendarDays },
   ],
   other: [
