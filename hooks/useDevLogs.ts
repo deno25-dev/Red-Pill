@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { DevLogEntry, INITIAL_DEV_LOGS } from '../constants/devLogs';
 import { loadDevLogs, saveDevLogs } from '../utils/storage';
@@ -8,7 +7,6 @@ export const useDevLogs = () => {
     const [logs, setLogs] = useState<DevLogEntry[]>([]);
     const [isInitialized, setIsInitialized] = useState(false);
 
-    // Load logs on mount
     useEffect(() => {
         const load = async () => {
             try {
@@ -37,7 +35,6 @@ export const useDevLogs = () => {
 
         setLogs(prev => {
             const next = [newEntry, ...prev];
-            // Persist immediately (Fire and forget)
             saveDevLogs(next).catch(e => console.error("Failed to persist log", e));
             return next;
         });
