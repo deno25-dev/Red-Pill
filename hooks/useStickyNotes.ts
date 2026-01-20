@@ -40,10 +40,11 @@ export const useStickyNotes = () => {
         load();
     }, [electron]);
 
-    // Save notes on change (debounced)
+    // Save notes on change (Throttled/Debounced Persistence)
     useEffect(() => {
         if (!hasLoaded.current) return;
 
+        // Mandate: Throttled Saving (2000ms) to prevent write-lock freeze
         const timer = setTimeout(async () => {
             try {
                 if (electron && electron.saveStickyNotes) {
@@ -54,11 +55,12 @@ export const useStickyNotes = () => {
             } catch (e) {
                 console.error("Failed to save sticky notes", e);
             }
-        }, 1000);
+        }, 2000);
 
         return () => clearTimeout(timer);
     }, [notes, electron]);
 
+    // Optimistic UI Update Helpers
     const addNote = useCallback(() => {
         const newNote: StickyNoteData = {
             id: crypto.randomUUID(),
@@ -73,11 +75,13 @@ export const useStickyNotes = () => {
             zIndex: Date.now(), // Simple z-index based on creation time
             color: 'yellow'
         };
+        // Immediate State Update
         setNotes(prev => [...prev, newNote]);
         setIsVisible(true);
     }, []);
 
     const updateNote = useCallback((id: string, updates: Partial<StickyNoteData>) => {
+        // Immediate State Update (Optimistic)
         setNotes(prev => prev.map(n => n.id === id ? { ...n, ...updates, zIndex: Date.now() } : n));
     }, []);
 
@@ -85,7 +89,6 @@ export const useStickyNotes = () => {
         console.log('DELETING:', idToDelete);
         setNotes(currentNotes => {
             const updatedNotes = currentNotes.filter(note => note.id !== idToDelete);
-            console.log('REMAINING NOTES:', updatedNotes.length);
             return updatedNotes;
         });
     }, []);

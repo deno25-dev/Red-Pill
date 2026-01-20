@@ -3,6 +3,45 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 console.log('--- PRELOAD SCRIPT V2 EXECUTED ---');
 
+// --- BRIDGE UTILS ---
+
+/**
+ * Debounces promise-returning functions.
+ * Resolves ALL pending promises with the result of the LAST execution.
+ * Effectively batches multiple rapid calls into one final execution.
+ */
+const debouncePromise = (func, wait) => {
+    let timeout;
+    let pendingResolves = [];
+    let pendingRejects = [];
+    
+    return (...args) => {
+        return new Promise((resolve, reject) => {
+            pendingResolves.push(resolve);
+            pendingRejects.push(reject);
+            
+            clearTimeout(timeout);
+            timeout = setTimeout(async () => {
+                try {
+                    const result = await func(...args);
+                    pendingResolves.forEach(r => r(result));
+                } catch (err) {
+                    pendingRejects.forEach(r => r(err));
+                } finally {
+                    pendingResolves = [];
+                    pendingRejects = [];
+                }
+            }, wait);
+        });
+    };
+};
+
+// Internal Wrappers
+const invokeSaveDrawing = debouncePromise((symbol, data) => ipcRenderer.invoke('storage:save-drawing', symbol, data), 500);
+const invokeSaveSettings = debouncePromise((filename, data) => ipcRenderer.invoke('storage:save-settings', filename, data), 500);
+const invokeSaveObjectTree = debouncePromise((data) => ipcRenderer.invoke('storage:save-object-tree', data), 1000);
+const invokeSaveStickyNotes = debouncePromise((notes) => ipcRenderer.invoke('storage:save-sticky-notes', notes), 1000);
+
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -23,17 +62,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveMasterDrawings: (data) => ipcRenderer.invoke('master-drawings:save', data),
     
     // --- New Database Storage (Mandate 0.31) ---
-    saveObjectTree: (data) => ipcRenderer.invoke('storage:save-object-tree', data),
-    saveDrawing: (symbol, data) => ipcRenderer.invoke('storage:save-drawing', symbol, data),
+    // THROTTLED for bridge performance
+    saveObjectTree: (data) => invokeSaveObjectTree(data),
+    saveDrawing: (symbol, data) => invokeSaveDrawing(symbol, data),
     loadDrawing: (symbol) => ipcRenderer.invoke('storage:load-drawing', symbol),
     
     // --- UI Settings (Mandate 3.1) ---
-    saveSettings: (filename, data) => ipcRenderer.invoke('storage:save-settings', filename, data),
+    // THROTTLED
+    saveSettings: (filename, data) => invokeSaveSettings(filename, data),
     loadSettings: (filename) => ipcRenderer.invoke('storage:load-settings', filename),
     listLayouts: () => ipcRenderer.invoke('storage:list-layouts'),
 
     // --- Sticky Notes (Mandate 4.4) ---
-    saveStickyNotes: (notes) => ipcRenderer.invoke('storage:save-sticky-notes', notes),
+    // THROTTLED
+    saveStickyNotes: (notes) => invokeSaveStickyNotes(notes),
     loadStickyNotes: () => ipcRenderer.invoke('storage:load-sticky-notes'),
 
     // --- Drawing State Sync ---
@@ -42,6 +84,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteAllDrawings: (sourceId) => ipcRenderer.invoke('drawings:delete-all', sourceId),
 
     // --- Trade Persistence ---
+    // Trade saves are NOT throttled to ensure financial accuracy
     getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-by-source', sourceId),
     saveTrade: (trade) => ipcRenderer.invoke('trades:save', trade),
     

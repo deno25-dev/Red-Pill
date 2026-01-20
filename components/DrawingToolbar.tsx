@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Trash2, 
@@ -90,6 +89,16 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
   const [manualHex, setManualHex] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // --- Local Text Buffer ---
+  // Prevents heavy chart re-renders on every keystroke
+  const [localText, setLocalText] = useState(properties?.text || '');
+  const textUpdateTimer = useRef<any>(null);
+
+  // Sync local text when selection changes
+  useEffect(() => {
+      setLocalText(properties?.text || '');
+  }, [properties?.text, isSelection]); // Reset when selection changes
+
   // Sync opacity and hex state when properties change or tab changes
   useEffect(() => {
       const targetColor = colorTab === 'stroke' ? properties?.color : (properties?.backgroundColor || '#3b82f6');
@@ -153,6 +162,23 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
               handleColorChange('#' + val);
           }
       }
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const val = e.target.value;
+      setLocalText(val);
+      
+      if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
+      
+      // Debounce the heavy chart update (1000ms is usually enough for chart text)
+      textUpdateTimer.current = setTimeout(() => {
+          onChange({ text: val });
+      }, 1000);
+  };
+
+  const handleTextBlur = () => {
+      if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
+      onChange({ text: localText });
   };
 
   return (
@@ -309,8 +335,9 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
            <textarea 
              className="w-full bg-[#0f172a] border border-[#334155] rounded-md p-2 text-sm text-white focus:outline-none focus:border-blue-500 resize-none"
              rows={3}
-             value={properties.text || ''}
-             onChange={(e) => onChange({ text: e.target.value })}
+             value={localText}
+             onChange={handleTextChange}
+             onBlur={handleTextBlur}
              placeholder="Enter text..."
            />
         </div>

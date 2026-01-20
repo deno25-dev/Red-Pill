@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
 import { useDevLogs } from '../hooks/useDevLogs';
+import { DevLogEntry } from '../constants/devLogs';
 
 interface DeveloperToolsProps {
   activeDataSource: string;
@@ -12,6 +13,47 @@ interface DeveloperToolsProps {
   onOpenStickyNotes?: () => void;
   onOpenLayoutDB?: () => void;
 }
+
+// --- Memoized Log Item Components ---
+
+const RuntimeLogItem = React.memo(({ log }: { log: LogEntry }) => (
+    <div className="flex gap-2 text-xs hover:bg-emerald-900/10 p-1 rounded group">
+        <span className="text-emerald-700 shrink-0">
+        [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}]
+        </span>
+        <span className={`font-bold w-14 shrink-0 ${
+        log.category === 'UI' ? 'text-purple-400' :
+        log.category === 'Network' ? 'text-yellow-400' :
+        log.category === 'Data' ? 'text-blue-400' :
+        log.category === 'Auth' ? 'text-red-400' :
+        log.category === 'Replay' ? 'text-orange-400' :
+        'text-emerald-400'
+        }`}>
+        {log.category}
+        </span>
+        <span className="text-emerald-100/80 break-all">{log.message}</span>
+    </div>
+));
+
+const SystemLogItem = React.memo(({ log }: { log: DevLogEntry }) => (
+    <div className="flex flex-col gap-1 border-b border-blue-900/20 p-2 hover:bg-blue-900/10 transition-colors">
+        <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${
+                    log.type === 'feat' ? 'bg-green-900/30 text-green-400' :
+                    log.type === 'fix' ? 'bg-red-900/30 text-red-400' :
+                    log.type === 'refactor' ? 'bg-purple-900/30 text-purple-400' :
+                    'bg-slate-800 text-slate-400'
+                }`}>{log.type}</span>
+                <span className="text-blue-200 font-bold">{log.message}</span>
+            </div>
+            <span className="text-[10px] text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</span>
+        </div>
+        {log.details && (
+            <p className="text-slate-400 text-xs pl-2 border-l-2 border-slate-700 ml-1">{log.details}</p>
+        )}
+    </div>
+));
 
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
@@ -170,46 +212,17 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1 bg-black relative">
         {activeTab === 'runtime' ? (
             <>
-                {logs.map((log) => (
-                <div key={log.id} className="flex gap-2 text-xs hover:bg-emerald-900/10 p-1 rounded group">
-                    <span className="text-emerald-700 shrink-0">
-                    [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}]
-                    </span>
-                    <span className={`font-bold w-14 shrink-0 ${
-                    log.category === 'UI' ? 'text-purple-400' :
-                    log.category === 'Network' ? 'text-yellow-400' :
-                    log.category === 'Data' ? 'text-blue-400' :
-                    log.category === 'Auth' ? 'text-red-400' :
-                    log.category === 'Replay' ? 'text-orange-400' :
-                    'text-emerald-400'
-                    }`}>
-                    {log.category}
-                    </span>
-                    <span className="text-emerald-100/80 break-all">{log.message}</span>
-                </div>
+                {/* VIRTUALIZATION OPTIMIZATION: Slice only last 50 logs */}
+                {logs.slice(0, 50).map((log) => (
+                    <RuntimeLogItem key={log.id} log={log} />
                 ))}
             </>
         ) : (
             <>
                 {devLogs.length === 0 && <div className="text-center py-8 text-slate-600">No system logs found.</div>}
-                {devLogs.map((log) => (
-                    <div key={log.id} className="flex flex-col gap-1 border-b border-blue-900/20 p-2 hover:bg-blue-900/10 transition-colors">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${
-                                    log.type === 'feat' ? 'bg-green-900/30 text-green-400' :
-                                    log.type === 'fix' ? 'bg-red-900/30 text-red-400' :
-                                    log.type === 'refactor' ? 'bg-purple-900/30 text-purple-400' :
-                                    'bg-slate-800 text-slate-400'
-                                }`}>{log.type}</span>
-                                <span className="text-blue-200 font-bold">{log.message}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</span>
-                        </div>
-                        {log.details && (
-                            <p className="text-slate-400 text-xs pl-2 border-l-2 border-slate-700 ml-1">{log.details}</p>
-                        )}
-                    </div>
+                {/* VIRTUALIZATION OPTIMIZATION: Slice only last 50 logs */}
+                {devLogs.slice(0, 50).map((log) => (
+                    <SystemLogItem key={log.id} log={log} />
                 ))}
             </>
         )}

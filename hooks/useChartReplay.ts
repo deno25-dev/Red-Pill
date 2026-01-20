@@ -39,6 +39,15 @@ export const useChartReplay = ({
   const prevStartIndexRef = useRef<number | null>(null);
   const prevDataRef = useRef<OHLCV[] | null>(null);
 
+  // Performance Caching: Avoid dependency on props during animation loop
+  const fullDataRef = useRef<OHLCV[] | undefined>(fullData);
+  const onSyncStateRef = useRef(onSyncState);
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => { fullDataRef.current = fullData; }, [fullData]);
+  useEffect(() => { onSyncStateRef.current = onSyncState; }, [onSyncState]);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
   // NUCLEAR RESET LISTENER
   useEffect(() => {
     const handleGlobalReset = () => {
@@ -111,7 +120,26 @@ export const useChartReplay = ({
     }
   }, [fullData, startIndex, isPlaying, seriesRef, liveTimeRef]); 
 
-  // Sync on Pause/Stop - MANDATE 15.2 State Deferral
+  // --- PERFORMANCE OVERRIDE: Buffered Sync ---
+  // Decouples the React state update (which causes re-renders) from the 60fps animation loop.
+  // Updates the global UI (slider, timestamps) only once every 100ms.
+  useEffect(() => {
+      if (!isPlaying) return;
+
+      const syncInterval = setInterval(() => {
+          if (onSyncStateRef.current) {
+              onSyncStateRef.current(
+                  currentIndexRef.current,
+                  currentTimeRef.current,
+                  currentPriceRef.current
+              );
+          }
+      }, 100);
+
+      return () => clearInterval(syncInterval);
+  }, [isPlaying]);
+
+  // Sync on Pause/Stop - Immediate
   useEffect(() => {
       if (!isPlaying && onSyncState && currentIndexRef.current !== startIndex) {
           // Sync state back to React ONLY when playback stops
@@ -120,7 +148,9 @@ export const useChartReplay = ({
   }, [isPlaying, onSyncState, startIndex]);
 
   const animate = useCallback((time: number) => {
-    if (!seriesRef.current || replayBufferRef.current.length === 0) return;
+    // USE REFS INSIDE LOOP (Performance Critical)
+    const currentSeries = seriesRef.current;
+    if (!currentSeries || replayBufferRef.current.length === 0) return;
     
     if (lastFrameTimeRef.current === 0) {
       lastFrameTimeRef.current = time;
@@ -145,7 +175,7 @@ export const useChartReplay = ({
             if (i < replayBufferRef.current.length) {
                 const candle = replayBufferRef.current[i];
                 // Direct Manipulation: series.update() without triggering React state
-                seriesRef.current.update({
+                currentSeries.update({
                     time: (candle.time / 1000) as Time,
                     open: candle.open,
                     high: candle.high,
@@ -153,7 +183,7 @@ export const useChartReplay = ({
                     close: candle.close
                 } as any);
                 
-                // Update refs
+                // Update refs (read by the buffered sync interval)
                 currentIndexRef.current = startIndex + 1 + i;
                 currentTimeRef.current = candle.time;
                 currentPriceRef.current = candle.close;
@@ -188,7 +218,7 @@ export const useChartReplay = ({
             simulatedLow = targetCandle.low;
         }
 
-        seriesRef.current.update({
+        currentSeries.update({
             time: (targetCandle.time / 1000) as Time,
             open: targetCandle.open,
             high: simulatedHigh,
@@ -202,17 +232,18 @@ export const useChartReplay = ({
     }
 
     if (floorNext >= replayBufferRef.current.length) {
-        if (onComplete) onComplete();
-        // Final sync allowed on complete
-        if (onSyncState && fullData && fullData.length > 0) {
-             const lastIdx = fullData.length - 1;
-             onSyncState(lastIdx, fullData[lastIdx].time, fullData[lastIdx].close);
+        if (onCompleteRef.current) onCompleteRef.current();
+        // Final sync allowed on complete using cached ref
+        const allData = fullDataRef.current;
+        if (onSyncStateRef.current && allData && allData.length > 0) {
+             const lastIdx = allData.length - 1;
+             onSyncStateRef.current(lastIdx, allData[lastIdx].time, allData[lastIdx].close);
         }
         return;
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [speed, onComplete, onSyncState, seriesRef, fullData, startIndex, liveTimeRef]);
+  }, [speed, startIndex, liveTimeRef, seriesRef]);
 
   // Start/Stop Loop
   useEffect(() => {

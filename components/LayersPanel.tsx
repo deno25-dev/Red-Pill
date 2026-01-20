@@ -80,7 +80,7 @@ const TreeNode = React.memo(({
     : ((item as FolderType).locked ?? false);
   
   // Get Icon and Label
-  let Icon = FolderIcon;
+  let Icon: React.ElementType = FolderIcon;
   let displayName = 'Unknown';
 
   if (type === 'folder') {

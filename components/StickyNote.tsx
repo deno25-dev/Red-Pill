@@ -47,6 +47,41 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     const [inkTool, setInkTool] = useState<'pen' | 'eraser'>('pen');
     const lastPos = useRef<{x: number, y: number} | null>(null);
     
+    // --- Local State for Text (Performance Optimization) ---
+    // Using a local buffer prevents the global app re-render loop on every keystroke
+    const [localContent, setLocalContent] = useState(note.content);
+    const textUpdateTimer = useRef<any>(null);
+    const isTypingRef = useRef(false);
+
+    // Sync from parent if changed externally (e.g. initial load or remote update)
+    // Only update if we are NOT currently typing to avoid cursor jumps
+    useEffect(() => {
+        if (!isTypingRef.current && note.content !== localContent) {
+            setLocalContent(note.content);
+        }
+    }, [note.content]);
+
+    const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setLocalContent(val);
+        isTypingRef.current = true;
+
+        if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
+        
+        // Throttled update to parent (2s)
+        textUpdateTimer.current = setTimeout(() => {
+            onUpdate(note.id, { content: val });
+            isTypingRef.current = false;
+        }, 2000);
+    };
+
+    const handleTextBlur = () => {
+        // Force update on blur
+        if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
+        onUpdate(note.id, { content: localContent });
+        isTypingRef.current = false;
+    };
+
     // --- DRAG LOGIC ---
     const dragStart = useRef<{ x: number, y: number } | null>(null);
     const initialPos = useRef<{ x: number, y: number } | null>(null);
@@ -190,6 +225,10 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     const handleManualSave = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsSavedVisual(true);
+        // Force commit of text content if typing
+        if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
+        onUpdate(note.id, { content: localContent });
+        
         setTimeout(() => setIsSavedVisual(false), 2000);
     };
 
@@ -356,8 +395,9 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                     {note.mode === 'text' ? (
                         <textarea 
                             className="w-full h-full bg-transparent border-none resize-none p-3 text-sm focus:outline-none font-medium leading-relaxed custom-scrollbar placeholder-current/40"
-                            value={note.content}
-                            onChange={(e) => onUpdate(note.id, { content: e.target.value })}
+                            value={localContent}
+                            onChange={handleTextChange}
+                            onBlur={handleTextBlur}
                             placeholder="Write something..."
                             autoFocus
                         />
