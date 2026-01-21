@@ -18,8 +18,8 @@ const getRootPath = () => {
 const initializeDatabase = () => {
     const rootPath = getRootPath();
     const dbPath = path.join(rootPath, 'Database');
-    // Mandate 0.33: Added 'Trades' to subfolders. Added 'Orders' for Mandate 5.0 Hybrid Persistence.
-    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades', 'Orders', 'StickyNotes'];
+    // Mandate 0.33 & 2.11.4: Added 'Layouts' to subfolders
+    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades', 'Orders', 'StickyNotes', 'Layouts'];
 
     try {
         if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
@@ -279,24 +279,49 @@ ipcMain.handle('storage:load-settings', async (event, filename) => {
     }
 });
 
+// --- LAYOUT MANAGER (Mandate 2.11.4) ---
 ipcMain.handle('storage:list-layouts', async () => {
     try {
         const rootPath = getRootPath();
-        const settingsPath = path.join(rootPath, 'Database', 'Settings');
+        // CHANGED: Target Database/Layouts per Mandate 2.11.4
+        const layoutsPath = path.join(rootPath, 'Database', 'Layouts');
         
-        if (!fs.existsSync(settingsPath)) {
-            // If it doesn't exist, return empty, don't crash
+        if (!fs.existsSync(layoutsPath)) {
+            // Ensure directory exists for future saves
+            fs.mkdirSync(layoutsPath, { recursive: true });
             return { success: true, data: [] };
         }
         
-        const files = fs.readdirSync(settingsPath);
-        const data = files.filter(f => f.endsWith('.json')).map(f => ({
-            filename: f,
-            path: path.join(settingsPath, f)
-        }));
+        const files = fs.readdirSync(layoutsPath);
+        const data = files
+            .filter(f => f.endsWith('.json'))
+            .map(f => ({
+                filename: f,
+                path: path.join(layoutsPath, f),
+                updatedAt: fs.statSync(path.join(layoutsPath, f)).mtimeMs
+            }))
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+            
         return { success: true, data };
     } catch (e) {
         console.error('Failed to list layouts:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:restore-layout', async (event, filename) => {
+    try {
+        const root = getRootPath();
+        const source = path.join(root, 'Database', 'Layouts', filename);
+        const dest = path.join(root, 'Database', 'Settings', 'ui_layout.json');
+        
+        if (!fs.existsSync(source)) throw new Error("Layout file not found in Database/Layouts");
+        
+        // Copy-and-Overwrite (Atomic-ish)
+        fs.copyFileSync(source, dest);
+        return { success: true };
+    } catch (e) {
+        console.error('Failed to restore layout:', e);
         return { success: false, error: e.message };
     }
 });

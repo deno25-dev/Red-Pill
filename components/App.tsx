@@ -1,30 +1,31 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Toolbar } from './Toolbar';
-import { Sidebar } from './Sidebar';
-import { FilePanel } from './FilePanel';
-import { TabBar } from './TabBar';
-import { ChartWorkspace } from './ChartWorkspace';
-import { Popout } from './Popout';
-import { TradingPanel } from './TradingPanel';
-import { CandleSettingsDialog } from './CandleSettingsDialog';
-import { BackgroundSettingsDialog } from './BackgroundSettingsDialog';
-import { AssetLibrary } from './AssetLibrary';
-import { SplashController } from './SplashController';
-import { StickyNoteOverlay } from './StickyNoteOverlay';
-import { DatabaseBrowser } from './DatabaseBrowser';
-import { StickyNoteManager } from './modals/StickyNoteManager';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from '../types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from '../utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
+import { Toolbar } from './components/Toolbar';
+import { Sidebar } from './components/Sidebar';
+import { FilePanel } from './components/FilePanel';
+import { TabBar } from './components/TabBar';
+import { ChartWorkspace } from './components/ChartWorkspace';
+import { Popout } from './components/Popout';
+import { TradingPanel } from './components/TradingPanel';
+import { CandleSettingsDialog } from './components/CandleSettingsDialog';
+import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog';
+import { AssetLibrary } from './components/AssetLibrary';
+import { SplashController } from './components/SplashController';
+import { StickyNoteOverlay } from './components/StickyNoteOverlay';
+import { DatabaseBrowser } from './components/DatabaseBrowser';
+import { StickyNoteManager } from './components/modals/StickyNoteManager';
+import { LayoutManager } from './components/modals/LayoutManager';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from './types';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from './utils/dataUtils';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
-import { DeveloperTools } from './DeveloperTools';
-import { debugLog } from '../utils/logger';
-import { useFileSystem } from '../hooks/useFileSystem';
-import { useTradePersistence } from '../hooks/useTradePersistence';
-import { useSymbolPersistence } from '../hooks/useSymbolPersistence';
-import { useStickyNotes } from '../hooks/useStickyNotes';
-import { useOrderPersistence } from '../hooks/useOrderPersistence';
+import { DeveloperTools } from './components/DeveloperTools';
+import { debugLog } from './utils/logger';
+import { useFileSystem } from './hooks/useFileSystem';
+import { useTradePersistence } from './hooks/useTradePersistence';
+import { useSymbolPersistence } from './hooks/useSymbolPersistence';
+import { useStickyNotes } from './hooks/useStickyNotes';
+import { useOrderPersistence } from './hooks/useOrderPersistence';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -1537,9 +1538,9 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
+                        onOpenStickyNotes={() => window.dispatchEvent(new CustomEvent('TOGGLE_STICKY_NOTE_MANAGER'))}
+                        onOpenLayoutDB={() => window.dispatchEvent(new CustomEvent('TOGGLE_LAYOUT_MANAGER'))}
                     />
-
-                    <StickyNoteManager />
 
                     {/* Database Inspector Modal */}
                     <DatabaseBrowser 
@@ -1736,6 +1737,8 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-app-bg">
         {renderContent()}
+        <StickyNoteManager />
+        <LayoutManager />
     </div>
   );
 };

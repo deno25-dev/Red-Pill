@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveSettings: (filename, data) => invokeSaveSettings(filename, data),
     loadSettings: (filename) => ipcRenderer.invoke('storage:load-settings', filename),
     listLayouts: () => ipcRenderer.invoke('storage:list-layouts'),
+    restoreLayout: (filename) => ipcRenderer.invoke('storage:restore-layout', filename),
 
     // --- Sticky Notes (Mandate 4.4) ---
     // THROTTLED

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -14,6 +13,7 @@ import { SplashController } from './components/SplashController';
 import { StickyNoteOverlay } from './components/StickyNoteOverlay';
 import { DatabaseBrowser } from './components/DatabaseBrowser';
 import { StickyNoteManager } from './components/modals/StickyNoteManager';
+import { LayoutManager } from './components/modals/LayoutManager';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from './utils/storage';
@@ -1537,9 +1537,8 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
+                        onOpenStickyNotes={() => window.dispatchEvent(new CustomEvent('TOGGLE_STICKY_NOTE_MANAGER'))}
                     />
-
-                    <StickyNoteManager />
 
                     {/* Database Inspector Modal */}
                     <DatabaseBrowser 
@@ -1736,6 +1735,8 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-app-bg">
         {renderContent()}
+        <StickyNoteManager />
+        <LayoutManager />
     </div>
   );
 };
