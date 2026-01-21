@@ -81,6 +81,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     loadStickyNotes: () => ipcRenderer.invoke('storage:load-sticky-notes'),
     listStickyNotesDirectory: () => ipcRenderer.invoke('storage:list-sticky-notes-directory'),
 
+    // --- Metadata Management (Mandate 0.38) ---
+    deleteMetadataFile: (category, filename) => ipcRenderer.invoke('storage:delete-metadata-file', category, filename),
+    loadMetadataFile: (category, filename) => ipcRenderer.invoke('storage:load-metadata-file', category, filename),
+
     // --- Drawing State Sync ---
     getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),
     sendDrawingAction: (action, value) => ipcRenderer.send(`drawings:${action}`, value),

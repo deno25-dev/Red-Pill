@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Layout, FileJson, Calendar, RotateCcw } from 'lucide-react';
+import { X, Layout, FileJson, Calendar, Trash2 } from 'lucide-react';
 
 interface LayoutFile {
     filename: string;
@@ -64,6 +64,23 @@ export const LayoutManager: React.FC = () => {
         }
     };
 
+    const handleDelete = async (e: React.MouseEvent, filename: string) => {
+        e.stopPropagation();
+        if (!confirm(`Are you sure you want to permanently delete layout "${filename}"?`)) {
+            return;
+        }
+
+        const electron = (window as any).electronAPI;
+        if (electron && electron.deleteMetadataFile) {
+            try {
+                await electron.deleteMetadataFile('layouts', filename);
+                loadFiles(); // Refresh list
+            } catch (e: any) {
+                alert(`Error deleting layout: ${e.message}`);
+            }
+        }
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -96,13 +113,17 @@ export const LayoutManager: React.FC = () => {
                     ) : (
                         <div className="grid grid-cols-1 gap-2">
                             {files.map((file) => (
-                                <div key={file.filename} className="flex items-center justify-between p-3 bg-[#1e293b] border border-[#334155] rounded-lg hover:border-blue-500/50 transition-colors group">
+                                <div 
+                                    key={file.filename} 
+                                    onClick={() => handleRestore(file.filename)}
+                                    className="flex items-center justify-between p-3 bg-[#1e293b] border border-[#334155] rounded-lg hover:border-blue-500/50 hover:bg-[#334155]/80 cursor-pointer transition-all group"
+                                >
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
                                             <Layout size={16} />
                                         </div>
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-medium text-slate-200">{file.filename}</span>
+                                            <span className="text-sm font-medium text-slate-200 group-hover:text-blue-100 transition-colors">{file.filename}</span>
                                             <span className="text-[10px] text-slate-500 flex items-center gap-1">
                                                 <Calendar size={10} />
                                                 {new Date(file.updatedAt).toLocaleString()}
@@ -111,12 +132,11 @@ export const LayoutManager: React.FC = () => {
                                     </div>
                                     
                                     <button 
-                                        onClick={() => handleRestore(file.filename)}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded shadow-sm"
-                                        title="Overwrite current UI and Reload"
+                                        onClick={(e) => handleDelete(e, file.filename)}
+                                        className="opacity-0 group-hover:opacity-100 p-2 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
+                                        title="Delete Layout"
                                     >
-                                        <RotateCcw size={12} />
-                                        Restore
+                                        <Trash2 size={16} />
                                     </button>
                                 </div>
                             ))}
@@ -127,7 +147,7 @@ export const LayoutManager: React.FC = () => {
                 {/* Footer */}
                 <div className="p-3 bg-[#1e293b] border-t border-[#334155] text-center">
                     <p className="text-[10px] text-slate-500">
-                        Reading from [Project_Root]/Database/Layouts/
+                        Click to restore • Reading from [Project_Root]/Database/Layouts/
                     </p>
                 </div>
             </div>

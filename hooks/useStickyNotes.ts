@@ -60,6 +60,27 @@ export const useStickyNotes = () => {
         return () => clearTimeout(timer);
     }, [notes, electron]);
 
+    // Event Listener for external adds (Manager)
+    useEffect(() => {
+        const handleAdd = (e: any) => {
+            const noteData = e.detail;
+            if (noteData) {
+                // Create a new instance from saved data to avoid ID collision if loading multiple times
+                const newNote: StickyNoteData = {
+                    ...noteData,
+                    id: crypto.randomUUID(), // Always new ID
+                    isPinned: false, // Default to undocked for visibility when loaded from manager
+                    position: { x: window.innerWidth / 2 - 100, y: window.innerHeight / 2 - 100 }, // Center it
+                    zIndex: Date.now()
+                };
+                setNotes(prev => [...prev, newNote]);
+                setIsVisible(true);
+            }
+        };
+        window.addEventListener('REDPILL_ADD_STICKY_NOTE', handleAdd);
+        return () => window.removeEventListener('REDPILL_ADD_STICKY_NOTE', handleAdd);
+    }, []);
+
     // Optimistic UI Update Helpers
     const addNote = useCallback(() => {
         const newNote: StickyNoteData = {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, StickyNote, FileJson, Calendar } from 'lucide-react';
+import { X, StickyNote, FileJson, Calendar, Trash2 } from 'lucide-react';
 
 interface StickyNoteFile {
     filename: string;
@@ -41,6 +41,39 @@ export const StickyNoteManager: React.FC = () => {
         setLoading(false);
     };
 
+    const handleLoad = async (filename: string) => {
+        const electron = (window as any).electronAPI;
+        if (electron && electron.loadMetadataFile) {
+            try {
+                const res = await electron.loadMetadataFile('notes', filename);
+                if (res.success && res.data) {
+                    // Dispatch event to add this note to the active overlay
+                    window.dispatchEvent(new CustomEvent('REDPILL_ADD_STICKY_NOTE', { detail: res.data }));
+                    setIsOpen(false);
+                } else {
+                    alert('Failed to load note content.');
+                }
+            } catch (e) {
+                console.error("Failed to load note file", e);
+            }
+        }
+    };
+
+    const handleDelete = async (e: React.MouseEvent, filename: string) => {
+        e.stopPropagation();
+        if (!confirm(`Are you sure you want to delete note "${filename}"?`)) return;
+        
+        const electron = (window as any).electronAPI;
+        if (electron && electron.deleteMetadataFile) {
+            try {
+                await electron.deleteMetadataFile('notes', filename);
+                loadFiles(); // Refresh
+            } catch (e) {
+                console.error("Failed to delete note", e);
+            }
+        }
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -73,23 +106,31 @@ export const StickyNoteManager: React.FC = () => {
                     ) : (
                         <div className="grid grid-cols-1 gap-2">
                             {files.map((file) => (
-                                <div key={file.filename} className="flex items-center justify-between p-3 bg-[#1e293b] border border-[#334155] rounded-lg hover:border-yellow-500/50 transition-colors group">
+                                <div 
+                                    key={file.filename} 
+                                    onClick={() => handleLoad(file.filename)}
+                                    className="flex items-center justify-between p-3 bg-[#1e293b] border border-[#334155] rounded-lg hover:border-yellow-500/50 hover:bg-[#334155]/80 cursor-pointer transition-all group"
+                                >
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-yellow-500/10 rounded-lg text-yellow-500">
                                             <StickyNote size={16} />
                                         </div>
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-medium text-slate-200">{file.filename}</span>
+                                            <span className="text-sm font-medium text-slate-200 group-hover:text-yellow-100 transition-colors">{file.filename}</span>
                                             <span className="text-[10px] text-slate-500 flex items-center gap-1">
                                                 <Calendar size={10} />
                                                 {new Date(file.updatedAt).toLocaleString()}
                                             </span>
                                         </div>
                                     </div>
-                                    {/* Placeholder for future actions like Load/Delete */}
-                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {/* Actions could go here */}
-                                    </div>
+                                    
+                                    <button 
+                                        onClick={(e) => handleDelete(e, file.filename)}
+                                        className="opacity-0 group-hover:opacity-100 p-2 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
+                                        title="Delete Note"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -99,7 +140,7 @@ export const StickyNoteManager: React.FC = () => {
                 {/* Footer */}
                 <div className="p-3 bg-[#1e293b] border-t border-[#334155] text-center">
                     <p className="text-[10px] text-slate-500">
-                        Listing files from [Project_Root]/Database/StickyNotes/
+                        Click to load • Listing files from [Project_Root]/Database/StickyNotes/
                     </p>
                 </div>
             </div>

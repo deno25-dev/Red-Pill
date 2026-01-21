@@ -385,6 +385,42 @@ ipcMain.handle('storage:list-sticky-notes-directory', async () => {
     }
 });
 
+// --- METADATA MANAGEMENT (Mandate 0.38) ---
+ipcMain.handle('storage:delete-metadata-file', async (event, category, filename) => {
+    try {
+        const root = getRootPath();
+        // Category maps to subfolder: 'layouts' -> 'Layouts', 'notes' -> 'StickyNotes'
+        const folderName = category === 'layouts' ? 'Layouts' : (category === 'notes' ? 'StickyNotes' : category);
+        const filePath = path.join(root, 'Database', folderName, filename);
+        
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            return { success: true };
+        }
+        return { success: false, error: 'File not found' };
+    } catch (e) {
+        console.error("Failed to delete metadata file:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:load-metadata-file', async (event, category, filename) => {
+    try {
+        const root = getRootPath();
+        const folderName = category === 'layouts' ? 'Layouts' : (category === 'notes' ? 'StickyNotes' : category);
+        const filePath = path.join(root, 'Database', folderName, filename);
+        
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            return { success: true, data: JSON.parse(data) };
+        }
+        return { success: false, error: 'File not found' };
+    } catch (e) {
+        console.error("Failed to load metadata file:", e);
+        return { success: false, error: e.message };
+    }
+});
+
 // --- Existing Handlers ---
 
 ipcMain.handle('get-user-data-path', async () => {
