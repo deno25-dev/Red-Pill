@@ -164,6 +164,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const handleLayoutClick = (action: string) => {
     if (action === 'load-csv') {
       fileInputRef.current?.click();
+    } else if (action === 'open-layout-folder') {
+        // Disabled
     } else {
       onLayoutAction?.(action);
       setIsLayoutMenuOpen(false);
@@ -366,12 +368,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     </div>
                 </button>
                 <button
-                    onClick={() => { onOpenStickyNotesFolder?.(); setIsToolsOpen(false); }}
+                    onClick={() => {
+                        setIsToolsOpen(false);
+                        window.dispatchEvent(new CustomEvent('TOGGLE_STICKY_NOTE_MANAGER'));
+                    }}
                     className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between transition-colors"
                 >
                     <div className="flex items-center gap-3">
                         <FolderOpen size={16} className="text-slate-400" />
-                        <span>Open sticky notes</span>
+                        <span>Open Sticky Note Manager</span>
                     </div>
                 </button>
             </div>
@@ -420,7 +425,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <div className="h-px bg-[#334155] my-1 mx-2"></div>
                 <div className="px-3 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Storage</div>
                 <button onClick={() => handleLayoutClick('save')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><Save size={16} className="text-emerald-400" /><span>Save Layout to DB</span></button>
-                <button onClick={() => handleLayoutClick('open-layout-folder')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><FolderOpen size={16} className="text-slate-400" /><span>Open layout DB</span></button>
+                <button onClick={() => handleLayoutClick('open-layout-folder')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 opacity-50 cursor-not-allowed"><FolderOpen size={16} className="text-slate-400" /><span>Open layout DB</span></button>
                 <button onClick={() => handleLayoutClick('export-layout')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><FileDown size={16} className="text-blue-400" /><span>Export Layout (.json)</span></button>
                 <button onClick={() => handleLayoutClick('import-layout')} className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3"><FileInput size={16} className="text-amber-400" /><span>Import Layout (.json)</span></button>
                 

@@ -19,7 +19,7 @@ const initializeDatabase = () => {
     const rootPath = getRootPath();
     const dbPath = path.join(rootPath, 'Database');
     // Mandate 0.33: Added 'Trades' to subfolders. Added 'Orders' for Mandate 5.0 Hybrid Persistence.
-    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades', 'Orders'];
+    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades', 'Orders', 'StickyNotes'];
 
     try {
         if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
@@ -178,6 +178,22 @@ ipcMain.handle('shell:open-folder', async (event, subpath) => {
 
 // --- Storage Handlers (Mandate 0.31) ---
 
+ipcMain.handle('storage:ensure-sticky-notes-dir', async () => {
+    try {
+        const root = getRootPath();
+        const dbPath = path.join(root, 'Database');
+        if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
+        
+        const stickyPath = path.join(dbPath, 'StickyNotes');
+        if (!fs.existsSync(stickyPath)) fs.mkdirSync(stickyPath, { recursive: true });
+        
+        return { success: true, path: stickyPath };
+    } catch (e) {
+        console.error("Failed to ensure sticky notes directory:", e);
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('storage:save-object-tree', async (event, data) => {
     try {
         const root = getRootPath();
@@ -312,6 +328,34 @@ ipcMain.handle('storage:load-sticky-notes', async (event) => {
         return { success: true, data: [] };
     } catch (e) {
         console.error("Failed to load sticky notes:", e);
+        return { success: false, error: e.message };
+    }
+});
+
+// --- STICKY NOTES MANAGER (Mandate 4.4.3) ---
+ipcMain.handle('storage:list-sticky-notes-directory', async () => {
+    try {
+        const root = getRootPath();
+        const dir = path.join(root, 'Database', 'StickyNotes');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        
+        const files = fs.readdirSync(dir);
+        const data = files
+            .filter(f => f.endsWith('.json'))
+            .map(f => {
+                const fullPath = path.join(dir, f);
+                const stats = fs.statSync(fullPath);
+                return {
+                    filename: f,
+                    path: fullPath,
+                    updatedAt: stats.mtimeMs
+                };
+            })
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+            
+        return { success: true, data };
+    } catch (e) {
+        console.error("Failed to list sticky notes directory:", e);
         return { success: false, error: e.message };
     }
 });

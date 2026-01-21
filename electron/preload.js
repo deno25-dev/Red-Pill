@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveObjectTree: (data) => invokeSaveObjectTree(data),
     saveDrawing: (symbol, data) => invokeSaveDrawing(symbol, data),
     loadDrawing: (symbol) => ipcRenderer.invoke('storage:load-drawing', symbol),
+    ensureStickyNoteDirectory: () => ipcRenderer.invoke('storage:ensure-sticky-notes-dir'),
     
     // --- UI Settings (Mandate 3.1) ---
     // THROTTLED
@@ -77,6 +78,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // THROTTLED
     saveStickyNotes: (notes) => invokeSaveStickyNotes(notes),
     loadStickyNotes: () => ipcRenderer.invoke('storage:load-sticky-notes'),
+    listStickyNotesDirectory: () => ipcRenderer.invoke('storage:list-sticky-notes-directory'),
 
     // --- Drawing State Sync ---
     getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),

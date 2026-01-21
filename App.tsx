@@ -13,6 +13,7 @@ import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
 import { StickyNoteOverlay } from './components/StickyNoteOverlay';
 import { DatabaseBrowser } from './components/DatabaseBrowser';
+import { StickyNoteManager } from './components/modals/StickyNoteManager';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing } from './types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from './utils/storage';
@@ -1536,9 +1537,9 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
-                        onOpenStickyNotes={() => { setDbMode('notes'); setIsDbBrowserOpen(true); }}
-                        onOpenLayoutDB={() => { setDbMode('layouts'); setIsDbBrowserOpen(true); }}
                     />
+
+                    <StickyNoteManager />
 
                     {/* Database Inspector Modal */}
                     <DatabaseBrowser 

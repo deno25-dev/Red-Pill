@@ -1,197 +1,174 @@
-
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Database, Braces, Table, AlertTriangle, Play, FileJson } from 'lucide-react';
+import { X, Database, FileJson, Layout, RotateCcw, AlertTriangle } from 'lucide-react';
+import { debugLog } from '../utils/logger';
 
 interface DatabaseBrowserProps {
-    isOpen: boolean;
-    onClose: () => void;
-    mode: 'notes' | 'layouts';
+  isOpen: boolean;
+  onClose: () => void;
+  mode: 'notes' | 'layouts';
 }
 
 export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClose, mode }) => {
-    const [data, setData] = useState<any>(null);
-    const [loading, setLoading] = useState(false);
-    const [viewMode, setViewMode] = useState<'json' | 'table'>('table');
-    const [error, setError] = useState<string | null>(null);
+  const [items, setItems] = useState<any[]>([]);
+  const [selectedItem, setSelectedItem] = useState<any | null>(null);
+  const [contentPreview, setContentPreview] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
 
-    const fetchData = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const electron = (window as any).electronAPI;
-            if (electron) {
-                let res;
-                if (mode === 'notes') {
-                    if (electron.loadStickyNotes) res = await electron.loadStickyNotes();
-                    else throw new Error("loadStickyNotes API not available");
-                }
-                else if (mode === 'layouts') {
-                    if (electron.listLayouts) {
-                        res = await electron.listLayouts();
-                    }
-                    else throw new Error("listLayouts API not available");
-                }
-                
-                if (res && res.success !== false) {
-                    const payload = res.data !== undefined ? res.data : res;
-                    setData(payload);
-                } else {
-                    setData(null);
-                    setError(res?.error || "Failed to load data from backend.");
-                }
-            } else {
-                setError("Electron API unavailable. Cannot access local database.");
-            }
-        } catch (e: any) {
-            console.error(e);
-            setError(e.message || String(e));
-        } finally {
-            setLoading(false);
+  useEffect(() => {
+    if (isOpen) {
+      loadData();
+    }
+  }, [isOpen, mode]);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    setItems([]);
+    setSelectedItem(null);
+    setContentPreview('');
+
+    const electron = (window as any).electronAPI;
+    if (!electron) {
+        // Web Fallback (limited)
+        if (mode === 'notes') {
+            const notes = localStorage.getItem('redpill_sticky_notes');
+            if (notes) setContentPreview(JSON.stringify(JSON.parse(notes), null, 2));
+        } else {
+            const layout = localStorage.getItem('redpill_ui_layout');
+            if (layout) setContentPreview(JSON.stringify(JSON.parse(layout), null, 2));
         }
-    };
+        setIsLoading(false);
+        return;
+    }
 
-    useEffect(() => {
-        if (isOpen) fetchData();
-    }, [isOpen, mode]);
-
-    const handleSelect = async (item: any) => {
-        const electron = (window as any).electronAPI;
+    try {
         if (mode === 'layouts') {
-            if (!confirm(`Overwrite current layout with ${item.filename}?`)) return;
-            
-            try {
-                const loaded = await electron.loadSettings(item.filename);
-                if (loaded && loaded.success) {
-                    await electron.saveSettings('ui_layout.json', loaded.data); 
-                    window.location.reload(); 
-                } else {
-                    alert(`Failed to load selected layout file: ${loaded?.error || 'Unknown error'}`);
-                }
-            } catch (e) {
-                alert("Error restoring layout.");
+            const result = await electron.listLayouts();
+            if (result.success) {
+                setItems(result.data || []);
             }
-        } else if (mode === 'notes') {
-            onClose();
+        } else {
+            const result = await electron.loadStickyNotes();
+            if (result.success) {
+                setContentPreview(JSON.stringify(result.data, null, 2));
+            }
         }
-    };
+    } catch (e) {
+        console.error("Failed to load DB data", e);
+    } finally {
+        setIsLoading(false);
+    }
+  };
 
-    if (!isOpen) return null;
+  const handleSelectItem = async (item: any) => {
+      setSelectedItem(item);
+      const electron = (window as any).electronAPI;
+      if (mode === 'layouts' && electron) {
+          try {
+              const res = await electron.loadSettings(item.filename);
+              if (res.success) {
+                  setContentPreview(JSON.stringify(res.data, null, 2));
+              }
+          } catch(e) {
+              setContentPreview('Error loading content.');
+          }
+      }
+  };
 
-    return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 md:p-8">
-            <div className="w-full max-w-5xl h-[85vh] bg-[#0f172a] border border-[#334155] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-[#334155] bg-[#1e293b]">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                            <Database className="text-blue-400" size={20} />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-white capitalize tracking-wide">Database Inspector</h2>
-                            <p className="text-xs text-slate-400 font-mono">
-                                Target: <span className="text-blue-300">{mode === 'notes' ? 'Sticky Notes (sticky_notes.json)' : 'Layouts (/Settings/*.json)'}</span>
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="flex bg-[#0f172a] rounded-lg p-1 border border-[#334155] mr-4">
-                            <button 
-                                onClick={() => setViewMode('table')}
-                                className={`p-1.5 rounded ${viewMode === 'table' ? 'bg-[#334155] text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                                title="Table View"
-                                disabled={!Array.isArray(data)}
-                            >
-                                <Table size={16} />
-                            </button>
-                            <button 
-                                onClick={() => setViewMode('json')}
-                                className={`p-1.5 rounded ${viewMode === 'json' ? 'bg-[#334155] text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                                title="JSON View"
-                            >
-                                <Braces size={16} />
-                            </button>
-                        </div>
-                        <button onClick={fetchData} className="p-2 hover:bg-[#334155] rounded-full text-slate-400 hover:text-white transition-colors" title="Reload Data">
-                            <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
-                        </button>
-                        <button onClick={onClose} className="p-2 hover:bg-[#334155] rounded-full text-slate-400 hover:text-white transition-colors">
-                            <X size={20} />
-                        </button>
-                    </div>
+  const handleRestoreLayout = async () => {
+      if (mode !== 'layouts' || !selectedItem) return;
+      if (!confirm(`Restore layout from "${selectedItem.filename}"? The app will reload.`)) return;
+
+      const electron = (window as any).electronAPI;
+      if (electron) {
+          try {
+              // 1. Read the selected layout
+              const res = await electron.loadSettings(selectedItem.filename);
+              if (res.success && res.data) {
+                  // 2. Overwrite ui_layout.json (the active layout)
+                  await electron.saveSettings('ui_layout.json', res.data);
+                  debugLog('Data', `Layout restored from ${selectedItem.filename}`);
+                  // 3. Reload
+                  window.location.reload();
+              }
+          } catch (e) {
+              alert('Failed to restore layout.');
+          }
+      }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div className="w-full max-w-4xl h-[80vh] bg-[#0f172a] border border-[#334155] rounded-xl flex flex-col overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#334155] bg-[#1e293b]">
+                <div className="flex items-center gap-2 text-slate-200 font-bold">
+                    {mode === 'notes' ? <Database size={18} className="text-yellow-400" /> : <Layout size={18} className="text-blue-400" />}
+                    <span>{mode === 'notes' ? 'Sticky Notes Database' : 'Layout Snapshots'}</span>
                 </div>
+                <button onClick={onClose} className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-white"><X size={18} /></button>
+            </div>
 
-                <div className="flex-1 overflow-auto bg-[#0b0f19] custom-scrollbar relative">
-                    {loading ? (
-                        <div className="absolute inset-0 flex items-center justify-center text-blue-400 gap-2">
-                            <RefreshCw size={24} className="animate-spin" />
-                            <span className="text-sm font-medium">Reading Database...</span>
-                        </div>
-                    ) : error ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400 gap-2">
-                            <AlertTriangle size={32} />
-                            <span className="text-sm font-medium">{error}</span>
-                        </div>
-                    ) : (
-                        <div className="p-6">
-                            {viewMode === 'json' ? (
-                                <pre className="font-mono text-xs text-emerald-400 leading-relaxed whitespace-pre-wrap bg-[#0f172a] p-4 rounded border border-[#334155]">
-                                    {JSON.stringify(data, null, 2)}
-                                </pre>
+            <div className="flex flex-1 overflow-hidden">
+                {/* Sidebar List (Only for Layouts) */}
+                {mode === 'layouts' && (
+                    <div className="w-64 border-r border-[#334155] bg-[#0f172a] flex flex-col">
+                        <div className="p-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-[#1e293b]/50">Available Snapshots</div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                            {isLoading ? (
+                                <div className="text-xs text-slate-500 text-center py-4">Loading...</div>
+                            ) : items.length === 0 ? (
+                                <div className="text-xs text-slate-500 text-center py-4">No layouts found.</div>
                             ) : (
-                                Array.isArray(data) ? (
-                                    <div className="grid grid-cols-1 gap-2">
-                                        {data.map((item, idx) => (
-                                            <div key={idx} className="flex items-center justify-between bg-[#1e293b] border border-[#334155] rounded p-3 hover:border-blue-500/50 transition-colors">
-                                                <div className="flex items-center gap-3 overflow-hidden">
-                                                    <div className="p-2 bg-[#0f172a] rounded text-slate-400">
-                                                        {mode === 'layouts' ? <FileJson size={16}/> : <span className="text-xs font-bold text-yellow-500">Note</span>}
-                                                    </div>
-                                                    <div className="flex flex-col min-w-0">
-                                                        <span className="text-sm font-bold text-slate-200 truncate">
-                                                            {mode === 'layouts' ? item.filename : (item.title || 'Untitled Note')}
-                                                        </span>
-                                                        <span className="text-[10px] text-slate-500 font-mono truncate">
-                                                            {mode === 'layouts' ? item.path : item.id}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="flex items-center gap-4">
-                                                    {mode === 'notes' && (
-                                                        <span className="text-[10px] bg-slate-700 px-2 py-0.5 rounded text-slate-300">
-                                                            {item.color || 'yellow'}
-                                                        </span>
-                                                    )}
-                                                    <button 
-                                                        onClick={() => handleSelect(item)}
-                                                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold transition-colors"
-                                                    >
-                                                        {mode === 'layouts' ? (
-                                                            <>
-                                                                <Play size={12} fill="currentColor" />
-                                                                Restore
-                                                            </>
-                                                        ) : 'View'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-center text-slate-500 py-20 flex flex-col items-center gap-2">
-                                        <Table size={32} className="opacity-20" />
-                                        <p>Data is not an array. Switch to JSON view.</p>
-                                    </div>
-                                )
+                                items.map((item, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => handleSelectItem(item)}
+                                        className={`w-full text-left px-3 py-2 rounded text-xs truncate transition-colors ${selectedItem?.filename === item.filename ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-[#1e293b] hover:text-white'}`}
+                                    >
+                                        <div className="font-medium">{item.filename}</div>
+                                        <div className="text-[9px] opacity-70">Database/Settings/</div>
+                                    </button>
+                                ))
                             )}
                         </div>
-                    )}
-                </div>
-                
-                <div className="px-6 py-2 bg-[#1e293b] border-t border-[#334155] text-[10px] text-slate-500 flex justify-between">
-                    <span>STATUS: {loading ? 'READING' : error ? 'ERROR' : 'READY'}</span>
-                    <span>TYPE: {Array.isArray(data) ? 'ARRAY' : typeof data === 'object' ? 'OBJECT' : typeof data}</span>
+                    </div>
+                )}
+
+                {/* Main Content (Preview) */}
+                <div className="flex-1 flex flex-col bg-[#0b0f19]">
+                    <div className="p-2 border-b border-[#334155] flex justify-between items-center bg-[#1e293b]/30">
+                        <div className="flex items-center gap-2">
+                            <FileJson size={14} className="text-slate-500" />
+                            <span className="text-xs text-slate-300 font-mono">
+                                {mode === 'notes' ? 'sticky_notes.json' : selectedItem ? selectedItem.filename : 'Select a file...'}
+                            </span>
+                        </div>
+                        {mode === 'layouts' && selectedItem && (
+                            <button 
+                                onClick={handleRestoreLayout}
+                                className="flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold transition-colors shadow-sm"
+                            >
+                                <RotateCcw size={12} />
+                                Restore & Reload
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex-1 overflow-auto custom-scrollbar p-4">
+                        <pre className="text-xs font-mono text-emerald-400 whitespace-pre-wrap break-all">
+                            {contentPreview || (isLoading ? 'Loading content...' : 'No content selected.')}
+                        </pre>
+                    </div>
                 </div>
             </div>
+            
+            {/* Footer */}
+            <div className="px-4 py-2 border-t border-[#334155] bg-[#1e293b] text-[10px] text-slate-500 flex justify-between">
+                <span>{mode === 'notes' ? 'Direct Read from Database/Workspaces/' : 'Direct Read from Database/Settings/'}</span>
+                {!(window as any).electronAPI && <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={10} /> Web Mode (LocalStorage Fallback)</span>}
+            </div>
         </div>
-    );
+    </div>
+  );
 };
