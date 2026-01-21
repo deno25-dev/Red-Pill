@@ -1,6 +1,7 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import App from './components/App';
 import { GlobalModalManager } from './components/GlobalModalManager';
 import './index.css';
 
