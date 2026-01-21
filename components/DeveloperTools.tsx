@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool, FolderOpen } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
 import { useDevLogs } from '../hooks/useDevLogs';
@@ -88,6 +88,16 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       if (confirm('NUCLEAR OPTION: This will permanently delete all drawings/metadata for the CURRENT chart from the database. Are you sure?')) {
           window.dispatchEvent(new CustomEvent('redpill-nuclear-clear'));
           debugLog('Data', 'Nuclear Clear Triggered by user');
+      }
+  };
+
+  const handleRevealDB = async () => {
+      const electron = (window as any).electronAPI;
+      if (electron && electron.openDBFolder) {
+          const result = await electron.openDBFolder();
+          if (!result.success) {
+              alert(`Could not open folder.\nSystem Error: ${result.error}\nManual Path: ${result.path}`);
+          }
       }
   };
 
@@ -218,20 +228,27 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       {/* Actions */}
       <div className="bg-black border-t border-emerald-900/50">
           {/* Action Row 1: DB Tools */}
-          <div className="p-2 grid grid-cols-2 gap-2 border-b border-emerald-900/30">
+          <div className="p-2 grid grid-cols-3 gap-2 border-b border-emerald-900/30">
                 <button 
                     onClick={onOpenStickyNotes}
                     className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <FileJson size={12} />
-                    Inspect Notes DB
+                    Notes DB
                 </button>
                 <button 
                     onClick={() => window.dispatchEvent(new CustomEvent('TOGGLE_LAYOUT_MANAGER'))}
                     className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <Layout size={12} />
-                    Inspect Layout DB
+                    Layout DB
+                </button>
+                <button 
+                    onClick={handleRevealDB}
+                    className="flex items-center justify-center gap-1 bg-amber-900/10 hover:bg-amber-800/30 text-amber-400 py-1.5 px-2 rounded border border-amber-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                >
+                    <FolderOpen size={12} />
+                    Reveal DB
                 </button>
           </div>
           

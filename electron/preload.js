@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getInternalFolders: () => ipcRenderer.invoke('get-internal-folders'),
     getInternalLibrary: () => ipcRenderer.invoke('get-internal-folders'), // Alias for compatibility
     openFolder: (subpath) => ipcRenderer.invoke('shell:open-folder', subpath),
+    // Specific diagnostic to reveal DB path
+    openDBFolder: () => ipcRenderer.invoke('system:open-db-folder'),
     
     // --- Master Drawing Store Persistence (LEGACY) ---
     loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),

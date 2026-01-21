@@ -1,3 +1,4 @@
+
 import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
@@ -832,6 +833,9 @@ export const findFileForTimeframe = (files: any[], currentTitle: string, targetT
 // Updated to be robust against permission errors and invalid handles
 export async function scanRecursive(dirHandle: any): Promise<any[]> {
     const files: any[] = [];
+    // BLACKLIST: Metadata folders that should be ignored by the market data scanner
+    const BLACKLIST = ['StickyNotes', 'Layouts', 'Settings', 'Trades', 'Orders', 'Drawings', 'ObjectTree', 'Workspaces'];
+
     async function traverse(handle: any, currentPath: string) {
         if (!handle || typeof handle.values !== 'function') return;
         try {
@@ -839,7 +843,10 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
             for await (const entry of handle.values()) {
                 try {
                     if (entry.kind === 'file') {
-                        if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.json')) {
+                        // Strict Extension Filter (Mandate 3.2)
+                        // Ignore .json files here. They are metadata, not chart data.
+                        const name = entry.name.toLowerCase();
+                        if (name.endsWith('.csv') || name.endsWith('.txt')) {
                            // The 'entry' is a FileSystemFileHandle. It's not a plain object.
                            // We create a new object that carries the folder info but is compatible with consumers.
                            const fileObject = {
@@ -852,7 +859,11 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
                            files.push(fileObject);
                         }
                     } else if (entry.kind === 'directory') {
-                        await traverse(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
+                        // Blacklist Check (Mandate 3.1)
+                        // Don't traverse into system folders
+                        if (!BLACKLIST.includes(entry.name)) {
+                            await traverse(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
+                        }
                     }
                 } catch (innerErr) {
                     console.warn("Skipping entry due to error:", entry.name, innerErr);

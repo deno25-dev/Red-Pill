@@ -63,9 +63,16 @@ const createWindow = () => {
       contextIsolation: true,
       sandbox: false,
       webSecurity: false,
-      preload: preloadPath 
+      preload: preloadPath,
+      devTools: true // Explicitly enable F12/DevTools
     },
     autoHideMenuBar: true
+  });
+
+  // EMERGENCY: FORCE DEVTOOLS OPEN
+  // This ensures diagnostics are available in local builds immediately
+  mainWindow.webContents.on('did-frame-finish-load', () => {
+      mainWindow.webContents.openDevTools();
   });
 
   const isDev = !app.isPackaged;
@@ -110,6 +117,10 @@ const resolveDatabasePath = () => {
 const runBootScan = () => {
     const dbPath = resolveDatabasePath();
     const results = [];
+    // MANDATE 3.1: BLACKLIST IMPLEMENTATION
+    // Prevent scanning system folders or metadata folders to avoid lag and ghost files
+    const BLACKLIST = ['StickyNotes', 'Layouts', 'Settings', 'Trades', 'Orders', 'Drawings', 'ObjectTree', 'Workspaces', 'node_modules', '.git'];
+
     console.log(`[DIAGNOSTIC] Starting scan in root: ${dbPath}`);
 
     const scanDir = (dir) => {
@@ -121,9 +132,15 @@ const runBootScan = () => {
                 try {
                     const stat = fs.statSync(fullPath);
                     if (stat && stat.isDirectory()) {
-                        console.log(`[DIAGNOSTIC] -> Found directory, recursing into: ${file}`);
-                        scanDir(fullPath);
-                    } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.json')) {
+                        // Blacklist Check
+                        if (!BLACKLIST.includes(file)) {
+                            console.log(`[DIAGNOSTIC] -> Found directory, recursing into: ${file}`);
+                            scanDir(fullPath);
+                        } else {
+                            console.log(`[DIAGNOSTIC] -> Skipping blacklisted directory: ${file}`);
+                        }
+                    } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.txt')) {
+                        // STRICT EXTENSION FILTER (No .json allowed here)
                         console.log(`[DIAGNOSTIC] -> Found file: ${file}`);
                         let folderName = path.relative(dbPath, dir);
                         console.log(`[DIAGNOSTIC]    - Relative path for grouping: '${folderName}'`);
@@ -136,7 +153,6 @@ const runBootScan = () => {
                         };
 
                         results.push(resultObj);
-                        console.log(`[DIAGNOSTIC]    - Pushed to results:`, resultObj);
                     }
                 } catch (e) { 
                     console.error(`[DIAGNOSTIC] Error processing path: ${fullPath}`, e);
@@ -176,6 +192,28 @@ ipcMain.handle('shell:open-folder', async (event, subpath) => {
     }
 });
 
+// Diagnostic Handler: Open DB Folder directly (ROBUST VERSION)
+ipcMain.handle('system:open-db-folder', async () => {
+    try {
+        const dbPath = path.join(getRootPath(), 'Database');
+        if (!fs.existsSync(dbPath)) {
+            fs.mkdirSync(dbPath, { recursive: true });
+        }
+        // shell.openPath returns error string if failed, or empty string if success
+        const error = await shell.openPath(dbPath);
+        if (error) {
+            console.error('Failed to open DB folder:', error);
+            // Return error but ALSO the path so UI can show it
+            return { success: false, error, path: dbPath };
+        }
+        return { success: true, path: dbPath };
+    } catch (e) {
+        const dbPath = path.join(getRootPath(), 'Database');
+        console.error('Exception opening DB folder:', e);
+        return { success: false, error: e.message, path: dbPath };
+    }
+});
+
 // --- Storage Handlers (Mandate 0.31) ---
 
 ipcMain.handle('storage:ensure-sticky-notes-dir', async () => {
@@ -197,10 +235,11 @@ ipcMain.handle('storage:ensure-sticky-notes-dir', async () => {
 ipcMain.handle('storage:save-object-tree', async (event, data) => {
     try {
         const root = getRootPath();
-        const dir = path.join(root, 'Database', 'ObjectTree');
+        const dir = path.resolve(path.join(root, 'Database', 'ObjectTree'));
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         
         const p = path.join(dir, 'tree_state.json');
+        console.log(`[PERSISTENCE] Saving Object Tree to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
@@ -217,12 +256,13 @@ ipcMain.handle('storage:save-drawing', async (event, symbol, data) => {
         }
 
         const root = getRootPath();
-        const dir = path.join(root, 'Database', 'Drawings');
+        const dir = path.resolve(path.join(root, 'Database', 'Drawings'));
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
         const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
         const p = path.join(dir, `${safeSymbol}.json`);
         
+        console.log(`[PERSISTENCE] Saving Drawing for ${symbol} to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
@@ -252,11 +292,12 @@ ipcMain.handle('storage:load-drawing', async (event, symbol) => {
 ipcMain.handle('storage:save-settings', async (event, filename, data) => {
     try {
         const root = getRootPath();
-        const dir = path.join(root, 'Database', 'Settings');
+        const dir = path.resolve(path.join(root, 'Database', 'Settings'));
         // Atomic Write Guarantee
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         
         const p = path.join(dir, filename);
+        console.log(`[PERSISTENCE] Saving Settings (${filename}) to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
@@ -330,11 +371,12 @@ ipcMain.handle('storage:restore-layout', async (event, filename) => {
 ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
     try {
         const root = getRootPath();
-        const dir = path.join(root, 'Database', 'Workspaces');
+        const dir = path.resolve(path.join(root, 'Database', 'Workspaces'));
         // Atomic Write Guarantee
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         
         const p = path.join(dir, 'sticky_notes.json');
+        console.log(`[PERSISTENCE] Saving Sticky Notes to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(notes, null, 2));
         return { success: true };
     } catch (e) {
@@ -591,7 +633,7 @@ ipcMain.handle('master-drawings:save', async (event, data) => {
 // --- Trade Persistence (Mandate 0.33) ---
 const getTradesLedgerPath = () => {
     const rootPath = getRootPath();
-    return path.join(rootPath, 'Database', 'Trades', 'ledger.json');
+    return path.resolve(path.join(rootPath, 'Database', 'Trades', 'ledger.json'));
 };
 
 const readTradesLedger = () => {
@@ -613,6 +655,7 @@ const appendTradeToLedger = (trade) => {
     
     let trades = readTradesLedger();
     trades.push(trade);
+    console.log(`[PERSISTENCE] Appending Trade to: ${dbPath}`);
     fs.writeFileSync(dbPath, JSON.stringify(trades, null, 2));
 };
 
@@ -641,10 +684,11 @@ ipcMain.handle('trades:save', async (event, trade) => {
 ipcMain.handle('orders:sync', async (event, orders) => {
     try {
         const root = getRootPath();
-        const dir = path.join(root, 'Database', 'Orders');
+        const dir = path.resolve(path.join(root, 'Database', 'Orders'));
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         
         const p = path.join(dir, 'orders_history.json');
+        console.log(`[PERSISTENCE] Syncing Orders to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(orders, null, 2));
         return { success: true };
     } catch (e) {
