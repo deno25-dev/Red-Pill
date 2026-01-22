@@ -482,6 +482,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   // --- REPLAY ENGINES ---
   
   useChartReplay({
+    chartRef, // Passed for Logical Range Freeze
     seriesRef,
     fullData,
     startIndex: replayIndex || 0,
@@ -644,16 +645,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       // can cause race conditions where setData resets the series to a state incompatible with the next pending update.
       // We only allow setData if the dataset itself changed significantly (e.g. timeframe switch), detected via start time change.
       if (isPlaying) {
-          const isSameStart = prevDataStartTime.current === processedData[0]?.time;
-          // Also check for incremental growth (1 bar) which usually means natural tick or replay step
-          // If length changes significantly (Cut), we MUST setData.
-          const isOneStep = processedData.length === prevDataLength.current + 1 || processedData.length === prevDataLength.current;
+          const currentDataStart = processedData[0]?.time;
+          const prevDataStart = prevDataStartTime.current;
           
-          // Update refs
-          prevDataStartTime.current = (processedData[0]?.time as number) ?? null;
-          prevDataLength.current = processedData.length;
-          
-          if (isSameStart && isOneStep) {
+          // If start time is the same, it means we are likely just advancing the replay buffer.
+          // In this case, we trust the Replay Engine (useChartReplay) to handle updates via series.update()
+          // and we SKIP calling setData() to prevent state thrashing.
+          if (currentDataStart === prevDataStart) {
+              // Update ref length but do not reset series
+              prevDataLength.current = processedData.length;
               return; 
           }
       }

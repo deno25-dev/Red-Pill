@@ -1,9 +1,10 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
-import { ISeriesApi, Time, SeriesType } from 'lightweight-charts';
+import { ISeriesApi, IChartApi, Time, SeriesType, LogicalRange } from 'lightweight-charts';
 import { OHLCV } from '../types';
 
 interface UseChartReplayProps {
+  chartRef: React.MutableRefObject<IChartApi | null>;
   seriesRef: React.MutableRefObject<ISeriesApi<SeriesType> | null>;
   fullData?: OHLCV[];
   startIndex: number;
@@ -11,10 +12,11 @@ interface UseChartReplayProps {
   speed: number;
   onSyncState?: (index: number, time: number, price: number) => void;
   onComplete?: () => void;
-  liveTimeRef?: React.MutableRefObject<number | null>; // New Prop for live tracking
+  liveTimeRef?: React.MutableRefObject<number | null>;
 }
 
 export const useChartReplay = ({
+  chartRef,
   seriesRef,
   fullData,
   startIndex,
@@ -39,7 +41,7 @@ export const useChartReplay = ({
   const prevStartIndexRef = useRef<number | null>(null);
   const prevDataRef = useRef<OHLCV[] | null>(null);
 
-  // Performance Caching: Avoid dependency on props during animation loop
+  // Performance Caching
   const fullDataRef = useRef<OHLCV[] | undefined>(fullData);
   const onSyncStateRef = useRef(onSyncState);
   const onCompleteRef = useRef(onComplete);
@@ -68,22 +70,17 @@ export const useChartReplay = ({
 
     // Detect changes
     const dataChanged = prevDataRef.current !== fullData;
-    const indexChanged = prevStartIndexRef.current !== startIndex;
-
-    // MANDATE 16 & 23 FIX: 
-    // If data changes (e.g. timeframe switch), we MUST re-initialize the buffer immediately,
-    // even if playing. If only index changes (user seek), we only re-init if paused.
-    const shouldInit = dataChanged || (!isPlaying && indexChanged) || (isPlaying && indexChanged && dataChanged);
+    // Allow seeking (recutting) if index deviation is significant (>2 frames approx)
+    const isSeek = Math.abs(startIndex - currentIndexRef.current) > 2;
+    
+    // MANDATE: Re-init if data changes OR paused-seek OR active-seek
+    const shouldInit = dataChanged || (!isPlaying && startIndex !== prevStartIndexRef.current) || (isPlaying && isSeek);
 
     if (shouldInit) {
-        // Update trackers
         prevStartIndexRef.current = startIndex;
         prevDataRef.current = fullData;
 
-        // 1. SLICE & BUFFER: Prepare the replay buffer with all future candles.
-        // NOTE: We do NOT call setData() here. The parent Chart component handles the initial rendering 
-        // of the historical slice via its own props to ensure view range stability (Mandate 0.26).
-        
+        // 1. SLICE & BUFFER
         const bufferStart = startIndex + 1;
         if (bufferStart < fullData.length) {
             replayBufferRef.current = fullData.slice(bufferStart);
@@ -96,23 +93,18 @@ export const useChartReplay = ({
         lastFrameTimeRef.current = 0;
         currentIndexRef.current = startIndex;
         
-        // Init refs for sync
         if (fullData[startIndex]) {
             currentTimeRef.current = fullData[startIndex].time;
             currentPriceRef.current = fullData[startIndex].close;
-            // Sync live time immediately on init so it's available even if paused
             if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
         }
     } else if (isPlaying) {
-        // If playing without data change (just continuing), keep trackers synced
         prevStartIndexRef.current = startIndex;
         prevDataRef.current = fullData;
     }
   }, [fullData, startIndex, isPlaying, seriesRef, liveTimeRef]); 
 
   // --- PERFORMANCE OVERRIDE: Buffered Sync ---
-  // Decouples the React state update (which causes re-renders) from the 60fps animation loop.
-  // Updates the global UI (slider, timestamps) only once every 100ms.
   useEffect(() => {
       if (!isPlaying) return;
 
@@ -124,7 +116,7 @@ export const useChartReplay = ({
                   currentPriceRef.current
               );
           }
-      }, 100);
+      }, 100); // Throttled UI Sync (10fps)
 
       return () => clearInterval(syncInterval);
   }, [isPlaying]);
@@ -132,17 +124,17 @@ export const useChartReplay = ({
   // Sync on Pause/Stop - Immediate
   useEffect(() => {
       if (!isPlaying && onSyncState && currentIndexRef.current !== startIndex) {
-          // Sync state back to React ONLY when playback stops
           onSyncState(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
       }
   }, [isPlaying, onSyncState, startIndex]);
 
   const animate = useCallback((time: number) => {
-    // USE REFS INSIDE LOOP (Performance Critical)
     const currentSeries = seriesRef.current;
-    if (!currentSeries || replayBufferRef.current.length === 0) return;
+    const currentChart = chartRef.current;
     
-    // MANDATE: NaN Firewall Level 1 (Time pollution)
+    // Type-Safe Buffer Guard
+    if (!currentSeries || !currentChart || replayBufferRef.current.length === 0) return;
+    
     if (typeof time !== 'number' || isNaN(time)) {
         requestRef.current = requestAnimationFrame(animate);
         return;
@@ -156,9 +148,8 @@ export const useChartReplay = ({
 
     const deltaSeconds = (time - lastFrameTimeRef.current) / 1000;
     
-    // MANDATE: NaN Firewall Level 2 (Delta corruption)
     if (isNaN(deltaSeconds) || !isFinite(deltaSeconds)) {
-        lastFrameTimeRef.current = time; // Reset baseline
+        lastFrameTimeRef.current = time;
         requestRef.current = requestAnimationFrame(animate);
         return;
     }
@@ -175,25 +166,25 @@ export const useChartReplay = ({
 
     // Apply fully completed candles
     if (floorNext > floorPrev) {
+        // --- LOGICAL RANGE FREEZE START ---
+        // Capture range to prevent engine from auto-scrolling on update
+        const timeScale = currentChart.timeScale();
+        const lockedRange = timeScale.getVisibleLogicalRange();
+
         for (let i = floorPrev; i < floorNext; i++) {
             if (i < replayBufferRef.current.length) {
                 const candle = replayBufferRef.current[i];
                 
-                // MANDATE: NaN Firewall Level 3 (Data integrity)
-                // Strict check for numeric properties to prevent stuttering with malformed data objects
+                // STRICT TYPE SAFETY CHECK
                 if (!candle || 
                     typeof candle.time !== 'number' || isNaN(candle.time) ||
                     typeof candle.open !== 'number' || isNaN(candle.open) ||
-                    typeof candle.high !== 'number' || isNaN(candle.high) ||
-                    typeof candle.low !== 'number' || isNaN(candle.low) ||
                     typeof candle.close !== 'number' || isNaN(candle.close)
                 ) {
-                     console.warn("Replay Panic: Invalid data point detected. Skipping frame.");
-                     continue; // Skip valid update
+                     continue; // Skip invalid frame
                 }
 
                 try {
-                    // Direct Manipulation: series.update() without triggering React state
                     currentSeries.update({
                         time: (candle.time / 1000) as Time,
                         open: candle.open,
@@ -205,12 +196,16 @@ export const useChartReplay = ({
                     // Suppress update errors during race conditions
                 }
                 
-                // Update refs (read by the buffered sync interval)
                 currentIndexRef.current = startIndex + 1 + i;
                 currentTimeRef.current = candle.time;
                 currentPriceRef.current = candle.close;
                 if (liveTimeRef) liveTimeRef.current = candle.time;
             }
+        }
+
+        // --- LOGICAL RANGE FREEZE RESTORE ---
+        if (lockedRange) {
+            timeScale.setVisibleLogicalRange(lockedRange);
         }
     }
 
@@ -221,9 +216,6 @@ export const useChartReplay = ({
         // Strict number check for interpolation target
         if (targetCandle && 
             typeof targetCandle.time === 'number' && !isNaN(targetCandle.time) &&
-            typeof targetCandle.open === 'number' && !isNaN(targetCandle.open) &&
-            typeof targetCandle.high === 'number' && !isNaN(targetCandle.high) &&
-            typeof targetCandle.low === 'number' && !isNaN(targetCandle.low) &&
             typeof targetCandle.close === 'number' && !isNaN(targetCandle.close)
         ) {
             const progress = nextCursor - floorNext;
@@ -232,6 +224,7 @@ export const useChartReplay = ({
             let simulatedHigh = targetCandle.open;
             let simulatedLow = targetCandle.open;
 
+            // Simple tick simulation logic
             if (progress < 0.33) {
                 const p = progress / 0.33;
                 simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
@@ -249,11 +242,12 @@ export const useChartReplay = ({
                 simulatedLow = targetCandle.low;
             }
 
-            // MANDATE: NaN Firewall Level 4 (Value integrity)
-            if (isNaN(simulatedPrice) || !isFinite(simulatedPrice)) {
-                 // Do nothing, skip frame
-            } else {
+            if (!isNaN(simulatedPrice) && isFinite(simulatedPrice)) {
                 try {
+                    // Lock Range for Tick Update
+                    const timeScale = currentChart.timeScale();
+                    const lockedRange = timeScale.getVisibleLogicalRange();
+
                     currentSeries.update({
                         time: (targetCandle.time / 1000) as Time,
                         open: targetCandle.open,
@@ -262,19 +256,21 @@ export const useChartReplay = ({
                         close: simulatedPrice
                     } as any);
                     
-                    // Update refs for interpolation
+                    // Restore Range
+                    if (lockedRange) {
+                        timeScale.setVisibleLogicalRange(lockedRange);
+                    }
+
                     currentPriceRef.current = simulatedPrice;
                     if (liveTimeRef) liveTimeRef.current = targetCandle.time;
-                } catch (e) {
-                    // Suppress updates if timestamp conflict
-                }
+                } catch (e) {}
             }
         }
     }
 
     if (floorNext >= replayBufferRef.current.length) {
         if (onCompleteRef.current) onCompleteRef.current();
-        // Final sync allowed on complete using cached ref
+        // Sync final state
         const allData = fullDataRef.current;
         if (onSyncStateRef.current && allData && allData.length > 0) {
              const lastIdx = allData.length - 1;
@@ -284,7 +280,7 @@ export const useChartReplay = ({
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [speed, startIndex, liveTimeRef, seriesRef]);
+  }, [speed, startIndex, liveTimeRef, seriesRef, chartRef]);
 
   // Start/Stop Loop
   useEffect(() => {
