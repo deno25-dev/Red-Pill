@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool, RefreshCw } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
 import { useDevLogs } from '../hooks/useDevLogs';
@@ -101,6 +101,19 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       if (confirm('NUCLEAR OPTION: This will permanently delete all drawings/metadata for the CURRENT chart from the database. Are you sure?')) {
           window.dispatchEvent(new CustomEvent('redpill-nuclear-clear'));
           debugLog('Data', 'Nuclear Clear Triggered by user');
+      }
+  };
+
+  const handleFactoryReset = async () => {
+      if (confirm('FACTORY RESET: This will completely wipe ALL local data (Assets, Metadata, Drawings, Settings) and reset the application to a fresh state. This cannot be undone. Are you absolutely sure?')) {
+          const electron = (window as any).electronAPI;
+          if (electron && electron.nuclearReset) {
+              await electron.nuclearReset();
+          } else {
+              // Web Fallback
+              localStorage.clear();
+              window.location.reload();
+          }
       }
   };
 
@@ -249,7 +262,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                     Inspect Notes DB
                 </button>
                 <button 
-                    onClick={() => window.dispatchEvent(new CustomEvent('TOGGLE_LAYOUT_MANAGER'))}
+                    onClick={onOpenLayoutDB}
                     className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <Layout size={12} />
@@ -300,14 +313,23 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
             )}
         </div>
         
-        {/* Nuclear Option */}
-        <div className="px-2 pb-2">
+        {/* Nuclear Options */}
+        <div className="px-2 pb-2 grid grid-cols-2 gap-2">
              <button 
                 onClick={handleNuclearClear}
-                className="w-full flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/30 text-red-500 py-1.5 px-2 rounded border border-red-900/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                className="flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/30 text-red-500 py-1.5 px-2 rounded border border-red-900/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                title="Clear current chart drawings"
             >
                 <ShieldAlert size={12} />
-                NUCLEAR CLEAR (Active Chart)
+                NUCLEAR CLEAR
+            </button>
+            <button 
+                onClick={handleFactoryReset}
+                className="flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 py-1.5 px-2 rounded border border-red-600/40 transition-colors uppercase text-[10px] font-bold tracking-wider animate-pulse"
+                title="Wipe entire database and restart"
+            >
+                <RefreshCw size={12} />
+                FACTORY RESET
             </button>
         </div>
       </div>

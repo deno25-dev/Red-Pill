@@ -101,6 +101,9 @@ const runBootScan = () => {
         try {
             const list = fs.readdirSync(dir);
             list.forEach((file) => {
+                // MANDATE: Absolute Lock - Make Database folder physically invisible to scanner
+                if (file === 'Database') return;
+
                 const fullPath = path.join(dir, file);
                 try {
                     const stat = fs.statSync(fullPath);
@@ -251,7 +254,6 @@ ipcMain.handle('storage:load-settings', async (event, filename) => {
 // --- LAYOUT MANAGER (SNAPSHOTS) ---
 ipcMain.handle('storage:list-layouts', async () => {
     try {
-        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
         const layoutsPath = path.join(getMetadataDir(), 'Layouts');
         console.log('[Storage] Accessing Metadata at:', layoutsPath);
         if (!fs.existsSync(layoutsPath)) {
@@ -275,7 +277,6 @@ ipcMain.handle('storage:list-layouts', async () => {
 
 ipcMain.handle('storage:save-layout', async (event, filename, data) => {
     try {
-        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
         const dir = path.join(getMetadataDir(), 'Layouts');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const p = path.join(dir, filename.endsWith('.json') ? filename : `${filename}.json`);
@@ -289,7 +290,6 @@ ipcMain.handle('storage:save-layout', async (event, filename, data) => {
 
 ipcMain.handle('storage:load-layout', async (event, filename) => {
     try {
-        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
         const p = path.join(getMetadataDir(), 'Layouts', filename.endsWith('.json') ? filename : `${filename}.json`);
         console.log('[Storage] Accessing Metadata at:', p);
         if (fs.existsSync(p)) {
@@ -303,7 +303,6 @@ ipcMain.handle('storage:load-layout', async (event, filename) => {
 
 ipcMain.handle('storage:restore-layout', async (event, filename) => {
     try {
-        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
         const source = path.join(getMetadataDir(), 'Layouts', filename);
         const dest = path.join(getMetadataDir(), 'Settings', 'ui_layout.json');
         if (!fs.existsSync(source)) throw new Error("Layout file not found in Database/Layouts");
@@ -317,10 +316,8 @@ ipcMain.handle('storage:restore-layout', async (event, filename) => {
 // --- STICKY NOTES PERSISTENCE ---
 ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
     try {
-        // FIX 45: Ensure path is 'StickyNotes', not 'Workspaces'
         const dir = path.join(getMetadataDir(), 'StickyNotes');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        // FIX 45: Ensure filename is 'sticky_notes.json'
         const p = path.join(dir, 'sticky_notes.json');
         fs.writeFileSync(p, JSON.stringify(notes, null, 2));
         console.log('[Storage] Accessing Metadata at:', p);
@@ -332,7 +329,6 @@ ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
 
 ipcMain.handle('storage:load-sticky-notes', async (event) => {
     try {
-        // FIX 45: Ensure path is 'StickyNotes', not 'Workspaces'
         const p = path.join(getMetadataDir(), 'StickyNotes', 'sticky_notes.json');
         console.log('[Storage] Accessing Metadata at:', p);
         if (fs.existsSync(p)) {
@@ -347,7 +343,6 @@ ipcMain.handle('storage:load-sticky-notes', async (event) => {
 // --- STICKY NOTES MANAGER ---
 ipcMain.handle('storage:list-sticky-notes-directory', async () => {
     try {
-        // FIX 45: Ensure path is 'StickyNotes'
         const dir = path.join(getMetadataDir(), 'StickyNotes');
         console.log('[Storage] Accessing Metadata at:', dir);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -395,6 +390,36 @@ ipcMain.handle('storage:load-metadata-file', async (event, category, filename) =
         }
         return { success: false, error: 'File not found' };
     } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// --- NUCLEAR RESET (FACTORY RESET) ---
+ipcMain.handle('storage:nuclear-reset', async () => {
+    try {
+        console.log('[System] INITIATING NUCLEAR RESET...');
+        
+        // 1. Clear In-Memory Cache
+        internalLibraryStorage = [];
+        
+        // 2. Wipe Directories
+        const dbRoot = getStorageRoot();
+        if (fs.existsSync(dbRoot)) {
+            fs.rmSync(dbRoot, { recursive: true, force: true });
+            console.log('[System] Storage root deleted.');
+        }
+        
+        // 3. Re-Initialize
+        initializeDatabase();
+        
+        // 4. Force Reload Window
+        if (mainWindow) {
+            mainWindow.reload();
+        }
+        
+        return { success: true };
+    } catch (e) {
+        console.error('[System] Nuclear Reset Failed:', e);
         return { success: false, error: e.message };
     }
 });
@@ -532,32 +557,6 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- Master Drawing Store Persistence (LEGACY) ---
-const getMasterDrawingsPath = () => path.join(getMetadataDir(), 'drawings_master.json');
-
-ipcMain.handle('master-drawings:load', async () => {
-    try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = fs.readFileSync(dbPath, 'utf8');
-            return { success: true, data: JSON.parse(data) };
-        }
-        return { success: true, data: null };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('master-drawings:save', async (event, data) => {
-    try {
-        const dbPath = getMasterDrawingsPath();
-        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
 // --- Trade Persistence ---
 const getTradesLedgerPath = () => path.join(getMetadataDir(), 'Trades', 'ledger.json');
 
@@ -615,6 +614,7 @@ ipcMain.handle('orders:sync', async (event, orders) => {
 // --- APP LIFECYCLE ---
 
 app.whenReady().then(() => {
+  // Optional: Purge cache flag if needed, but 'nuclear-reset' handles it explicitly.
   initializeDatabase();
   runBootScan();
   console.log('[System] IPC Handlers synchronized with Database/StickyNotes and Database/Layouts.');

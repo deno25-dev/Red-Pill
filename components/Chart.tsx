@@ -453,6 +453,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
   const { register, forceClear, registry } = useDrawingRegistry(chartRef, seriesRef);
   const prevDataStartTime = useRef<number | null>(null);
+  const prevDataLength = useRef<number>(0); // Track length to detect cuts
 
   useEffect(() => {
       const container = chartContainerRef.current;
@@ -559,6 +560,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           
           if (shouldSnap) { 
               if (isReplayActive) { 
+                  // Anti-Zoom Logic
                   const currentZoomWidth = currentRange.to - currentRange.from; 
                   const targetTo = currentHeadIndex + 2; 
                   const targetFrom = targetTo - currentZoomWidth; 
@@ -570,7 +572,32 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       });
   }, [isReplayActive, data.length]);
 
-  useEffect(() => { if (!chartContainerRef.current) return; const startTime = performance.now(); const chart = createChart(chartContainerRef.current, { layout: { background: { type: ColorType.Solid, color: 'var(--app-bg)' }, textColor: 'var(--text-secondary)', }, grid: { vertLines: { color: 'var(--border-color)' }, horzLines: { color: 'var(--border-color)' } }, width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight, crosshair: { mode: CrosshairMode.Normal }, timeScale: { borderColor: 'var(--border-color)', timeVisible: true, secondsVisible: false }, rightPriceScale: { borderColor: 'var(--border-color)' }, watermark: { visible: false, }, } as any); chartRef.current = chart; const endTime = performance.now(); const renderDuration = endTime - startTime; debugLog('Perf', `Chart instance initialized in ${renderDuration.toFixed(2)}ms`, { duration: renderDuration }); if (typeof window !== 'undefined') { window.dispatchEvent(new CustomEvent('chart-render-perf', { detail: { duration: renderDuration } })); } const handleResize = (width: number, height: number) => { if (chartRef.current && canvasRef.current) { const dpr = window.devicePixelRatio || 1; chartRef.current.applyOptions({ width, height }); canvasRef.current.width = width * dpr; canvasRef.current.height = height * dpr; canvasRef.current.style.width = `${width}px`; canvasRef.current.style.height = `${height}px`; const ctx = canvasRef.current.getContext('2d'); if (ctx) ctx.scale(dpr, dpr); requestDraw(); } }; const resizeObserver = new ResizeObserver((entries) => { if (entries.length === 0 || !entries[0].contentRect) return; const { width, height } = entries[0].contentRect; if (width > 0 && height > 0) { handleResize(width, height); } }); resizeObserver.observe(chartContainerRef.current); const handleChartClick = (param: MouseEventParams) => { if (param.point) { const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current; if (activeToolId === 'cross' || activeToolId === 'cursor') if (!isReplaySelecting) onSelectDrawing(null); } }; chart.subscribeClick(handleChartClick); const onSyncRange = (e: any) => { if (ignoreRangeChange.current || !propsRef.current.isSyncing) return; const { range, sourceId } = e.detail; if (sourceId !== propsRef.current.id) { ignoreRangeChange.current = true; isProgrammaticUpdate.current = true; chart.timeScale().setVisibleLogicalRange(range); setTimeout(() => { ignoreRangeChange.current = false; isProgrammaticUpdate.current = false; }, 50); } }; const onSyncCrosshair = (e: any) => { const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; if (!shouldSync) return; const { point, sourceId } = e.detail; if (sourceId !== propsRef.current.id && chartRef.current && seriesRef.current) { chartRef.current.setCrosshairPosition( point.price, (point.time / 1000) as Time, seriesRef.current ); } }; window.addEventListener('chart-sync-range', onSyncRange); window.addEventListener('chart-sync-crosshair', onSyncCrosshair); chart.timeScale().subscribeVisibleLogicalRangeChange((range) => { requestDraw(); if (range && !ignoreRangeChange.current && propsRef.current.isSyncing) { window.dispatchEvent(new CustomEvent('chart-sync-range', { detail: { range, sourceId: propsRef.current.id } })); } if (range && propsRef.current.onRequestMoreData) { if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); rangeChangeTimeout.current = setTimeout(() => { if (range.from < 50) propsRef.current.onRequestMoreData?.(); }, 100); } if (range) { const currentData = propsRef.current.data; const lastIndex = currentData.length - 1; const dist = lastIndex - range.to; setShowScrollButton(dist > 10); if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) { if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); rangeDebounceTimeout.current = setTimeout(() => { if (!isProgrammaticUpdate.current) { propsRef.current.onVisibleRangeChange?.({ from: range.from, to: range.to }); } }, 500); } } }); chart.subscribeCrosshairMove((param) => { const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; if (param.point && !ignoreRangeChange.current && shouldSync) { let price = 0; if (seriesRef.current) { const p = seriesRef.current.coordinateToPrice(param.point.y); if (p !== null) price = p; } window.dispatchEvent(new CustomEvent('chart-sync-crosshair', { detail: { point: { time: (param.time as number) * 1000, price: price, x: param.point.x, y: param.point.y }, sourceId: propsRef.current.id } })); } }); return () => { window.removeEventListener('chart-sync-range', onSyncRange); window.removeEventListener('chart-sync-crosshair', onSyncCrosshair); resizeObserver.disconnect(); if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); if (rafId.current) cancelAnimationFrame(rafId.current); try { chart.unsubscribeClick(handleChartClick); } catch(e) {} if (registry && registry.current) { registry.current.clear(); } chart.remove(); chartRef.current = null; seriesRef.current = null; }; }, []);
+  useEffect(() => { if (!chartContainerRef.current) return; const startTime = performance.now(); const chart = createChart(chartContainerRef.current, { layout: { background: { type: ColorType.Solid, color: 'var(--app-bg)' }, textColor: 'var(--text-secondary)', }, grid: { vertLines: { color: 'var(--border-color)' }, horzLines: { color: 'var(--border-color)' } }, width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight, crosshair: { mode: CrosshairMode.Normal }, timeScale: { borderColor: 'var(--border-color)', timeVisible: true, secondsVisible: false }, rightPriceScale: { borderColor: 'var(--border-color)' }, watermark: { visible: false, }, } as any); chartRef.current = chart; const endTime = performance.now(); const renderDuration = endTime - startTime; debugLog('Perf', `Chart instance initialized in ${renderDuration.toFixed(2)}ms`, { duration: renderDuration }); if (typeof window !== 'undefined') { window.dispatchEvent(new CustomEvent('chart-render-perf', { detail: { duration: renderDuration } })); } const handleResize = (width: number, height: number) => { if (chartRef.current && canvasRef.current) { const dpr = window.devicePixelRatio || 1; chartRef.current.applyOptions({ width, height }); canvasRef.current.width = width * dpr; canvasRef.current.height = height * dpr; canvasRef.current.style.width = `${width}px`; canvasRef.current.style.height = `${height}px`; const ctx = canvasRef.current.getContext('2d'); if (ctx) ctx.scale(dpr, dpr); requestDraw(); } }; const resizeObserver = new ResizeObserver((entries) => { if (entries.length === 0 || !entries[0].contentRect) return; const { width, height } = entries[0].contentRect; if (width > 0 && height > 0) { handleResize(width, height); } }); resizeObserver.observe(chartContainerRef.current); const handleChartClick = (param: MouseEventParams) => { if (param.point) { const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current; if (activeToolId === 'cross' || activeToolId === 'cursor') if (!isReplaySelecting) onSelectDrawing(null); } }; chart.subscribeClick(handleChartClick); const onSyncRange = (e: any) => { if (ignoreRangeChange.current || !propsRef.current.isSyncing) return; const { range, sourceId } = e.detail; if (sourceId !== propsRef.current.id) { ignoreRangeChange.current = true; isProgrammaticUpdate.current = true; chart.timeScale().setVisibleLogicalRange(range); setTimeout(() => { ignoreRangeChange.current = false; isProgrammaticUpdate.current = false; }, 50); } }; 
+  
+  const onSyncCrosshair = (e: any) => { 
+      const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; 
+      if (!shouldSync) return; 
+      const { point, sourceId } = e.detail; 
+      if (sourceId !== propsRef.current.id && chartRef.current && seriesRef.current) { 
+          chartRef.current.setCrosshairPosition( point.price, (point.time / 1000) as any, seriesRef.current ); 
+      } 
+  }; 
+  
+  window.addEventListener('chart-sync-range', onSyncRange); window.addEventListener('chart-sync-crosshair', onSyncCrosshair); chart.timeScale().subscribeVisibleLogicalRangeChange((range) => { requestDraw(); if (range && !ignoreRangeChange.current && propsRef.current.isSyncing) { window.dispatchEvent(new CustomEvent('chart-sync-range', { detail: { range, sourceId: propsRef.current.id } })); } if (range && propsRef.current.onRequestMoreData) { if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); rangeChangeTimeout.current = setTimeout(() => { if (range.from < 50) propsRef.current.onRequestMoreData?.(); }, 100); } if (range) { const currentData = propsRef.current.data; const lastIndex = currentData.length - 1; const dist = lastIndex - range.to; setShowScrollButton(dist > 10); if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) { if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); rangeDebounceTimeout.current = setTimeout(() => { if (!isProgrammaticUpdate.current) { propsRef.current.onVisibleRangeChange?.({ from: range.from, to: range.to }); } }, 500); } } }); 
+  
+  chart.subscribeCrosshairMove((param) => { 
+      const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; 
+      if (param.point && !ignoreRangeChange.current && shouldSync) { 
+          let price = 0; 
+          if (seriesRef.current) { 
+              const p = seriesRef.current.coordinateToPrice(param.point.y); 
+              if (p !== null) price = p; 
+          } 
+          window.dispatchEvent(new CustomEvent('chart-sync-crosshair', { detail: { point: { time: (param.time as any) * 1000, price: price, x: param.point.x, y: param.point.y }, sourceId: propsRef.current.id } })); 
+      } 
+  }); 
+  
+  return () => { window.removeEventListener('chart-sync-range', onSyncRange); window.removeEventListener('chart-sync-crosshair', onSyncCrosshair); resizeObserver.disconnect(); if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); if (rafId.current) cancelAnimationFrame(rafId.current); try { chart.unsubscribeClick(handleChartClick); } catch(e) {} if (registry && registry.current) { registry.current.clear(); } chart.remove(); chartRef.current = null; seriesRef.current = null; }; }, []);
   useEffect(() => { if (!chartRef.current) return; chartRef.current.applyOptions({ timeScale: { shiftVisibleRangeOnNewBar: !isReplayActive, allowShiftVisibleRangeOnWhitespaceReplacement: !isReplayActive, } }); }, [isReplayActive]);
   
   useEffect(() => { 
@@ -608,6 +635,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => { if (!chartRef.current) return; let background: any; if (config.backgroundType === 'gradient') { background = { type: ColorType.VerticalGradient, topColor: config.backgroundTopColor || (config.theme === 'light' ? '#F8FAFC' : '#0f172a'), bottomColor: config.backgroundBottomColor || (config.theme === 'light' ? '#E2E8F0' : '#0f172a'), }; } else if (config.backgroundColor) { background = { type: ColorType.Solid, color: config.backgroundColor, }; } else { background = { type: ColorType.Solid, color: config.theme === 'light' ? '#F8FAFC' : '#0f172a' }; } const textColor = config.theme === 'light' ? '#1E293B' : COLORS.text; let gridColor = 'transparent'; if (config.showGridlines !== false) { gridColor = config.theme === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(148, 163, 184, 0.1)'; } const borderColor = config.theme === 'light' ? '#CBD5E1' : '#334155'; chartRef.current.applyOptions({ layout: { background, textColor, }, grid: { vertLines: { color: gridColor }, horzLines: { color: gridColor } }, timeScale: { borderColor }, rightPriceScale: { borderColor }, }); const mode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal; chartRef.current.priceScale('right').applyOptions({ mode, autoScale: config.autoScale !== false, invertScale: !!config.invertScale }); }, [config.theme, config.showGridlines, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor, config.invertScale]);
   useEffect(() => { if (!chartRef.current) return; if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current as any); seriesRef.current = null; } let newSeries; if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 }); else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 }); else { const upColor = config.upColor || COLORS.bullish; const downColor = config.downColor || COLORS.bearish; const wickUpColor = config.wickUpColor || COLORS.bullish; const wickDownColor = config.wickDownColor || COLORS.bearish; const borderUpColor = config.borderUpColor || upColor; const borderDownColor = config.borderDownColor || downColor; newSeries = chartRef.current.addSeries(CandlestickSeries, { upColor, downColor, borderVisible: true, borderUpColor, borderDownColor, wickUpColor, wickDownColor }); } seriesRef.current = newSeries as ISeriesApi<SeriesType>; newSeries.setData(processedData as any); handleSnapToRecent(true); const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe); const lastCandle = data.length > 0 ? data[data.length - 1] : null; primitive.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data); register('drawings-primitive', primitive); newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw(); }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount, handleSnapToRecent]); 
+  
   useEffect(() => { 
       if (!seriesRef.current || !chartRef.current) return; 
       
@@ -616,16 +644,22 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       // can cause race conditions where setData resets the series to a state incompatible with the next pending update.
       // We only allow setData if the dataset itself changed significantly (e.g. timeframe switch), detected via start time change.
       if (isPlaying) {
-          const isIncremental = prevDataStartTime.current === processedData[0]?.time;
-          // Update ref for future checks
-          prevDataStartTime.current = processedData[0]?.time;
+          const isSameStart = prevDataStartTime.current === processedData[0]?.time;
+          // Also check for incremental growth (1 bar) which usually means natural tick or replay step
+          // If length changes significantly (Cut), we MUST setData.
+          const isOneStep = processedData.length === prevDataLength.current + 1 || processedData.length === prevDataLength.current;
           
-          if (isIncremental) {
+          // Update refs
+          prevDataStartTime.current = (processedData[0]?.time as number) ?? null;
+          prevDataLength.current = processedData.length;
+          
+          if (isSameStart && isOneStep) {
               return; 
           }
       }
       
-      prevDataStartTime.current = processedData[0]?.time;
+      prevDataStartTime.current = (processedData[0]?.time as number) ?? null;
+      prevDataLength.current = processedData.length;
 
       let savedRange: LogicalRange | null = null; 
       if (isReplayActive) { 
@@ -637,8 +671,27 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           
           seriesRef.current.setData(processedData as any); 
           
-          if (isReplayActive && savedRange) { 
-              chartRef.current.timeScale().setVisibleLogicalRange(savedRange); 
+          // Replay Cut-Point Stability Logic (Mandate 0.26 & 0.28)
+          if (isReplayActive) {
+              const lastIndex = processedData.length - 1;
+              
+              if (savedRange) {
+                  const currentZoomWidth = savedRange.to - savedRange.from;
+                  // Heuristic: If savedRange is valid (near the new head), restore it.
+                  // If it's completely out of bounds (e.g. user jumped far back), snap to new head.
+                  if (savedRange.from < lastIndex + 50) {
+                      chartRef.current.timeScale().setVisibleLogicalRange(savedRange);
+                  } else {
+                      // Smart Snap: Maintain zoom level but move to head
+                      chartRef.current.timeScale().setVisibleLogicalRange({
+                          from: lastIndex - currentZoomWidth + 5,
+                          to: lastIndex + 5
+                      } as LogicalRange);
+                  }
+              } else {
+                  // Fallback if no saved range
+                  handleSnapToRecent(false);
+              }
           } else { 
               handleSnapToRecent(false); 
           } 

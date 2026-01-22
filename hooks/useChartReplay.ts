@@ -80,20 +80,10 @@ export const useChartReplay = ({
         prevStartIndexRef.current = startIndex;
         prevDataRef.current = fullData;
 
-        // 1. SLICE: Get the historical data up to the start point.
-        const initialSlice = fullData.slice(0, startIndex + 1);
-        const seriesData = initialSlice.map(d => ({
-            time: (d.time / 1000) as Time,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-        }));
+        // 1. SLICE & BUFFER: Prepare the replay buffer with all future candles.
+        // NOTE: We do NOT call setData() here. The parent Chart component handles the initial rendering 
+        // of the historical slice via its own props to ensure view range stability (Mandate 0.26).
         
-        // 2. SET: Apply the historical slice to the chart. This is our baseline.
-        seriesRef.current.setData(seriesData as any);
-        
-        // 3. BUFFER: Prepare the replay buffer with all future candles.
         const bufferStart = startIndex + 1;
         if (bufferStart < fullData.length) {
             replayBufferRef.current = fullData.slice(bufferStart);
@@ -101,7 +91,7 @@ export const useChartReplay = ({
             replayBufferRef.current = [];
         }
         
-        // 4. RESET CURSOR
+        // 2. RESET CURSOR
         bufferCursorRef.current = 0;
         lastFrameTimeRef.current = 0;
         currentIndexRef.current = startIndex;
@@ -152,24 +142,23 @@ export const useChartReplay = ({
     const currentSeries = seriesRef.current;
     if (!currentSeries || replayBufferRef.current.length === 0) return;
     
+    // MANDATE: NaN Firewall Level 1 (Time pollution)
+    if (typeof time !== 'number' || isNaN(time)) {
+        requestRef.current = requestAnimationFrame(animate);
+        return;
+    }
+
     if (lastFrameTimeRef.current === 0) {
       lastFrameTimeRef.current = time;
       requestRef.current = requestAnimationFrame(animate);
       return;
     }
 
-    // MANDATE 3.0 FIX: Replay Math Guard
-    // Protect against non-number types polluting the loop
-    if (typeof time !== 'number' || typeof lastFrameTimeRef.current !== 'number') {
-        console.warn("[Replay] Type Pollution Detected: Skipping frame to prevent crash.");
-        requestRef.current = requestAnimationFrame(animate);
-        return;
-    }
-
     const deltaSeconds = (time - lastFrameTimeRef.current) / 1000;
     
-    if (isNaN(deltaSeconds)) {
-        lastFrameTimeRef.current = time;
+    // MANDATE: NaN Firewall Level 2 (Delta corruption)
+    if (isNaN(deltaSeconds) || !isFinite(deltaSeconds)) {
+        lastFrameTimeRef.current = time; // Reset baseline
         requestRef.current = requestAnimationFrame(animate);
         return;
     }
@@ -189,7 +178,19 @@ export const useChartReplay = ({
         for (let i = floorPrev; i < floorNext; i++) {
             if (i < replayBufferRef.current.length) {
                 const candle = replayBufferRef.current[i];
-                if (!candle || typeof candle.time !== 'number') continue; // Safety check
+                
+                // MANDATE: NaN Firewall Level 3 (Data integrity)
+                // Strict check for numeric properties to prevent stuttering with malformed data objects
+                if (!candle || 
+                    typeof candle.time !== 'number' || isNaN(candle.time) ||
+                    typeof candle.open !== 'number' || isNaN(candle.open) ||
+                    typeof candle.high !== 'number' || isNaN(candle.high) ||
+                    typeof candle.low !== 'number' || isNaN(candle.low) ||
+                    typeof candle.close !== 'number' || isNaN(candle.close)
+                ) {
+                     console.warn("Replay Panic: Invalid data point detected. Skipping frame.");
+                     continue; // Skip valid update
+                }
 
                 try {
                     // Direct Manipulation: series.update() without triggering React state
@@ -201,9 +202,7 @@ export const useChartReplay = ({
                         close: candle.close
                     } as any);
                 } catch (e) {
-                    // Suppress "Cannot update oldest data" error which can happen during race conditions
-                    // or rapid seeking while playing.
-                    // console.warn("Replay update skipped:", e);
+                    // Suppress update errors during race conditions
                 }
                 
                 // Update refs (read by the buffered sync interval)
@@ -219,7 +218,14 @@ export const useChartReplay = ({
     if (floorNext < replayBufferRef.current.length) {
         const targetCandle = replayBufferRef.current[floorNext];
         
-        if (targetCandle && typeof targetCandle.time === 'number') {
+        // Strict number check for interpolation target
+        if (targetCandle && 
+            typeof targetCandle.time === 'number' && !isNaN(targetCandle.time) &&
+            typeof targetCandle.open === 'number' && !isNaN(targetCandle.open) &&
+            typeof targetCandle.high === 'number' && !isNaN(targetCandle.high) &&
+            typeof targetCandle.low === 'number' && !isNaN(targetCandle.low) &&
+            typeof targetCandle.close === 'number' && !isNaN(targetCandle.close)
+        ) {
             const progress = nextCursor - floorNext;
             
             let simulatedPrice = targetCandle.open;
@@ -243,21 +249,26 @@ export const useChartReplay = ({
                 simulatedLow = targetCandle.low;
             }
 
-            try {
-                currentSeries.update({
-                    time: (targetCandle.time / 1000) as Time,
-                    open: targetCandle.open,
-                    high: simulatedHigh,
-                    low: simulatedLow,
-                    close: simulatedPrice
-                } as any);
-            } catch (e) {
-                // Suppress updates if timestamp conflict
+            // MANDATE: NaN Firewall Level 4 (Value integrity)
+            if (isNaN(simulatedPrice) || !isFinite(simulatedPrice)) {
+                 // Do nothing, skip frame
+            } else {
+                try {
+                    currentSeries.update({
+                        time: (targetCandle.time / 1000) as Time,
+                        open: targetCandle.open,
+                        high: simulatedHigh,
+                        low: simulatedLow,
+                        close: simulatedPrice
+                    } as any);
+                    
+                    // Update refs for interpolation
+                    currentPriceRef.current = simulatedPrice;
+                    if (liveTimeRef) liveTimeRef.current = targetCandle.time;
+                } catch (e) {
+                    // Suppress updates if timestamp conflict
+                }
             }
-            
-            // Update refs for interpolation
-            currentPriceRef.current = simulatedPrice;
-            if (liveTimeRef) liveTimeRef.current = targetCandle.time;
         }
     }
 

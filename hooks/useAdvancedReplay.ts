@@ -126,7 +126,6 @@ export const useAdvancedReplay = ({
         if (liveTimeRef) liveTimeRef.current = targetCandle.time;
         
         // Update Overlay State (Reset timer for next candle)
-        // Note: We use the next candle's probable duration or current duration as baseline for the label
         setDisplayState({
             price: targetCandle.close,
             label: formatTimer(virtualNowRef.current, getTimeframeDuration(timeframe)),
@@ -181,24 +180,13 @@ export const useAdvancedReplay = ({
     requestRef.current = requestAnimationFrame(animate);
   }, [isActive, fullData, onSyncState, onComplete, seriesRef, liveTimeRef, timeframe, formatTimer]);
 
-  // --- Initialization / Slice Logic ---
+  // --- Initialization Logic ---
+  // Note: We intentionally avoid calling setData() here as Mandate 0.26 dictates the parent Chart component 
+  // handles the view/data state to prevent "snapping". This effect strictly resets internal refs.
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
     if (isActive) {
-      // 1. SLICE
-      const initialSlice = fullData.slice(0, startIndex + 1);
-      const seriesData = initialSlice.map(d => ({
-          time: (d.time / 1000) as Time,
-          open: d.open,
-          high: d.high,
-          low: d.low,
-          close: d.close,
-      }));
-      
-      // 2. SET
-      seriesRef.current.setData(seriesData as any);
-      
       // 3. RESET
       currentIndexRef.current = startIndex;
       virtualNowRef.current = 0;
@@ -219,15 +207,7 @@ export const useAdvancedReplay = ({
       }
       
     } else {
-        // RESTORE FULL DATA
-        const fullSeriesData = fullData.map(d => ({
-            time: (d.time / 1000) as Time,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-        }));
-        seriesRef.current.setData(fullSeriesData as any);
+        // Deactivate overlay
         setDisplayState(prev => ({ ...prev, visible: false }));
     }
   }, [isActive, startIndex, fullData, seriesRef, timeframe, chartType, formatTimer]);

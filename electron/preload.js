@@ -57,10 +57,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getInternalLibrary: () => ipcRenderer.invoke('get-internal-folders'), // Alias for compatibility
     openFolder: (subpath) => ipcRenderer.invoke('shell:open-folder', subpath),
     getStoragePath: () => ipcRenderer.invoke('get-storage-path'),
-    
-    // --- Master Drawing Store Persistence (LEGACY) ---
-    loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
-    saveMasterDrawings: (data) => ipcRenderer.invoke('master-drawings:save', data),
+    nuclearReset: () => ipcRenderer.invoke('storage:nuclear-reset'),
     
     // --- New Database Storage (Mandate 0.31) ---
     // THROTTLED for bridge performance

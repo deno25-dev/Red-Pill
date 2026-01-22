@@ -318,11 +318,6 @@ const App: React.FC = () => {
               
               if (electron && electron.deleteAllDrawings) {
                   await electron.deleteAllDrawings(tab.sourceId);
-              } else if (electron && electron.saveMasterDrawings) {
-                  const res = await electron.loadMasterDrawings();
-                  const master = res?.data || {};
-                  delete master[tab.sourceId];
-                  await electron.saveMasterDrawings(master);
               } else {
                   await deleteChartMeta(tab.sourceId);
               }
@@ -1246,11 +1241,6 @@ const App: React.FC = () => {
             const electron = (window as any).electronAPI;
             if (electron && electron.deleteAllDrawings) {
                 await electron.deleteAllDrawings(sourceId);
-            } else if (electron && electron.saveMasterDrawings) {
-                const res = await electron.loadMasterDrawings();
-                const master = res?.data || {};
-                delete master[sourceId];
-                await electron.saveMasterDrawings(master);
             } else {
                 await deleteChartMeta(sourceId);
             }

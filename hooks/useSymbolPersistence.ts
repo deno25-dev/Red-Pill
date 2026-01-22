@@ -55,19 +55,12 @@ export const useSymbolPersistence = ({
     try {
       let state: ChartState | null = null;
       
-      // Attempt load from new Database structure first
+      // Attempt load from new Database structure
       if (electron && electron.loadDrawing) {
           const result = await electron.loadDrawing(symbol);
           if (result.success && result.data) {
               state = result.data;
               debugLog('Data', `Linkage Success: Found metadata for '${symbol}'`);
-          } else if (electron.loadMasterDrawings) {
-              // Fallback to legacy master store if not found in new DB
-              const res = await electron.loadMasterDrawings();
-              if (res.success && res.data && res.data[symbol]) {
-                  state = res.data[symbol];
-                  debugLog('Data', `Linkage Fallback: Found metadata for '${symbol}' in master store`);
-              }
           }
       } else {
           // Web Fallback
@@ -138,12 +131,6 @@ export const useSymbolPersistence = ({
             // New Database Structure: /Database/Drawings/[symbol].json
             // This strictly writes to the Database folder structure.
             await electron.saveDrawing(symbol, stateToSave);
-        } else if (electron && electron.saveMasterDrawings) {
-            // Legacy Electron
-            const result = await electron.loadMasterDrawings();
-            const masterStore = result?.data || {};
-            masterStore[symbol] = stateToSave;
-            await electron.saveMasterDrawings(masterStore);
         } else {
             // Web Fallback
             const masterStore = (await loadMasterDrawingsStore()) || {};
