@@ -640,19 +640,27 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => { 
       if (!seriesRef.current || !chartRef.current) return; 
       
-      // FIX: Prevent setData conflict during active playback to resolve 'Cannot update oldest data' error.
-      // During playback, the animation loop manages series updates. Calling setData via React state updates (replayIndex change)
-      // can cause race conditions where setData resets the series to a state incompatible with the next pending update.
-      // We only allow setData if the dataset itself changed significantly (e.g. timeframe switch), detected via start time change.
-      if (isPlaying) {
-          const currentDataStart = processedData[0]?.time;
-          const prevDataStart = prevDataStartTime.current;
+      // --- REPLAY GUARD (Mandate 0.37 Performance) ---
+      // Prevents React from resetting the series data on every frame update during replay.
+      // We only allow setData if:
+      // 1. Not playing
+      // 2. Data source changed (Start time diff)
+      // 3. Significant length change (Manual Seek / Cut)
+      if (isPlaying && processedData.length > 0) {
+          const currentStart = processedData[0].time as number;
+          const prevStart = prevDataStartTime.current;
           
-          // If start time is the same, it means we are likely just advancing the replay buffer.
-          // In this case, we trust the Replay Engine (useChartReplay) to handle updates via series.update()
-          // and we SKIP calling setData() to prevent state thrashing.
-          if (currentDataStart === prevDataStart) {
-              // Update ref length but do not reset series
+          // Check if start time is stable (Same dataset/timeframe)
+          const isSameSource = currentStart === prevStart;
+          
+          // Check if length changed significantly (Seek vs Playback)
+          // Playback adds 1 candle at a time (or small batch). Seeks change length drastically.
+          const lengthDiff = Math.abs(processedData.length - prevDataLength.current);
+          
+          // GUARD: If source is same and length diff is small (playback), SKIP setData.
+          // The useChartReplay hook handles the visual updates via series.update().
+          if (isSameSource && lengthDiff <= 2) {
+              // Update ref length but DO NOT call setData
               prevDataLength.current = processedData.length;
               return; 
           }

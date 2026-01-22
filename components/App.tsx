@@ -166,7 +166,7 @@ const App: React.FC = () => {
 
   // Load Master Sync Persistence
   useEffect(() => {
-      loadUILayout().then((layout: any) => {
+      loadUILayout().then(layout => {
           if (layout && typeof layout.isMasterSyncActive === 'boolean') {
               setIsMasterSyncActive(layout.isMasterSyncActive);
           }
@@ -175,7 +175,7 @@ const App: React.FC = () => {
 
   // Save Master Sync Persistence
   useEffect(() => {
-      loadUILayout().then((currentLayout: any) => {
+      loadUILayout().then(currentLayout => {
           saveUILayout({ ...currentLayout, isMasterSyncActive });
       });
   }, [isMasterSyncActive]);
@@ -318,6 +318,11 @@ const App: React.FC = () => {
               
               if (electron && electron.deleteAllDrawings) {
                   await electron.deleteAllDrawings(tab.sourceId);
+              } else if (electron && electron.saveMasterDrawings) {
+                  const res = await electron.loadMasterDrawings();
+                  const master = res?.data || {};
+                  delete master[tab.sourceId];
+                  await electron.saveMasterDrawings(master);
               } else {
                   await deleteChartMeta(tab.sourceId);
               }
@@ -1241,6 +1246,11 @@ const App: React.FC = () => {
             const electron = (window as any).electronAPI;
             if (electron && electron.deleteAllDrawings) {
                 await electron.deleteAllDrawings(sourceId);
+            } else if (electron && electron.saveMasterDrawings) {
+                const res = await electron.loadMasterDrawings();
+                const master = res?.data || {};
+                delete master[sourceId];
+                await electron.saveMasterDrawings(master);
             } else {
                 await deleteChartMeta(sourceId);
             }
