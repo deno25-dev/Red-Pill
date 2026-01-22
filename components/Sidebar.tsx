@@ -84,7 +84,7 @@ const ToolButton: React.FC<ToolButtonProps> = ({
     );
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ 
+const SidebarComponent: React.FC<SidebarProps> = ({ 
   activeToolId,
   onSelectTool,
   favoriteTools,
@@ -383,3 +383,5 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </div>
   );
 };
+
+export const Sidebar = React.memo(SidebarComponent);

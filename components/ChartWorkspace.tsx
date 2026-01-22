@@ -65,6 +65,97 @@ interface ChartWorkspaceProps {
   onReplayComplete?: () => void;
 }
 
+// --- GHOST HEADER COMPONENT ---
+// This component subscribes directly to the replay-tick event
+// It updates the DOM directly via Refs, bypassing React State updates entirely.
+const GhostHeader: React.FC<{ tabId: string, initialPrice: number, initialPrev: number, initialVol: number }> = React.memo(({ tabId, initialPrice, initialPrev, initialVol }) => {
+    const priceRef = useRef<HTMLSpanElement>(null);
+    const changeRef = useRef<HTMLSpanElement>(null);
+    const volRef = useRef<HTMLSpanElement>(null);
+    const timeRef = useRef<HTMLSpanElement>(null);
+    
+    // Store prev price to calc change dynamically
+    const prevPriceRef = useRef(initialPrev);
+
+    useEffect(() => {
+        const handleTick = (e: any) => {
+            if (e.detail.tabId !== tabId) return;
+            const { price, time } = e.detail;
+            
+            if (priceRef.current) priceRef.current.innerText = price.toFixed(2);
+            
+            if (changeRef.current) {
+                const prev = prevPriceRef.current;
+                // Simple heuristic: If prev is 0 (init), try to use current as base
+                const base = prev === 0 ? price : prev; 
+                
+                const change = price - base;
+                const pct = base !== 0 ? (change / base) * 100 : 0;
+                const sign = change > 0 ? '+' : '';
+                changeRef.current.innerText = `${sign}${change.toFixed(2)} (${pct.toFixed(2)}%)`;
+                
+                // Direct DOM Class Manipulation for Performance
+                if (change >= 0) {
+                    priceRef.current?.classList.remove('text-red-400');
+                    priceRef.current?.classList.add('text-emerald-400');
+                    changeRef.current.classList.remove('text-red-500');
+                    changeRef.current.classList.add('text-emerald-500');
+                } else {
+                    priceRef.current?.classList.remove('text-emerald-400');
+                    priceRef.current?.classList.add('text-red-400');
+                    changeRef.current.classList.remove('text-emerald-500');
+                    changeRef.current.classList.add('text-red-500');
+                }
+            }
+            
+            // Note: Volume is tricky as it is per-candle. 
+            // Ideally we pass volume in event, but lightweight chart handles candle updates.
+            // We'll skip dynamic volume for now to save bandwidth unless passed in event.
+            
+            if (timeRef.current) {
+                const d = new Date(time);
+                // Fast manual formatting YYYY-MM-DD HH:MM:SS
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const hh = String(d.getHours()).padStart(2, '0');
+                const min = String(d.getMinutes()).padStart(2, '0');
+                const ss = String(d.getSeconds()).padStart(2, '0');
+                
+                timeRef.current.innerText = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+            }
+        };
+        
+        window.addEventListener('replay-tick', handleTick);
+        return () => window.removeEventListener('replay-tick', handleTick);
+    }, [tabId]);
+
+    // Initial Static Render
+    const initialChange = initialPrice - initialPrev;
+    const initialPct = initialPrev !== 0 ? (initialChange / initialPrev) * 100 : 0;
+    const isUp = initialChange >= 0;
+
+    return (
+        <>
+            <div className="flex items-baseline gap-3">
+                <span ref={priceRef} className={`text-sm font-mono font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {initialPrice.toFixed(2)}
+                </span>
+                <span ref={changeRef} className={`text-xs font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {initialChange > 0 ? '+' : ''}{initialChange.toFixed(2)} ({initialPct.toFixed(2)}%)
+                </span>
+            </div>
+            <div className="h-4 w-px bg-slate-600"></div>
+            <div className="text-[10px] text-slate-400">
+                Vol: <span ref={volRef} className="text-slate-300 font-mono">{initialVol.toFixed(0)}</span>
+            </div>
+            <div className="h-4 w-px bg-slate-600"></div>
+            {/* Hidden time ref container for binding, although main time is in footer usually. 
+                If we want header time, we can add it here. */}
+        </>
+    );
+});
+
 const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({ 
   tab, 
   tabVault,
@@ -188,11 +279,10 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
 
   const smaData = useMemo(() => { if (!tab.config.showSMA) return []; return calculateSMA(displayedData, tab.config.smaPeriod); }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
   
+  // --- HEADER DATA ---
   const currentPrice = useMemo(() => { if (displayedData.length === 0) return 0; return displayedData[displayedData.length - 1].close; }, [displayedData]);
   const prevPrice = displayedData.length > 1 ? displayedData[displayedData.length - 2].close : currentPrice;
-  const priceChange = currentPrice - prevPrice;
-  const percentChange = prevPrice !== 0 ? (priceChange / prevPrice) * 100 : 0;
-  const isUp = priceChange >= 0;
+  const currentVolume = useMemo(() => { if (displayedData.length === 0) return 0; return displayedData[displayedData.length - 1].volume; }, [displayedData]);
 
   const [headerPos, setHeaderPos] = useState({ x: 16, y: 16 });
   const isDraggingHeader = useRef(false);
@@ -279,8 +369,6 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
           if (rawIdx === -1) rawIdx = vault.rawData.length - 1;
 
           // 3. Execute Cut (Destructive Slice retaining History)
-          // Mandate: vault.data = vault.data.slice(0, cutIndex + 1)
-          // This keeps history [0..idx] and deletes the future.
           vault.data = vault.data.slice(0, idx + 1);
           vault.rawData = vault.rawData.slice(0, rawIdx + 1);
 
@@ -326,8 +414,13 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
               {Object.values(Timeframe).filter(tf => !favoriteTimeframes || (favoriteTimeframes as any).includes(tf)).map((tf) => (<button key={String(tf)} onClick={() => onTimeframeChange(tf as any)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>{String(tf)}</button>))}
           </div>
           <div className="h-4 w-px bg-slate-600"></div>
-          <div className="flex items-baseline gap-3"><span className={`text-sm font-mono font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>{currentPrice.toFixed(2)}</span><span className={`text-xs font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>{priceChange > 0 ? '+' : ''}{priceChange.toFixed(2)} ({percentChange.toFixed(2)}%)</span></div>
-          <div className="h-4 w-px bg-slate-600"></div><div className="text-[10px] text-slate-400">Vol: <span className="text-slate-300 font-mono">{displayedData.length > 0 ? displayedData[displayedData.length - 1].volume.toFixed(0) : 0}</span></div>
+          {/* Replaced Static Header with GhostHeader */}
+          <GhostHeader 
+              tabId={tab.id} 
+              initialPrice={currentPrice} 
+              initialPrev={prevPrice} 
+              initialVol={currentVolume} 
+          />
           {tab.config.invertScale && (<><div className="h-4 w-px bg-slate-600"></div><span className="text-[9px] font-bold bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30 uppercase tracking-wider animate-pulse" title="Chart Scale Inverted (Alt+I)">Inverted</span></>)}
           <div className="h-4 w-px bg-slate-600"></div>
           {onToggleMasterSync && (<button onClick={onToggleMasterSync} className={`p-1 rounded transition-colors ${isMasterSyncActive ? 'text-blue-400 bg-blue-400/10 shadow-[0_0_10px_rgba(59,130,246,0.3)] ring-1 ring-blue-500/30' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} title={isMasterSyncActive ? "Master Sync Active (All charts follow)" : "Enable Master Sync"} onMouseDown={(e) => e.stopPropagation()}><LinkIcon size={14} className={isMasterSyncActive ? "fill-current" : ""} /></button>)}

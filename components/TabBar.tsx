@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { X, Plus, ExternalLink } from 'lucide-react';
 import { TabSession } from '../types';
@@ -11,7 +12,7 @@ interface TabBarProps {
   onAdd: () => void;
 }
 
-export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onSwitch, onClose, onDetach, onAdd }) => {
+const TabBarComponent: React.FC<TabBarProps> = ({ tabs, activeTabId, onSwitch, onClose, onDetach, onAdd }) => {
   return (
     <div className="app-drag-region flex items-center bg-[#0f172a] border-b border-[#334155] pt-2 px-2 gap-1 overflow-x-auto select-none no-scrollbar shrink-0 pl-16 md:pl-2">
       {/* Added pl-16 padding on small screens or just general safe area if traffic lights exist, though standard on Windows works fine without extra padding if using overlay */}
@@ -60,3 +61,5 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeTabId, onSwitch, onC
     </div>
   );
 };
+
+export const TabBar = React.memo(TabBarComponent);

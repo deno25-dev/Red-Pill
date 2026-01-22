@@ -15,7 +15,7 @@ import { StickyNoteOverlay } from './StickyNoteOverlay';
 import { DatabaseBrowser } from './DatabaseBrowser';
 import { StickyNoteManager } from './modals/StickyNoteManager';
 import { LayoutManager } from './modals/LayoutManager';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing, ReplayState, TabVaultData } from '../types';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing, TabVaultData } from '../types';
 import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from '../utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
@@ -236,7 +236,7 @@ const App: React.FC = () => {
     tabVault.current.set(id, {
         rawData: raw,
         data: processedData,
-        replayIndex: processedData.length - 1,
+        replayIndex: processedData.length > 0 ? processedData.length - 1 : 0,
         replayGlobalTime: null,
         simulatedPrice: null,
         visibleRange: null,
@@ -578,10 +578,6 @@ const App: React.FC = () => {
       // Master Sync Logic: Broadcast range
       if (isMasterSyncActive && layoutTabIds.length > 1) {
           layoutTabIds.forEach(id => {
-              // Note: We're not updating tab props here anymore for range.
-              // Master sync for range needs a custom event or a direct ref access in child components.
-              // For now, dispatch event for immediate visual sync (already handled in Chart.tsx via event listeners)
-              // But we should update the vault for other tabs.
               const vault = tabVault.current.get(id);
               if (vault) vault.visibleRange = newRange;
           });
@@ -965,13 +961,13 @@ const App: React.FC = () => {
               
               const displayData = resampleData(uniqueData, tab.timeframe);
               
+              // Calculate replay index offset
+              const prevLength = vault.data.length;
+              
               // Update Vault
               vault.rawData = uniqueData;
               vault.data = displayData;
-              
-              // Adjust replay index to maintain position relative to history
-              const newReplayIndex = (vault.replayIndex || 0) + (displayData.length - vault.data.length);
-              vault.replayIndex = newReplayIndex;
+              vault.replayIndex = vault.replayIndex + (displayData.length - prevLength);
 
               // Update State (Lightweight)
               updateTab(tabId, {
@@ -1125,6 +1121,12 @@ const App: React.FC = () => {
 
   const handleToggleReplay = () => {
     if (!activeTab) return;
+    const vault = tabVault.current.get(activeTabId);
+    if(vault) {
+        vault.simulatedPrice = null;
+        vault.replayGlobalTime = null;
+    }
+
     if (activeTab.isReplaySelecting) {
         updateActiveTab({ isReplayMode: false, isReplaySelecting: false, isReplayPlaying: false, isAdvancedReplayMode: false });
         return;
@@ -1138,6 +1140,12 @@ const App: React.FC = () => {
 
   const handleToggleAdvancedReplay = () => {
     if (!activeTab) return;
+    const vault = tabVault.current.get(activeTabId);
+    if(vault) {
+        vault.simulatedPrice = null;
+        vault.replayGlobalTime = null;
+    }
+
     if (activeTab.isReplaySelecting) {
         updateActiveTab({ isReplayMode: false, isReplaySelecting: false, isReplayPlaying: false, isAdvancedReplayMode: false });
         return;
@@ -1169,7 +1177,6 @@ const App: React.FC = () => {
       }
 
       // 3. DO NOT CALL SETTABS. The ChartWorkspace will pick up changes via its own hooks or refs.
-      // NOTE: For the header price label, we rely on ChartWorkspace reading from liveTimeRef or a force update local to it.
   }, []);
 
   const handleLayoutAction = async (action: string) => {

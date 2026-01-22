@@ -88,7 +88,7 @@ interface ToolbarProps {
   onOpenStickyNotesFolder?: () => void;
 }
 
-export const Toolbar: React.FC<ToolbarProps> = ({
+const ToolbarComponent: React.FC<ToolbarProps> = ({
   onFileUpload,
   toggleTheme,
   isDark,
@@ -539,3 +539,5 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </div>
   );
 };
+
+export const Toolbar = React.memo(ToolbarComponent);

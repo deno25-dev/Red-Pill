@@ -16,7 +16,7 @@ interface FilePanelProps {
   fileFilter?: ((file: any) => boolean) | null;
 }
 
-export const FilePanel: React.FC<FilePanelProps> = ({ 
+const FilePanelComponent: React.FC<FilePanelProps> = ({ 
     isOpen, 
     onClose, 
     onFileSelect, 
@@ -419,3 +419,5 @@ export const FilePanel: React.FC<FilePanelProps> = ({
     </div>
   );
 };
+
+export const FilePanel = React.memo(FilePanelComponent);

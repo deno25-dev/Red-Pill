@@ -52,7 +52,7 @@ const InteractiveStar = ({ isFavorite, onClick }: { isFavorite: boolean, onClick
   </button>
 );
 
-export const AssetLibrary: React.FC<AssetLibraryProps> = ({ 
+const AssetLibraryComponent: React.FC<AssetLibraryProps> = ({ 
   isOpen, 
   onClose, 
   onSelect,
@@ -353,3 +353,5 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
     </div>
   );
 };
+
+export const AssetLibrary = React.memo(AssetLibraryComponent);
