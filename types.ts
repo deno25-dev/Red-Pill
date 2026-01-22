@@ -151,13 +151,35 @@ export interface ChartState {
   timeframe?: string;
 }
 
+// Decoupled Replay State (stored in Refs)
+export interface ReplayState {
+  replayIndex: number;
+  replayGlobalTime: number | null;
+  simulatedPrice: number | null;
+}
+
+// MANDATE 0.40: The Ghost-Vault Data Structure
+export interface TabVaultData {
+  rawData: OHLCV[];
+  data: OHLCV[];
+  replayIndex: number;
+  replayGlobalTime: number | null;
+  simulatedPrice: number | null;
+  visibleRange: { from: number; to: number } | null;
+  undoStack: HistorySnapshot[];
+  redoStack: HistorySnapshot[];
+}
+
 export interface TabSession {
   id: string;
   title: string;
   symbolId: string; // Namespace-aware ID (e.g., "FOREX_GOLD")
   sourceId: string; // Persistent unique ID for drawings/trades
-  rawData: OHLCV[];
-  data: OHLCV[];
+  
+  // Data is now OPTIONAL in state, sourced from Ref stores (Vault)
+  rawData?: OHLCV[]; 
+  data?: OHLCV[];
+  
   timeframe: Timeframe;
   config: ChartConfig;
   
@@ -166,23 +188,22 @@ export interface TabSession {
 
   isReplayMode: boolean;
   isAdvancedReplayMode: boolean;
-  isReplaySelecting: boolean; 
-  replayIndex: number;
-  replayGlobalTime: number | null; 
-  simulatedPrice: number | null; 
-  isReplayPlaying: boolean;
+  isReplaySelecting: boolean;
+  isReplayPlaying: boolean; // Kept as mode switch
   replaySpeed: number; 
   isDetached: boolean;
   
   // Persisted UI State
   isMarketOverviewOpen: boolean;
 
-  visibleRange: { from: number; to: number } | null;
+  // Visual range is now in Vault for high-freq, but snapshot kept here for persistence if needed
+  visibleRange?: { from: number; to: number } | null;
+  
   trades: Trade[];
   drawings: Drawing[];
   folders: Folder[];
-  undoStack: HistorySnapshot[];
-  redoStack: HistorySnapshot[];
+  
+  // High-Frequency Removed: undoStack, redoStack, replayIndex, etc.
 }
 
 export interface SanitizationStats {

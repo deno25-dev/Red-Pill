@@ -392,7 +392,7 @@ interface ChartProps {
   replayIndex?: number;
   isPlaying?: boolean;
   replaySpeed?: number;
-  onReplaySync?: (index: number, time: number, price: number) => void;
+  onReplaySync?: (index: number, time: number, price: number, metricTimestamp?: number) => void;
   onReplayComplete?: () => void;
   isAdvancedReplay?: boolean; 
   liveTimeRef?: React.MutableRefObject<number | null>; 

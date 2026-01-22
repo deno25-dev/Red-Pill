@@ -10,7 +10,7 @@ interface UseAdvancedReplayProps {
   startIndex: number;
   isPlaying: boolean;
   speed: number;
-  onSyncState?: (index: number, time: number, price: number) => void;
+  onSyncState?: (index: number, time: number, price: number, metricTimestamp?: number) => void;
   onComplete?: () => void;
   isActive: boolean; 
   liveTimeRef?: React.MutableRefObject<number | null>; 
@@ -175,6 +175,10 @@ export const useAdvancedReplay = ({
             label: formatTimer(virtualNowRef.current, duration),
             visible: true
         });
+    }
+
+    if (onSyncState) {
+        onSyncState(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current, performance.now());
     }
 
     requestRef.current = requestAnimationFrame(animate);

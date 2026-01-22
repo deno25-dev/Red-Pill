@@ -1,8 +1,8 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
 import { ISeriesApi, IChartApi, Time, SeriesType, LogicalRange } from 'lightweight-charts';
-import { OHLCV } from '../types';
-import { useReport } from './useReport'; // Import telemetry hook
+import { OHLCV, TabVaultData } from '../types';
+import { useReport } from './useReport'; 
 
 let renderCount = 0;
 
@@ -13,7 +13,7 @@ interface UseChartReplayProps {
   startIndex: number;
   isPlaying: boolean;
   speed: number;
-  onSyncState?: (index: number, time: number, price: number) => void;
+  onSyncState?: (index: number, time: number, price: number, metricTimestamp?: number) => void;
   onComplete?: () => void;
   liveTimeRef?: React.MutableRefObject<number | null>;
 }
@@ -30,7 +30,7 @@ export const useChartReplay = ({
   liveTimeRef
 }: UseChartReplayProps) => {
   renderCount++;
-  const { log, warn, info } = useReport('ReplayEngine'); // Pulse Logger
+  const { log, warn, info } = useReport('ReplayEngine'); 
   
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -42,7 +42,9 @@ export const useChartReplay = ({
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
   
-  const lastEngineSyncedIndex = useRef(startIndex);
+  // Mute Firewall Ref: Mirrors the last index the engine produced internally.
+  const lastSyncedIndexRef = useRef<number>(startIndex);
+  
   const fullDataRef = useRef<OHLCV[] | undefined>(fullData);
   const onSyncStateRef = useRef(onSyncState);
   const onCompleteRef = useRef(onComplete);
@@ -85,7 +87,7 @@ export const useChartReplay = ({
     bufferCursorRef.current = 0;
     lastFrameTimeRef.current = 0;
     currentIndexRef.current = startIndex; 
-    lastEngineSyncedIndex.current = startIndex; 
+    lastSyncedIndexRef.current = startIndex; 
 
     const bufferStart = startIndex + 1;
     if (bufferStart < fullData.length) {
@@ -108,20 +110,34 @@ export const useChartReplay = ({
 
   }, [fullData]); 
 
-  // --- LOGIC 2: SEEKING (RECUT) ---
+  // --- LOGIC 2: SEEKING (RECUT) & PROP LOCK ---
   useEffect(() => {
       if (!fullData || fullData.length === 0) return;
 
-      if (startIndex === lastEngineSyncedIndex.current) {
+      // 1. PROP LOCK: Strictly ignore all prop changes while engine is running.
+      if (isPlaying) {
+          return;
+      }
+
+      // 2. Exact Match Firewall
+      if (startIndex === lastSyncedIndexRef.current) {
+          return; 
+      }
+
+      // 3. Proximity Firewall (Anti-Loopback) - Increased Tolerance to 30 (Mandate 0.40.2)
+      const diff = Math.abs(startIndex - lastSyncedIndexRef.current);
+      if (diff < 30) { 
           return; 
       }
       
-      warn('Manual Seek Detected', { 
-          from: lastEngineSyncedIndex.current, 
-          to: startIndex 
+      // If we get here, it's a legitimate Manual Seek (or a large jump) while PAUSED
+      warn('Manual Seek Confirmed (Paused)', { 
+          from: lastSyncedIndexRef.current, 
+          to: startIndex,
+          isPlaying
       });
       
-      lastEngineSyncedIndex.current = startIndex; 
+      lastSyncedIndexRef.current = startIndex; 
 
       currentIndexRef.current = startIndex;
       bufferCursorRef.current = 0;
@@ -139,7 +155,7 @@ export const useChartReplay = ({
           currentPriceRef.current = fullData[startIndex].close;
           if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
       }
-  }, [startIndex, fullData]);
+  }, [startIndex, fullData, isPlaying]); 
 
   // --- LOGIC 3: ANIMATION LOOP ---
   const animate = useCallback((time: number) => {
@@ -197,6 +213,9 @@ export const useChartReplay = ({
                 }
             }
         }
+        
+        // ENGINE UPDATE: Flag this index as engine-driven IMMEDIATELY
+        lastSyncedIndexRef.current = currentIndexRef.current;
 
         if (lockedRange) {
             timeScale.setVisibleLogicalRange(lockedRange);
@@ -249,7 +268,7 @@ export const useChartReplay = ({
              const lastIdx = (fullDataRef.current?.length || 0) - 1;
              if (lastIdx >= 0) {
                  const finalC = fullDataRef.current![lastIdx];
-                 lastEngineSyncedIndex.current = lastIdx;
+                 lastSyncedIndexRef.current = lastIdx;
                  onSyncStateRef.current(lastIdx, finalC.time, finalC.close);
              }
         }
@@ -257,9 +276,9 @@ export const useChartReplay = ({
     }
 
     const now = performance.now();
-    if (now - lastSyncTimeRef.current > 200 && onSyncStateRef.current) {
-        lastEngineSyncedIndex.current = currentIndexRef.current;
-        onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
+    // Throttle parent state updates
+    if (now - lastSyncTimeRef.current > 100 && onSyncStateRef.current) {
+        onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current, now);
         lastSyncTimeRef.current = now;
     }
 
@@ -277,8 +296,9 @@ export const useChartReplay = ({
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
       
       const diff = Math.abs(startIndex - currentIndexRef.current);
-      if (diff < 2 && onSyncStateRef.current) {
-          lastEngineSyncedIndex.current = currentIndexRef.current;
+      // Increased Tolerance to 30 for Manual Seek logic match
+      if (diff < 30 && onSyncStateRef.current) {
+          lastSyncedIndexRef.current = currentIndexRef.current;
           onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
       }
     }
