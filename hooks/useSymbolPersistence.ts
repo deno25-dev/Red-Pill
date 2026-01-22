@@ -2,16 +2,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { ChartState, ChartConfig, Drawing, Folder } from '../types';
 import { loadMasterDrawingsStore, saveMasterDrawingsStore } from '../utils/storage';
-import { debugLog } from '../utils/logger';
-
-// --- MANDATE 0.30: ARCHITECTURAL DEFINITIONS ---
-// DATA_SOURCE_PATH: The absolute path to the user's local CSV/TXT file.
-//                   ACCESS: READ-ONLY. Managed by useFileSystem / dataUtils.
-//                   CONSTRAINT: Never pass this path to a write operation.
-//
-// PERSISTENCE_PATH: The relative key used to store metadata in the /Database folder.
-//                   ACCESS: WRITE-ONLY. Managed by this hook.
-//                   FORMAT: strictly JSON (e.g. /Database/Drawings/[symbol].json).
+import { useReport } from './useReport';
 
 interface UseSymbolPersistenceProps {
   symbol: string | null;
@@ -30,13 +21,12 @@ export const useSymbolPersistence = ({
   config,
   visibleRange,
 }: UseSymbolPersistenceProps) => {
+  const { log, info, error } = useReport('Persistence');
   const [isHydrating, setIsHydrating] = useState(true);
   const onStateLoadedRef = useRef(onStateLoaded);
   onStateLoadedRef.current = onStateLoaded;
 
-  // Refs for current state to be used in interval
   const currentStateRef = useRef<ChartState | null>(null);
-
   const electron = (window as any).electronAPI;
 
   const loadState = useCallback(async () => {
@@ -49,21 +39,18 @@ export const useSymbolPersistence = ({
     setIsHydrating(true);
     let cancelled = false;
 
-    // Mandate 0.32: Log the linkage event for audit
-    debugLog('Data', `Linkage Check: Searching for metadata linked to key '${symbol}' in Database/Drawings/`);
+    log(`Linkage Check: Searching for metadata linked to key '${symbol}'`);
 
     try {
       let state: ChartState | null = null;
       
-      // Attempt load from new Database structure
       if (electron && electron.loadDrawing) {
           const result = await electron.loadDrawing(symbol);
           if (result.success && result.data) {
               state = result.data;
-              debugLog('Data', `Linkage Success: Found metadata for '${symbol}'`);
+              log(`Linkage Success: Found metadata for '${symbol}'`);
           }
       } else {
-          // Web Fallback
           const masterStore = await loadMasterDrawingsStore();
           if (masterStore && masterStore[symbol]) {
             state = masterStore[symbol];
@@ -72,15 +59,15 @@ export const useSymbolPersistence = ({
 
       if (!cancelled) {
         if (state) {
-            console.log(`[RedPill] Loading ${state.drawings.length} drawings for Symbol: ${symbol}`);
+            info(`Loading ${state.drawings.length} drawings`, { symbol });
         } else {
-            debugLog('Data', `Linkage: No existing metadata for '${symbol}'. Starting fresh.`);
+            log(`Linkage: No existing metadata for '${symbol}'. Starting fresh.`);
         }
         onStateLoadedRef.current(state);
       }
     } catch (e: any) {
       console.error("Failed to load chart state:", e);
-      debugLog('Data', `Persistence: Error loading state for ${symbol}`, e.message);
+      error(`Error loading state for ${symbol}`, { error: e.message });
       if (!cancelled) onStateLoadedRef.current(null);
     } finally {
       if (!cancelled) setIsHydrating(false);
@@ -90,9 +77,7 @@ export const useSymbolPersistence = ({
   // Load initial state
   useEffect(() => {
     loadState();
-    return () => {
-        // cleanup
-    };
+    return () => {};
   }, [loadState]);
 
   // Keep ref updated for interval saving
@@ -113,34 +98,25 @@ export const useSymbolPersistence = ({
   const persistState = useCallback(async (stateToSave: ChartState) => {
       if (!symbol) return;
 
-      // --- MANDATE 0.30: SAFETY INTERLOCK ---
-      // Guard against accidental usage of source filenames as persistence keys.
-      // We strictly prohibit writing to any key ending in .csv or .txt to prevent 
-      // potential file system confusion or overwrite risks, even if the backend 
-      // appends .json.
       const lowerSymbol = symbol.toLowerCase();
       if (lowerSymbol.endsWith('.csv') || lowerSymbol.endsWith('.txt')) {
-          const errorMsg = `[SAFETY INTERLOCK] Write operation blocked. Attempted to use source file extension for persistence key: ${symbol}`;
-          console.error(errorMsg);
-          debugLog('Data', errorMsg);
-          return; // Strictly abort
+          const errorMsg = `[SAFETY INTERLOCK] Write blocked for extension key: ${symbol}`;
+          error(errorMsg);
+          return;
       }
 
       try {
         if (electron && electron.saveDrawing) {
-            // New Database Structure: /Database/Drawings/[symbol].json
-            // This strictly writes to the Database folder structure.
             await electron.saveDrawing(symbol, stateToSave);
         } else {
-            // Web Fallback
             const masterStore = (await loadMasterDrawingsStore()) || {};
             masterStore[symbol] = stateToSave;
             await saveMasterDrawingsStore(masterStore);
         }
-        debugLog('Data', `Persistence: Saved state for ${symbol} to Database/Drawings/`);
+        log(`State saved`, { symbol, drawingsCount: stateToSave.drawings.length });
       } catch (e: any) {
         console.error("Failed to save chart state:", e);
-        debugLog('Data', `Persistence: Error saving state for ${symbol}`, e.message);
+        error(`Error saving state for ${symbol}`, { error: e.message });
       }
   }, [symbol, electron]);
 
@@ -152,7 +128,7 @@ export const useSymbolPersistence = ({
         if (currentStateRef.current) {
             persistState(currentStateRef.current);
         }
-    }, 1000); // 1s debounce
+    }, 1000); 
 
     return () => {
       clearTimeout(handler);
@@ -165,10 +141,10 @@ export const useSymbolPersistence = ({
 
       const interval = setInterval(() => {
           if (currentStateRef.current) {
-              debugLog('Data', `Persistence: Auto-saving state for ${symbol} (30s interval)`);
+              log(`Auto-saving state (30s interval)`, { symbol });
               persistState(currentStateRef.current);
           }
-      }, 30000); // 30 seconds
+      }, 30000);
 
       return () => clearInterval(interval);
   }, [symbol, isHydrating, persistState]);

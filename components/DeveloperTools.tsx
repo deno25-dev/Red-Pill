@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Terminal, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool, Copy, ChevronRight, Filter, Pause, Play } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
+import { LogEntry, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
 import { useDevLogs } from '../hooks/useDevLogs';
 
 interface DeveloperToolsProps {
@@ -13,6 +13,59 @@ interface DeveloperToolsProps {
   onOpenLayoutDB?: () => void;
 }
 
+const LogRow = ({ log }: { log: LogEntry }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(JSON.stringify(log.data, null, 2));
+    };
+
+    return (
+        <div className={`border-b border-white/5 font-mono text-xs transition-colors ${isExpanded ? 'bg-white/5' : 'hover:bg-white/5'}`}>
+            <div 
+                className="flex items-center gap-2 p-2 cursor-pointer select-none"
+                onClick={() => setIsExpanded(!isExpanded)}
+            >
+                <span className="text-slate-500 w-16 shrink-0">
+                    {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}
+                </span>
+                
+                <span className={`w-24 shrink-0 font-bold truncate ${
+                    log.level === 'error' ? 'text-red-400' :
+                    log.level === 'warn' ? 'text-amber-400' :
+                    'text-blue-400'
+                }`}>
+                    {log.component}
+                </span>
+
+                <span className={`flex-1 truncate ${log.level === 'error' ? 'text-red-200' : 'text-slate-300'}`}>
+                    {log.action}
+                </span>
+
+                {log.data && (
+                    <ChevronRight size={14} className={`text-slate-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                )}
+            </div>
+
+            {isExpanded && log.data && (
+                <div className="p-2 pl-20 bg-black/40 text-[10px] text-emerald-300/80 relative group">
+                    <button 
+                        onClick={handleCopy}
+                        className="absolute top-2 right-2 p-1 bg-slate-800 rounded opacity-0 group-hover:opacity-100 hover:text-white transition-all"
+                        title="Copy State Snapshot"
+                    >
+                        <Copy size={12} />
+                    </button>
+                    <pre className="whitespace-pre-wrap break-all overflow-x-auto">
+                        {JSON.stringify(log.data, null, 2)}
+                    </pre>
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
@@ -22,26 +75,16 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'runtime' | 'system'>('runtime');
-  const [storagePath, setStoragePath] = useState<string>('Unknown');
   
-  // Runtime Logs
+  // Telemetry State
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const [isFrozen, setIsFrozen] = useState(false);
+  const [filterComponent, setFilterComponent] = useState<string>('ALL');
   
   // System Logs (Persistent)
   const { logs: devLogs, addLog: addDevLog, clearLogs: clearDevLogs } = useDevLogs();
   
   const isOnline = useOnlineStatus();
-
-  // Fetch Storage Path
-  useEffect(() => {
-      const electron = (window as any).electronAPI;
-      if (electron && electron.getStoragePath) {
-          electron.getStoragePath().then((path: string) => {
-              setStoragePath(path);
-          }).catch(() => {});
-      }
-  }, [isOpen]);
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -55,135 +98,123 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Runtime Log listener
+  // Telemetry Stream Listener
   useEffect(() => {
     setLogs(getLogHistory());
 
     const handleLog = (e: any) => {
+      if (isFrozen) return; // Stop updates if frozen
       const newEntry = e.detail as LogEntry;
-      setLogs(prev => [newEntry, ...prev]);
+      setLogs(prev => [newEntry, ...prev].slice(0, 200));
     };
 
     const handleClear = () => {
       setLogs([]);
     };
 
+    window.addEventListener('redpill-telemetry', handleLog);
+    window.addEventListener('redpill-telemetry-clear', handleClear);
+
+    // Legacy support for debugLog
     window.addEventListener('redpill-debug-log', handleLog);
     window.addEventListener('redpill-debug-clear', handleClear);
 
     return () => {
+      window.removeEventListener('redpill-telemetry', handleLog);
+      window.removeEventListener('redpill-telemetry-clear', handleClear);
       window.removeEventListener('redpill-debug-log', handleLog);
       window.removeEventListener('redpill-debug-clear', handleClear);
     };
-  }, []);
+  }, [isFrozen]);
 
-  const generateFeedbackReport = () => {
-    const report = `
-=== RED PILL DIAGNOSTIC REPORT ===
-Timestamp: ${new Date().toISOString()}
-Browser: ${navigator.userAgent}
-Connection: ${isOnline ? 'Online' : 'Offline'}
-Active Data Source: ${activeDataSource || 'None'}
-Storage Root: ${storagePath}
-Last Chart Render: ${chartRenderTime ? `${chartRenderTime.toFixed(2)}ms` : 'N/A'}
-Last Error: ${lastError || 'None'}
+  const uniqueComponents = useMemo(() => {
+      const components = new Set(logs.map(l => l.component));
+      return ['ALL', ...Array.from(components).sort()];
+  }, [logs]);
 
-=== RECENT RUNTIME LOGS (Last 20) ===
-${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[1].replace('Z','')}] [${l.category}] ${l.message}`).join('\n')}
-    `.trim();
+  const filteredLogs = useMemo(() => {
+      if (filterComponent === 'ALL') return logs;
+      return logs.filter(l => l.component === filterComponent);
+  }, [logs, filterComponent]);
 
-    navigator.clipboard.writeText(report);
-    debugLog('UI', 'Diagnostic report copied to clipboard');
-    alert('Report copied to clipboard!');
+  const generateReport = () => {
+    // We only report what the user is currently looking at (filteredLogs)
+    const reportHeader = `--- REDPILL INCIDENT REPORT [${new Date().toLocaleString()}] ---\n` +
+        `Data Source: ${activeDataSource || 'None'}\n` + 
+        `Render Time: ${chartRenderTime ? chartRenderTime.toFixed(2) + 'ms' : 'N/A'}\n` +
+        `Last Error: ${lastError || 'None'}\n\n`;
+    
+    const reportBody = filteredLogs.map(log => {
+        const time = new Date(log.timestamp).toLocaleTimeString();
+        const head = `[${time}] [${log.level.toUpperCase()}] [${log.component}] ${log.action}`;
+        const data = log.data ? `\nData: ${JSON.stringify(log.data, null, 2)}` : '';
+        return `${head}${data}\n${'-'.repeat(40)}`;
+    }).join('\n\n');
+
+    navigator.clipboard.writeText(reportHeader + reportBody);
+    alert("Full Report Copied to Clipboard!");
   };
 
   const handleNuclearClear = () => {
       if (confirm('NUCLEAR OPTION: This will permanently delete all drawings/metadata for the CURRENT chart from the database. Are you sure?')) {
           window.dispatchEvent(new CustomEvent('redpill-nuclear-clear'));
-          debugLog('Data', 'Nuclear Clear Triggered by user');
-      }
-  };
-
-  const handleFactoryReset = async () => {
-      if (confirm('FACTORY RESET: This will completely wipe ALL local data (Assets, Metadata, Drawings, Settings) and reset the application to a fresh state. This cannot be undone. Are you absolutely sure?')) {
-          const electron = (window as any).electronAPI;
-          if (electron && electron.nuclearReset) {
-              await electron.nuclearReset();
-          } else {
-              // Web Fallback
-              localStorage.clear();
-              window.location.reload();
-          }
       }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[500px] bg-black/95 border-l border-emerald-900/50 shadow-2xl z-[9999] flex flex-col font-mono text-sm text-emerald-500 animate-in slide-in-from-right duration-200 backdrop-blur">
+    <div className="fixed inset-y-0 right-0 w-[600px] bg-[#0b0f19]/95 border-l border-slate-700/50 shadow-2xl z-[9999] flex flex-col font-sans text-sm animate-in slide-in-from-right duration-200 backdrop-blur-md">
       
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-emerald-900/50 bg-emerald-950/20">
-        <div className="flex items-center gap-2 font-bold tracking-wider">
-          <Terminal size={16} />
-          <span>DEV_DIAGNOSTICS_V2</span>
+      <div className="flex items-center justify-between p-3 border-b border-slate-700/50 bg-slate-900/50">
+        <div className="flex items-center gap-2 font-bold text-slate-200 tracking-wide">
+          <Terminal size={16} className="text-emerald-500" />
+          <span>TELEMETRY HUB</span>
         </div>
         <div className="flex items-center gap-2">
-           <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-emerald-900/40 rounded">
+           <div className="flex bg-slate-800 rounded overflow-hidden border border-slate-700">
+               <button 
+                 onClick={() => setActiveTab('runtime')}
+                 className={`px-3 py-1 text-[10px] font-bold uppercase transition-colors ${activeTab === 'runtime' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+               >
+                   Live Stream
+               </button>
+               <button 
+                 onClick={() => setActiveTab('system')}
+                 className={`px-3 py-1 text-[10px] font-bold uppercase transition-colors ${activeTab === 'system' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:text-white'}`}
+               >
+                   History
+               </button>
+           </div>
+           <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white">
              <X size={16} />
            </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-emerald-900/50 bg-black/50">
-          <button 
-            onClick={() => setActiveTab('runtime')}
-            className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'runtime' ? 'bg-emerald-900/20 text-emerald-400 border-b-2 border-emerald-500' : 'text-emerald-700 hover:text-emerald-500 hover:bg-emerald-900/10'}`}
-          >
-              <Activity size={12} /> Runtime Stream
-          </button>
-          <button 
-            onClick={() => setActiveTab('system')}
-            className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${activeTab === 'system' ? 'bg-blue-900/20 text-blue-400 border-b-2 border-blue-500' : 'text-blue-700 hover:text-blue-500 hover:bg-blue-900/10'}`}
-          >
-              <FileClock size={12} /> System History
-          </button>
-      </div>
-
-      {/* Status Grid (Only visible in Runtime Mode) */}
+      {/* Metrics Bar */}
       {activeTab === 'runtime' && (
-        <div className="grid grid-cols-2 gap-px bg-emerald-900/30 border-b border-emerald-900/50">
-            <div className="bg-black/80 p-3 flex flex-col gap-1">
-            <span className="text-[10px] text-emerald-700 uppercase">Connection</span>
-            <div className="flex items-center gap-2">
-                <Activity size={14} className={isOnline ? "text-emerald-400" : "text-red-500"} />
-                <span className="text-emerald-100">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+        <div className="grid grid-cols-3 gap-px bg-slate-800 border-b border-slate-700">
+            <div className="bg-[#0b0f19] p-2 flex flex-col items-center">
+                <span className="text-[9px] text-slate-500 uppercase font-bold">Network</span>
+                <div className="flex items-center gap-1.5 text-xs">
+                    <Activity size={12} className={isOnline ? "text-emerald-500" : "text-red-500"} />
+                    <span className="text-slate-200">{isOnline ? 'Online' : 'Offline'}</span>
+                </div>
             </div>
+            <div className="bg-[#0b0f19] p-2 flex flex-col items-center">
+                <span className="text-[9px] text-slate-500 uppercase font-bold">Render</span>
+                <div className="flex items-center gap-1.5 text-xs">
+                    <Cpu size={12} className="text-blue-500" />
+                    <span className="text-slate-200">{chartRenderTime ? `${chartRenderTime.toFixed(1)}ms` : '--'}</span>
+                </div>
             </div>
-            <div className="bg-black/80 p-3 flex flex-col gap-1">
-            <span className="text-[10px] text-emerald-700 uppercase">Render Time</span>
-            <div className="flex items-center gap-2">
-                <Cpu size={14} />
-                <span className="text-emerald-100">{chartRenderTime ? `${chartRenderTime.toFixed(1)}ms` : '--'}</span>
-            </div>
-            </div>
-            <div className="bg-black/80 p-3 flex flex-col gap-1 col-span-2">
-            <span className="text-[10px] text-emerald-700 uppercase">Active Data Source</span>
-            <div className="flex items-center gap-2 overflow-hidden">
-                <Database size={14} className="shrink-0" />
-                <span className="text-emerald-100 truncate" title={activeDataSource}>
-                {activeDataSource || 'No Data Loaded'}
-                </span>
-            </div>
-            </div>
-            <div className="bg-black/80 p-3 flex flex-col gap-1 col-span-2 border-t border-emerald-900/50">
-                <span className="text-[10px] text-emerald-700 uppercase">Local Storage Root</span>
-                <div className="flex items-center gap-2 overflow-hidden" title={storagePath}>
-                    <ShieldAlert size={14} className="shrink-0 text-emerald-600" />
-                    <span className="text-emerald-300/70 truncate text-[10px] font-mono break-all">
-                        {storagePath}
-                    </span>
+            <div className="bg-[#0b0f19] p-2 flex flex-col items-center">
+                <span className="text-[9px] text-slate-500 uppercase font-bold">Data Source</span>
+                <div className="flex items-center gap-1.5 text-xs w-full justify-center">
+                    <Database size={12} className="text-amber-500 shrink-0" />
+                    <span className="text-slate-200 truncate max-w-[100px]" title={activeDataSource}>{activeDataSource || 'None'}</span>
                 </div>
             </div>
         </div>
@@ -200,73 +231,95 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
         </div>
       )}
 
-      {/* Log Feed */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1 bg-black relative">
+      {/* Controls Bar */}
+      {activeTab === 'runtime' && (
+          <div className="flex items-center justify-between p-2 bg-[#0f172a] border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsFrozen(!isFrozen)}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase border transition-all ${isFrozen ? 'bg-amber-500/10 border-amber-500/50 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'}`}
+                  >
+                      {isFrozen ? <Play size={10} /> : <Pause size={10} />}
+                      {isFrozen ? 'Resume' : 'Freeze'}
+                  </button>
+                  <button 
+                    onClick={clearRuntimeLogs}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold uppercase border border-slate-700 text-slate-400 hover:text-red-400 hover:bg-red-900/10 transition-all"
+                  >
+                      <Trash2 size={10} />
+                      Clear
+                  </button>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                  <Filter size={12} className="text-slate-500" />
+                  <select 
+                    value={filterComponent}
+                    onChange={(e) => setFilterComponent(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 text-slate-300 text-[10px] rounded px-1 py-0.5 outline-none focus:border-blue-500"
+                  >
+                      {uniqueComponents.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+              </div>
+          </div>
+      )}
+
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#05080f] relative">
         {activeTab === 'runtime' ? (
             <>
-                {logs.map((log) => (
-                <div key={log.id} className="flex gap-2 text-xs hover:bg-emerald-900/10 p-1 rounded group">
-                    <span className="text-emerald-700 shrink-0">
-                    [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}]
-                    </span>
-                    <span className={`font-bold w-14 shrink-0 ${
-                    log.category === 'UI' ? 'text-purple-400' :
-                    log.category === 'Network' ? 'text-yellow-400' :
-                    log.category === 'Data' ? 'text-blue-400' :
-                    log.category === 'Auth' ? 'text-red-400' :
-                    log.category === 'Replay' ? 'text-orange-400' :
-                    'text-emerald-400'
-                    }`}>
-                    {log.category}
-                    </span>
-                    <span className="text-emerald-100/80 break-all">{log.message}</span>
-                </div>
+                {filteredLogs.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-600 gap-2">
+                        <Activity size={24} className="opacity-20" />
+                        <span className="text-xs">No logs captured yet...</span>
+                    </div>
+                )}
+                {filteredLogs.map((log) => (
+                    <LogRow key={log.id} log={log} />
                 ))}
             </>
         ) : (
-            <>
-                {devLogs.length === 0 && <div className="text-center py-8 text-slate-600">No system logs found.</div>}
+            // System Logs (DevLogs)
+            <div className="p-2 space-y-1">
                 {devLogs.map((log) => (
-                    <div key={log.id} className="flex flex-col gap-1 border-b border-blue-900/20 p-2 hover:bg-blue-900/10 transition-colors">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${
-                                    log.type === 'feat' ? 'bg-green-900/30 text-green-400' :
-                                    log.type === 'fix' ? 'bg-red-900/30 text-red-400' :
-                                    log.type === 'refactor' ? 'bg-purple-900/30 text-purple-400' :
-                                    'bg-slate-800 text-slate-400'
-                                }`}>{log.type}</span>
-                                <span className="text-blue-200 font-bold">{log.message}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</span>
+                    <div key={log.id} className="border border-slate-800 bg-slate-900/30 p-2 rounded hover:border-slate-700 transition-colors">
+                        <div className="flex justify-between mb-1">
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                log.type === 'feat' ? 'bg-green-900/30 text-green-400' :
+                                log.type === 'fix' ? 'bg-red-900/30 text-red-400' :
+                                'bg-slate-800 text-slate-400'
+                            }`}>
+                                {log.type}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                                {new Date(log.timestamp).toLocaleString()}
+                            </span>
                         </div>
-                        {log.details && (
-                            <p className="text-slate-400 text-xs pl-2 border-l-2 border-slate-700 ml-1">{log.details}</p>
-                        )}
+                        <div className="text-slate-300 font-medium text-xs">{log.message}</div>
+                        {log.details && <div className="text-slate-500 text-xs mt-1 pl-2 border-l border-slate-700">{log.details}</div>}
                     </div>
                 ))}
-            </>
+            </div>
         )}
-        <div ref={logsEndRef} />
       </div>
 
-      {/* Actions */}
-      <div className="bg-black border-t border-emerald-900/50">
+      {/* Footer Actions */}
+      <div className="bg-[#0f172a] border-t border-slate-800">
           {/* Action Row 1: DB Tools */}
-          <div className="p-2 grid grid-cols-2 gap-2 border-b border-emerald-900/30">
+          <div className="p-2 grid grid-cols-2 gap-2 border-b border-slate-800">
                 <button 
                     onClick={onOpenStickyNotes}
-                    className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                    className="flex items-center justify-center gap-2 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <FileJson size={12} />
-                    Inspect Notes DB
+                    Inspect Notes
                 </button>
                 <button 
                     onClick={onOpenLayoutDB}
-                    className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                    className="flex items-center justify-center gap-2 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <Layout size={12} />
-                    Inspect Layout DB
+                    Inspect Layouts
                 </button>
           </div>
           
@@ -282,8 +335,9 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
             </button>
             
             <button 
-                onClick={generateFeedbackReport}
+                onClick={generateReport}
                 className="flex items-center justify-center gap-1 bg-emerald-900/20 hover:bg-emerald-800/40 text-emerald-400 py-2 px-2 rounded border border-emerald-800/50 transition-colors uppercase text-[10px] font-bold tracking-wider"
+                title="Copy full incident report to clipboard"
             >
                 <ClipboardList size={12} />
                 Report
@@ -313,23 +367,14 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
             )}
         </div>
         
-        {/* Nuclear Options */}
-        <div className="px-2 pb-2 grid grid-cols-2 gap-2">
+        {/* Nuclear Option */}
+        <div className="px-2 pb-2">
              <button 
                 onClick={handleNuclearClear}
-                className="flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/30 text-red-500 py-1.5 px-2 rounded border border-red-900/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
-                title="Clear current chart drawings"
+                className="w-full flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/30 text-red-500 py-1.5 px-2 rounded border border-red-900/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
             >
                 <ShieldAlert size={12} />
-                NUCLEAR CLEAR
-            </button>
-            <button 
-                onClick={handleFactoryReset}
-                className="flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 py-1.5 px-2 rounded border border-red-600/40 transition-colors uppercase text-[10px] font-bold tracking-wider animate-pulse"
-                title="Wipe entire database and restart"
-            >
-                <RefreshCw size={12} />
-                FACTORY RESET
+                NUCLEAR CLEAR (Active Chart)
             </button>
         </div>
       </div>

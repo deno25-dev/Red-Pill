@@ -1,12 +1,14 @@
+
 import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { debugLog } from '../utils/logger';
+import { report } from '../utils/logger';
 
 interface Props {
   children?: ReactNode;
   fallback?: ReactNode;
   errorMessage?: string; // Optional custom message
   onErrorCaptured?: (error: string) => void;
+  componentName?: string; // Optional context name
 }
 
 interface State {
@@ -24,18 +26,17 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: Error): State {
-    // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log the error to the dev diagnostics
-    debugLog('UI', 'Global Error Boundary caught an exception', { 
+    // Report to Telemetry Hub
+    report('ErrorBoundary', `Crash detected in ${this.props.componentName || 'Unknown Component'}`, { 
         message: error.message, 
-        stack: errorInfo.componentStack 
-    });
+        stack: errorInfo.componentStack,
+        componentName: this.props.componentName
+    }, 'error');
     
-    // Notify parent if listener exists (for Debug Panel)
     if (this.props.onErrorCaptured) {
         this.props.onErrorCaptured(error.message);
     }
@@ -43,9 +44,8 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
-  // Use arrow function to avoid binding issues and ensure 'this' context
   handleRetry = () => {
-    debugLog('UI', 'User attempted Error Boundary retry');
+    report('ErrorBoundary', 'User attempted manual retry', { componentName: this.props.componentName }, 'info');
     this.setState({ hasError: false, error: null });
   }
 
@@ -66,7 +66,6 @@ export class GlobalErrorBoundary extends React.Component<Props, State> {
         );
       }
 
-      // Default Professional UI
       return (
         <div className="w-full h-full min-h-[120px] flex flex-col items-center justify-center p-6 bg-[#1e293b] border border-[#334155] rounded-lg shadow-sm">
           <div className="bg-red-500/10 p-3 rounded-full mb-3">

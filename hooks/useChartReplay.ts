@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { ISeriesApi, IChartApi, Time, SeriesType, LogicalRange } from 'lightweight-charts';
 import { OHLCV } from '../types';
+import { useReport } from './useReport'; // Import telemetry hook
 
 let renderCount = 0;
 
@@ -29,6 +30,7 @@ export const useChartReplay = ({
   liveTimeRef
 }: UseChartReplayProps) => {
   renderCount++;
+  const { log, warn, info } = useReport('ReplayEngine'); // Pulse Logger
   
   const requestRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -36,19 +38,12 @@ export const useChartReplay = ({
   const replayBufferRef = useRef<OHLCV[]>([]);
   const bufferCursorRef = useRef<number>(0);
   
-  // Track current state in refs to sync on pause (State Deferral)
   const currentIndexRef = useRef<number>(startIndex);
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
   
-  // THE PROP MIRROR: Tracks the last index explicitly synced to the parent
-  // This prevents the engine from treating its own updates (echoed back via props) as manual seeks.
   const lastEngineSyncedIndex = useRef(startIndex);
-
-  // Internal refs for props to break dependency chains (The Ref-Controller Pattern)
   const fullDataRef = useRef<OHLCV[] | undefined>(fullData);
-  
-  // Stable Callback Refs
   const onSyncStateRef = useRef(onSyncState);
   const onCompleteRef = useRef(onComplete);
   const lastSyncTimeRef = useRef<number>(0);
@@ -57,15 +52,12 @@ export const useChartReplay = ({
   useEffect(() => { onSyncStateRef.current = onSyncState; }, [onSyncState]);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
-  // 1. Monkey-Patch TimeScale (Library Lock)
+  // Monkey-Patch TimeScale
   useEffect(() => {
       if (!chartRef.current) return;
       const timeScale = chartRef.current.timeScale();
-      
       if ((timeScale as any)._isPatched) return;
-
       const originalSetVisible = timeScale.setVisibleLogicalRange.bind(timeScale);
-
       timeScale.setVisibleLogicalRange = (range: LogicalRange) => {
           return originalSetVisible(range);
       };
@@ -75,6 +67,7 @@ export const useChartReplay = ({
   // NUCLEAR RESET LISTENER
   useEffect(() => {
     const handleGlobalReset = () => {
+        warn('Global Reset Triggered', { source: 'GLOBAL_ASSET_CHANGE' });
         if (requestRef.current) cancelAnimationFrame(requestRef.current);
         requestRef.current = null;
         replayBufferRef.current = [];
@@ -89,13 +82,11 @@ export const useChartReplay = ({
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
-    // Reset Engine State
     bufferCursorRef.current = 0;
     lastFrameTimeRef.current = 0;
     currentIndexRef.current = startIndex; 
-    lastEngineSyncedIndex.current = startIndex; // Sync internal ref
+    lastEngineSyncedIndex.current = startIndex; 
 
-    // Build Buffer (Slice from startIndex + 1 to end)
     const bufferStart = startIndex + 1;
     if (bufferStart < fullData.length) {
         replayBufferRef.current = fullData.slice(bufferStart);
@@ -103,34 +94,35 @@ export const useChartReplay = ({
         replayBufferRef.current = [];
     }
 
-    // Init Values
     if (fullData[startIndex]) {
         currentTimeRef.current = fullData[startIndex].time;
         currentPriceRef.current = fullData[startIndex].close;
         if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
     }
 
-    console.log('[Replay] Engine Initialized for new data source.');
+    info('Engine Initialized', { 
+        dataLength: fullData.length, 
+        startIndex, 
+        bufferSize: replayBufferRef.current.length 
+    });
 
-  }, [fullData]); // STRICT DEPENDENCY: Only FullData.
+  }, [fullData]); 
 
   // --- LOGIC 2: SEEKING (RECUT) ---
   useEffect(() => {
       if (!fullData || fullData.length === 0) return;
 
-      // PROP MIRROR CHECK
-      // If the prop coming from App.tsx matches the last thing the engine explicitly synced...
-      // STOP the execution. Do not recut. Do not snap.
       if (startIndex === lastEngineSyncedIndex.current) {
           return; 
       }
       
-      console.log(`[Replay] REAL Manual Seek confirmed (Prop: ${startIndex}, Engine: ${lastEngineSyncedIndex.current})`);
+      warn('Manual Seek Detected', { 
+          from: lastEngineSyncedIndex.current, 
+          to: startIndex 
+      });
       
-      // Update Mirror to acknowledge the manual seek
       lastEngineSyncedIndex.current = startIndex; 
 
-      // Apply Seek
       currentIndexRef.current = startIndex;
       bufferCursorRef.current = 0;
       lastFrameTimeRef.current = 0;
@@ -154,10 +146,8 @@ export const useChartReplay = ({
     const currentSeries = seriesRef.current;
     const currentChart = chartRef.current;
     
-    // Safety Guards
     if (!currentSeries || !currentChart || replayBufferRef.current.length === 0) return;
     
-    // Time Delta Calculation
     if (lastFrameTimeRef.current === 0) {
       lastFrameTimeRef.current = time;
       requestRef.current = requestAnimationFrame(animate);
@@ -174,7 +164,6 @@ export const useChartReplay = ({
 
     lastFrameTimeRef.current = time;
 
-    // Advance Cursor
     const advanceAmount = deltaSeconds * speed;
     const prevCursor = bufferCursorRef.current;
     const nextCursor = prevCursor + advanceAmount;
@@ -183,16 +172,13 @@ export const useChartReplay = ({
     const floorPrev = Math.floor(prevCursor);
     const floorNext = Math.floor(nextCursor);
 
-    // Batch Update: Apply all completed candles in this frame
     if (floorNext > floorPrev) {
         const timeScale = currentChart.timeScale();
         const lockedRange = timeScale.getVisibleLogicalRange();
 
-        // Iterate through all candles passed in this frame
         for (let i = floorPrev; i < floorNext; i++) {
             if (i < replayBufferRef.current.length) {
                 const candle = replayBufferRef.current[i];
-                
                 if (candle) {
                     try {
                         currentSeries.update({
@@ -212,24 +198,19 @@ export const useChartReplay = ({
             }
         }
 
-        // Restore Range
         if (lockedRange) {
             timeScale.setVisibleLogicalRange(lockedRange);
         }
     }
 
-    // Process Tick Interpolation (for current forming candle)
     if (floorNext < replayBufferRef.current.length) {
         const targetCandle = replayBufferRef.current[floorNext];
-        
         if (targetCandle) {
             const progress = nextCursor - floorNext;
-            
             let simulatedPrice = targetCandle.open;
             let simulatedHigh = targetCandle.open;
             let simulatedLow = targetCandle.open;
 
-            // Simple Tick Simulation Pattern
             if (progress < 0.33) {
                 const p = progress / 0.33;
                 simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
@@ -247,7 +228,6 @@ export const useChartReplay = ({
                 simulatedLow = targetCandle.low;
             }
 
-            // Apply Tick
             try {
                 currentSeries.update({
                     time: (targetCandle.time / 1000) as Time,
@@ -256,22 +236,19 @@ export const useChartReplay = ({
                     low: simulatedLow,
                     close: simulatedPrice
                 } as any);
-                
                 currentPriceRef.current = simulatedPrice;
                 if (liveTimeRef) liveTimeRef.current = targetCandle.time;
             } catch (e) {}
         }
     }
 
-    // Check for Completion
     if (floorNext >= replayBufferRef.current.length) {
+        info('Playback Complete', { totalCandles: replayBufferRef.current.length });
         if (onCompleteRef.current) onCompleteRef.current();
         if (onSyncStateRef.current) {
              const lastIdx = (fullDataRef.current?.length || 0) - 1;
              if (lastIdx >= 0) {
                  const finalC = fullDataRef.current![lastIdx];
-                 
-                 // Mirror the final state update to prevent loop at end
                  lastEngineSyncedIndex.current = lastIdx;
                  onSyncStateRef.current(lastIdx, finalC.time, finalC.close);
              }
@@ -279,10 +256,8 @@ export const useChartReplay = ({
         return; 
     }
 
-    // Throttled UI Sync
     const now = performance.now();
     if (now - lastSyncTimeRef.current > 200 && onSyncStateRef.current) {
-        // Update the MIRROR right before sending to parent
         lastEngineSyncedIndex.current = currentIndexRef.current;
         onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
         lastSyncTimeRef.current = now;
@@ -294,9 +269,11 @@ export const useChartReplay = ({
   // --- PLAY/PAUSE CONTROLLER ---
   useEffect(() => {
     if (isPlaying) {
+      log('Playback Started', { speed });
       lastFrameTimeRef.current = 0;
       requestRef.current = requestAnimationFrame(animate);
     } else {
+      log('Playback Paused', { atIndex: currentIndexRef.current });
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
       
       const diff = Math.abs(startIndex - currentIndexRef.current);
