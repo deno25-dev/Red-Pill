@@ -41,6 +41,10 @@ export const useChartReplay = ({
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
   
+  // THE PROP MIRROR: Tracks the last index explicitly synced to the parent
+  // This prevents the engine from treating its own updates (echoed back via props) as manual seeks.
+  const lastEngineSyncedIndex = useRef(startIndex);
+
   // Internal refs for props to break dependency chains (The Ref-Controller Pattern)
   const fullDataRef = useRef<OHLCV[] | undefined>(fullData);
   
@@ -54,7 +58,6 @@ export const useChartReplay = ({
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   // 1. Monkey-Patch TimeScale (Library Lock)
-  // This prevents the library from overriding our manual scroll positions during high-frequency updates.
   useEffect(() => {
       if (!chartRef.current) return;
       const timeScale = chartRef.current.timeScale();
@@ -83,15 +86,14 @@ export const useChartReplay = ({
   }, []);
 
   // --- LOGIC 1: INITIALIZATION ---
-  // Runs ONLY when Data Reference Changes (New File / Timeframe)
-  // REMOVED startIndex from dependency array to prevent playback loop resets
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
     // Reset Engine State
     bufferCursorRef.current = 0;
     lastFrameTimeRef.current = 0;
-    currentIndexRef.current = startIndex; // Use current prop for init
+    currentIndexRef.current = startIndex; 
+    lastEngineSyncedIndex.current = startIndex; // Sync internal ref
 
     // Build Buffer (Slice from startIndex + 1 to end)
     const bufferStart = startIndex + 1;
@@ -113,38 +115,37 @@ export const useChartReplay = ({
   }, [fullData]); // STRICT DEPENDENCY: Only FullData.
 
   // --- LOGIC 2: SEEKING (RECUT) ---
-  // Runs when startIndex prop changes. 
-  // We calculate the deviation to determine if it's a Manual Seek or just a Playback Update.
   useEffect(() => {
       if (!fullData || fullData.length === 0) return;
 
-      const internalIndex = currentIndexRef.current;
-      const targetIndex = startIndex;
-      const diff = Math.abs(targetIndex - internalIndex);
+      // PROP MIRROR CHECK
+      // If the prop coming from App.tsx matches the last thing the engine explicitly synced...
+      // STOP the execution. Do not recut. Do not snap.
+      if (startIndex === lastEngineSyncedIndex.current) {
+          return; 
+      }
       
-      // Deviation Threshold: 2 frames.
-      // If deviation is small, it's likely the parent component updating due to our own onSyncState loop.
-      // If large, it's a user interaction (Click on chart / Toolbar reset).
-      if (diff > 2) {
-          console.log(`[Replay] Manual Seek detected (Diff: ${diff}). Recutting buffer.`);
-          
-          // Apply Seek
-          currentIndexRef.current = targetIndex;
-          bufferCursorRef.current = 0;
-          lastFrameTimeRef.current = 0;
+      console.log(`[Replay] REAL Manual Seek confirmed (Prop: ${startIndex}, Engine: ${lastEngineSyncedIndex.current})`);
+      
+      // Update Mirror to acknowledge the manual seek
+      lastEngineSyncedIndex.current = startIndex; 
 
-          const bufferStart = targetIndex + 1;
-          if (bufferStart < fullData.length) {
-              replayBufferRef.current = fullData.slice(bufferStart);
-          } else {
-              replayBufferRef.current = [];
-          }
+      // Apply Seek
+      currentIndexRef.current = startIndex;
+      bufferCursorRef.current = 0;
+      lastFrameTimeRef.current = 0;
 
-          if (fullData[targetIndex]) {
-              currentTimeRef.current = fullData[targetIndex].time;
-              currentPriceRef.current = fullData[targetIndex].close;
-              if (liveTimeRef) liveTimeRef.current = fullData[targetIndex].time;
-          }
+      const bufferStart = startIndex + 1;
+      if (bufferStart < fullData.length) {
+          replayBufferRef.current = fullData.slice(bufferStart);
+      } else {
+          replayBufferRef.current = [];
+      }
+
+      if (fullData[startIndex]) {
+          currentTimeRef.current = fullData[startIndex].time;
+          currentPriceRef.current = fullData[startIndex].close;
+          if (liveTimeRef) liveTimeRef.current = fullData[startIndex].time;
       }
   }, [startIndex, fullData]);
 
@@ -165,7 +166,6 @@ export const useChartReplay = ({
 
     const deltaSeconds = (time - lastFrameTimeRef.current) / 1000;
     
-    // Sanity check for suspended tabs or massive lag spikes
     if (isNaN(deltaSeconds) || !isFinite(deltaSeconds) || deltaSeconds > 1.0) {
         lastFrameTimeRef.current = time;
         requestRef.current = requestAnimationFrame(animate);
@@ -185,7 +185,6 @@ export const useChartReplay = ({
 
     // Batch Update: Apply all completed candles in this frame
     if (floorNext > floorPrev) {
-        // Range Locking: Prevent chart auto-scroll/zoom jitter
         const timeScale = currentChart.timeScale();
         const lockedRange = timeScale.getVisibleLogicalRange();
 
@@ -203,9 +202,7 @@ export const useChartReplay = ({
                             low: candle.low,
                             close: candle.close
                         } as any);
-                    } catch (e) {
-                        // Suppress update errors (e.g. older data point)
-                    }
+                    } catch (e) {}
                     
                     currentIndexRef.current = currentIndexRef.current + 1;
                     currentTimeRef.current = candle.time;
@@ -269,27 +266,30 @@ export const useChartReplay = ({
     // Check for Completion
     if (floorNext >= replayBufferRef.current.length) {
         if (onCompleteRef.current) onCompleteRef.current();
-        // Sync final state immediately
         if (onSyncStateRef.current) {
              const lastIdx = (fullDataRef.current?.length || 0) - 1;
              if (lastIdx >= 0) {
                  const finalC = fullDataRef.current![lastIdx];
+                 
+                 // Mirror the final state update to prevent loop at end
+                 lastEngineSyncedIndex.current = lastIdx;
                  onSyncStateRef.current(lastIdx, finalC.time, finalC.close);
              }
         }
-        return; // Stop animation loop
+        return; 
     }
 
-    // Throttled UI Sync (The Passive Playhead)
-    // Only update React state every 200ms to keep UI responsive
+    // Throttled UI Sync
     const now = performance.now();
     if (now - lastSyncTimeRef.current > 200 && onSyncStateRef.current) {
+        // Update the MIRROR right before sending to parent
+        lastEngineSyncedIndex.current = currentIndexRef.current;
         onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
         lastSyncTimeRef.current = now;
     }
 
     requestRef.current = requestAnimationFrame(animate);
-  }, [speed, seriesRef, chartRef]); // Removed startIndex from dependencies
+  }, [speed, seriesRef, chartRef]); 
 
   // --- PLAY/PAUSE CONTROLLER ---
   useEffect(() => {
@@ -299,15 +299,14 @@ export const useChartReplay = ({
     } else {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
       
-      // Force one final sync on pause to ensure exact UI state
-      // (Unless we are in the middle of a seek)
       const diff = Math.abs(startIndex - currentIndexRef.current);
       if (diff < 2 && onSyncStateRef.current) {
+          lastEngineSyncedIndex.current = currentIndexRef.current;
           onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
       }
     }
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, animate]); // Removed startIndex
+  }, [isPlaying, animate]);
 };
