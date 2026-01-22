@@ -158,7 +158,22 @@ export const useChartReplay = ({
       return;
     }
 
+    // MANDATE 3.0 FIX: Replay Math Guard
+    // Protect against non-number types polluting the loop
+    if (typeof time !== 'number' || typeof lastFrameTimeRef.current !== 'number') {
+        console.warn("[Replay] Type Pollution Detected: Skipping frame to prevent crash.");
+        requestRef.current = requestAnimationFrame(animate);
+        return;
+    }
+
     const deltaSeconds = (time - lastFrameTimeRef.current) / 1000;
+    
+    if (isNaN(deltaSeconds)) {
+        lastFrameTimeRef.current = time;
+        requestRef.current = requestAnimationFrame(animate);
+        return;
+    }
+
     lastFrameTimeRef.current = time;
 
     const advanceAmount = deltaSeconds * speed;
@@ -174,14 +189,22 @@ export const useChartReplay = ({
         for (let i = floorPrev; i < floorNext; i++) {
             if (i < replayBufferRef.current.length) {
                 const candle = replayBufferRef.current[i];
-                // Direct Manipulation: series.update() without triggering React state
-                currentSeries.update({
-                    time: (candle.time / 1000) as Time,
-                    open: candle.open,
-                    high: candle.high,
-                    low: candle.low,
-                    close: candle.close
-                } as any);
+                if (!candle || typeof candle.time !== 'number') continue; // Safety check
+
+                try {
+                    // Direct Manipulation: series.update() without triggering React state
+                    currentSeries.update({
+                        time: (candle.time / 1000) as Time,
+                        open: candle.open,
+                        high: candle.high,
+                        low: candle.low,
+                        close: candle.close
+                    } as any);
+                } catch (e) {
+                    // Suppress "Cannot update oldest data" error which can happen during race conditions
+                    // or rapid seeking while playing.
+                    // console.warn("Replay update skipped:", e);
+                }
                 
                 // Update refs (read by the buffered sync interval)
                 currentIndexRef.current = startIndex + 1 + i;
@@ -195,40 +218,47 @@ export const useChartReplay = ({
     // Interpolate current forming candle (Tick simulation)
     if (floorNext < replayBufferRef.current.length) {
         const targetCandle = replayBufferRef.current[floorNext];
-        const progress = nextCursor - floorNext;
         
-        let simulatedPrice = targetCandle.open;
-        let simulatedHigh = targetCandle.open;
-        let simulatedLow = targetCandle.open;
+        if (targetCandle && typeof targetCandle.time === 'number') {
+            const progress = nextCursor - floorNext;
+            
+            let simulatedPrice = targetCandle.open;
+            let simulatedHigh = targetCandle.open;
+            let simulatedLow = targetCandle.open;
 
-        if (progress < 0.33) {
-            const p = progress / 0.33;
-            simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
-            simulatedHigh = Math.max(targetCandle.open, simulatedPrice);
-            simulatedLow = Math.min(targetCandle.open, simulatedPrice);
-        } else if (progress < 0.66) {
-            const p = (progress - 0.33) / 0.33;
-            simulatedPrice = targetCandle.high - (targetCandle.high - targetCandle.low) * p;
-            simulatedHigh = targetCandle.high;
-            simulatedLow = Math.min(targetCandle.low, simulatedPrice);
-        } else {
-            const p = (progress - 0.66) / 0.34;
-            simulatedPrice = targetCandle.low + (targetCandle.close - targetCandle.low) * p;
-            simulatedHigh = targetCandle.high;
-            simulatedLow = targetCandle.low;
+            if (progress < 0.33) {
+                const p = progress / 0.33;
+                simulatedPrice = targetCandle.open + (targetCandle.high - targetCandle.open) * p;
+                simulatedHigh = Math.max(targetCandle.open, simulatedPrice);
+                simulatedLow = Math.min(targetCandle.open, simulatedPrice);
+            } else if (progress < 0.66) {
+                const p = (progress - 0.33) / 0.33;
+                simulatedPrice = targetCandle.high - (targetCandle.high - targetCandle.low) * p;
+                simulatedHigh = targetCandle.high;
+                simulatedLow = Math.min(targetCandle.low, simulatedPrice);
+            } else {
+                const p = (progress - 0.66) / 0.34;
+                simulatedPrice = targetCandle.low + (targetCandle.close - targetCandle.low) * p;
+                simulatedHigh = targetCandle.high;
+                simulatedLow = targetCandle.low;
+            }
+
+            try {
+                currentSeries.update({
+                    time: (targetCandle.time / 1000) as Time,
+                    open: targetCandle.open,
+                    high: simulatedHigh,
+                    low: simulatedLow,
+                    close: simulatedPrice
+                } as any);
+            } catch (e) {
+                // Suppress updates if timestamp conflict
+            }
+            
+            // Update refs for interpolation
+            currentPriceRef.current = simulatedPrice;
+            if (liveTimeRef) liveTimeRef.current = targetCandle.time;
         }
-
-        currentSeries.update({
-            time: (targetCandle.time / 1000) as Time,
-            open: targetCandle.open,
-            high: simulatedHigh,
-            low: simulatedLow,
-            close: simulatedPrice
-        } as any);
-        
-        // Update refs for interpolation
-        currentPriceRef.current = simulatedPrice;
-        if (liveTimeRef) liveTimeRef.current = targetCandle.time;
     }
 
     if (floorNext >= replayBufferRef.current.length) {

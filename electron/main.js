@@ -9,42 +9,42 @@ let watcher = null;
 // --- INTERNAL LIBRARY STORAGE (BOOT CACHE) ---
 let internalLibraryStorage = [];
 
-// --- HELPER: ROOT PATH ---
-const getRootPath = () => {
-    return app.isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '..');
-};
+// --- ABSOLUTE PATH SOURCE OF TRUTH (Mandate 0.35.3A) ---
+const getStorageRoot = () => path.join(app.getPath('userData'), 'RedPill_Storage');
+const getAssetsDir = () => path.join(getStorageRoot(), 'Assets');
+const getMetadataDir = () => path.join(getStorageRoot(), 'Database');
 
 // --- STORAGE INITIALIZATION (Mandate 0.31) ---
 const initializeDatabase = () => {
-    const rootPath = getRootPath();
-    const dbPath = path.join(rootPath, 'Database');
-    // Mandate 0.33 & 2.11.4: Added 'Layouts' to subfolders
-    const subfolders = ['ObjectTree', 'Drawings', 'Workspaces', 'Settings', 'Trades', 'Orders', 'StickyNotes', 'Layouts'];
+    const dbRoot = getStorageRoot();
+    const assetsDir = getAssetsDir();
+    const metadataDir = getMetadataDir();
+    
+    // Subfolders within Metadata
+    // 'Workspaces' is deprecated and removed.
+    const subfolders = ['ObjectTree', 'Drawings', 'Settings', 'Trades', 'Orders', 'StickyNotes', 'Layouts'];
 
     try {
-        if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
+        if (!fs.existsSync(dbRoot)) fs.mkdirSync(dbRoot, { recursive: true });
+        if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+        if (!fs.existsSync(metadataDir)) fs.mkdirSync(metadataDir, { recursive: true });
 
         subfolders.forEach(sub => {
-            const subPath = path.join(dbPath, sub);
+            const subPath = path.join(metadataDir, sub);
             if (!fs.existsSync(subPath)) fs.mkdirSync(subPath, { recursive: true });
         });
-        console.log('[Storage] Database structure initialized at:', dbPath);
+        
+        console.log('[Storage] System initialized at:', dbRoot);
+        console.log('[Storage] Assets Directory:', assetsDir);
+        console.log('[Storage] Metadata Directory:', metadataDir);
     } catch (e) {
         console.error('[Storage] Failed to initialize database structure:', e);
     }
 };
 
 const createWindow = () => {
-  // --- DIAGNOSTIC PATH CHECK ---
-  // Using __dirname assumes preload.js is in the same directory as main.js
   const preloadPath = path.join(__dirname, 'preload.js');
   
-  console.log('\n\n=================================================');
-  console.log('DIAGNOSTIC: PRELOAD SCRIPT LOCATION CHECK');
-  console.log('Calculated Path:', preloadPath);
-  console.log('File Exists on Disk:', fs.existsSync(preloadPath));
-  console.log('=================================================\n\n');
-
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -63,19 +63,17 @@ const createWindow = () => {
       contextIsolation: true,
       sandbox: false,
       webSecurity: false,
-      preload: preloadPath,
-      devTools: true // Explicitly enable F12/DevTools
+      preload: preloadPath 
     },
     autoHideMenuBar: true
   });
 
-  // EMERGENCY: FORCE DEVTOOLS OPEN
-  // This ensures diagnostics are available in local builds immediately
-  mainWindow.webContents.on('did-frame-finish-load', () => {
-      mainWindow.webContents.openDevTools();
-  });
-
   const isDev = !app.isPackaged;
+
+  // Force DevTools in dev mode (Mandate 4 System Recovery)
+  if (isDev) {
+      mainWindow.webContents.openDevTools();
+  }
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -90,96 +88,75 @@ const validatePath = (filePath) => {
   return true;
 };
 
-// --- PATH RESOLVER & FOLDER DISCOVERY ---
-const resolveDatabasePath = () => {
-    let assetsPath;
-
-    if (app.isPackaged) {
-        // For packaged app, 'Assets' folder is next to the executable
-        assetsPath = path.join(path.dirname(process.execPath), 'Assets');
-    } else {
-        // In development, use the project root's 'Assets' folder
-        assetsPath = path.join(__dirname, '..', 'Assets');
-    }
-    
-    // Create the directory if it doesn't exist
-    if (!fs.existsSync(assetsPath)) {
-        try {
-            fs.mkdirSync(assetsPath, { recursive: true });
-        } catch (e) {
-            console.error("Could not create Assets folder:", e);
-        }
-    }
-    return assetsPath;
-};
-
-// --- BOOT SCAN FUNCTION ---
+// --- BOOT SCAN FUNCTION (Mandate 2 Data Engine) ---
 const runBootScan = () => {
-    const dbPath = resolveDatabasePath();
+    const assetsPath = getAssetsDir();
     const results = [];
-    // MANDATE 3.1: BLACKLIST IMPLEMENTATION
-    // Prevent scanning system folders or metadata folders to avoid lag and ghost files
-    const BLACKLIST = ['StickyNotes', 'Layouts', 'Settings', 'Trades', 'Orders', 'Drawings', 'ObjectTree', 'Workspaces', 'node_modules', '.git'];
+    console.log(`[Scanner] Starting strict scan in: ${assetsPath}`);
 
-    console.log(`[DIAGNOSTIC] Starting scan in root: ${dbPath}`);
+    // Mandate: Blacklist system folders just in case they appear in Assets (unlikely but safe)
+    const BLACKLIST = ['Database', 'Metadata', 'Settings', 'StickyNotes'];
 
     const scanDir = (dir) => {
         try {
             const list = fs.readdirSync(dir);
-            console.log(`[DIAGNOSTIC] Scanning directory: ${dir}`);
             list.forEach((file) => {
                 const fullPath = path.join(dir, file);
                 try {
                     const stat = fs.statSync(fullPath);
                     if (stat && stat.isDirectory()) {
-                        // Blacklist Check
-                        if (!BLACKLIST.includes(file)) {
-                            console.log(`[DIAGNOSTIC] -> Found directory, recursing into: ${file}`);
-                            scanDir(fullPath);
-                        } else {
-                            console.log(`[DIAGNOSTIC] -> Skipping blacklisted directory: ${file}`);
+                        if (BLACKLIST.includes(file)) {
+                            console.warn(`[Scanner] Skipping blacklisted directory: ${file}`);
+                            return;
                         }
-                    } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.txt')) {
-                        // STRICT EXTENSION FILTER (No .json allowed here)
-                        console.log(`[DIAGNOSTIC] -> Found file: ${file}`);
-                        let folderName = path.relative(dbPath, dir);
-                        console.log(`[DIAGNOSTIC]    - Relative path for grouping: '${folderName}'`);
-
-                        const resultObj = {
-                            name: file,
-                            path: fullPath,
-                            kind: 'file',
-                            folder: folderName || '.'
-                        };
-
-                        results.push(resultObj);
+                        scanDir(fullPath);
+                    } else {
+                        // Mandate: File Extension Lock (Strictly .csv)
+                        if (file.toLowerCase().endsWith('.csv')) {
+                            let folderName = path.relative(assetsPath, dir);
+                            
+                            const resultObj = {
+                                name: file,
+                                path: fullPath,
+                                kind: 'file',
+                                folder: folderName || '.'
+                            };
+                            results.push(resultObj);
+                        } else {
+                            // Ignored (json, txt, etc)
+                        }
                     }
                 } catch (e) { 
-                    console.error(`[DIAGNOSTIC] Error processing path: ${fullPath}`, e);
+                    console.error(`[Scanner] Error processing path: ${fullPath}`, e);
                 }
             });
         } catch (e) { 
-            console.error(`[DIAGNOSTIC] Error reading directory: ${dir}`, e);
+            console.error(`[Scanner] Error reading directory: ${dir}`, e);
         }
     };
 
-    if (fs.existsSync(dbPath)) {
-        scanDir(dbPath);
+    if (fs.existsSync(assetsPath)) {
+        scanDir(assetsPath);
     }
     
-    console.log(`[DIAGNOSTIC] Scan complete. Found ${results.length} files.`);
+    // Purge cache before setting new results (System Recovery)
+    internalLibraryStorage = [];
     internalLibraryStorage = results;
+    console.log(`[Scanner] Scan complete. Indexed ${results.length} market data files.`);
     return internalLibraryStorage;
 };
 
 // --- IPC HANDLERS ---
 
+ipcMain.handle('get-storage-path', () => {
+    return getStorageRoot();
+});
+
 // --- System Shell Handlers ---
 ipcMain.handle('shell:open-folder', async (event, subpath) => {
     try {
-        const root = getRootPath();
+        const root = getStorageRoot();
         const fullPath = subpath ? path.join(root, subpath) : root;
-        // shell.openPath returns error string if failed, or empty string if success
         const error = await shell.openPath(fullPath);
         if (error) {
             console.error('Failed to open path:', fullPath, error);
@@ -187,152 +164,100 @@ ipcMain.handle('shell:open-folder', async (event, subpath) => {
         }
         return { success: true };
     } catch (e) {
-        console.error('Exception opening path:', e);
         return { success: false, error: e.message };
     }
 });
 
-// Diagnostic Handler: Open DB Folder directly (ROBUST VERSION)
-ipcMain.handle('system:open-db-folder', async () => {
-    try {
-        const dbPath = path.join(getRootPath(), 'Database');
-        if (!fs.existsSync(dbPath)) {
-            fs.mkdirSync(dbPath, { recursive: true });
-        }
-        // shell.openPath returns error string if failed, or empty string if success
-        const error = await shell.openPath(dbPath);
-        if (error) {
-            console.error('Failed to open DB folder:', error);
-            // Return error but ALSO the path so UI can show it
-            return { success: false, error, path: dbPath };
-        }
-        return { success: true, path: dbPath };
-    } catch (e) {
-        const dbPath = path.join(getRootPath(), 'Database');
-        console.error('Exception opening DB folder:', e);
-        return { success: false, error: e.message, path: dbPath };
-    }
-});
-
-// --- Storage Handlers (Mandate 0.31) ---
+// --- Storage Handlers ---
 
 ipcMain.handle('storage:ensure-sticky-notes-dir', async () => {
     try {
-        const root = getRootPath();
-        const dbPath = path.join(root, 'Database');
-        if (!fs.existsSync(dbPath)) fs.mkdirSync(dbPath, { recursive: true });
-        
-        const stickyPath = path.join(dbPath, 'StickyNotes');
+        const stickyPath = path.join(getMetadataDir(), 'StickyNotes');
         if (!fs.existsSync(stickyPath)) fs.mkdirSync(stickyPath, { recursive: true });
-        
+        console.log('[Storage] Accessing Metadata at:', stickyPath);
         return { success: true, path: stickyPath };
     } catch (e) {
-        console.error("Failed to ensure sticky notes directory:", e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:save-object-tree', async (event, data) => {
     try {
-        const root = getRootPath();
-        const dir = path.resolve(path.join(root, 'Database', 'ObjectTree'));
+        const dir = path.join(getMetadataDir(), 'ObjectTree');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
         const p = path.join(dir, 'tree_state.json');
-        console.log(`[PERSISTENCE] Saving Object Tree to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
-        console.error("Failed to save Object Tree:", e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:save-drawing', async (event, symbol, data) => {
     try {
-        // MANDATE 0.30: Backend Safety Interlock
         if (symbol.toLowerCase().endsWith('.csv') || symbol.toLowerCase().endsWith('.txt')) {
             throw new Error("Safety Interlock: Cannot use source extension as persistence key");
         }
-
-        const root = getRootPath();
-        const dir = path.resolve(path.join(root, 'Database', 'Drawings'));
+        const dir = path.join(getMetadataDir(), 'Drawings');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
         const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
         const p = path.join(dir, `${safeSymbol}.json`);
-        
-        console.log(`[PERSISTENCE] Saving Drawing for ${symbol} to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
-        console.error("Failed to save Drawing:", e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:load-drawing', async (event, symbol) => {
     try {
-        const root = getRootPath();
         const safeSymbol = symbol.replace(/[^a-z0-9_\-\.]/gi, '_');
-        const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
-        
+        const p = path.join(getMetadataDir(), 'Drawings', `${safeSymbol}.json`);
         if (fs.existsSync(p)) {
             const data = fs.readFileSync(p, 'utf8');
             return { success: true, data: JSON.parse(data) };
         }
         return { success: true, data: null };
     } catch (e) {
-        console.error("Failed to load Drawing:", e);
         return { success: false, error: e.message };
     }
 });
 
-// --- SETTINGS STORAGE (UI LAYOUT) ---
+// --- SETTINGS STORAGE (UI LAYOUT ACTIVE STATE) ---
 ipcMain.handle('storage:save-settings', async (event, filename, data) => {
     try {
-        const root = getRootPath();
-        const dir = path.resolve(path.join(root, 'Database', 'Settings'));
-        // Atomic Write Guarantee
+        const dir = path.join(getMetadataDir(), 'Settings');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
         const p = path.join(dir, filename);
-        console.log(`[PERSISTENCE] Saving Settings (${filename}) to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
-        console.error(`Failed to save settings (${filename}):`, e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:load-settings', async (event, filename) => {
     try {
-        const root = getRootPath();
-        const p = path.join(root, 'Database', 'Settings', filename);
+        const p = path.join(getMetadataDir(), 'Settings', filename);
         if (fs.existsSync(p)) {
             return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
         }
         return { success: true, data: null };
     } catch (e) {
-        console.error(`Failed to load settings (${filename}):`, e);
         return { success: false, error: e.message };
     }
 });
 
-// --- LAYOUT MANAGER (Mandate 2.11.4) ---
+// --- LAYOUT MANAGER (SNAPSHOTS) ---
 ipcMain.handle('storage:list-layouts', async () => {
     try {
-        const rootPath = getRootPath();
-        // CHANGED: Target Database/Layouts per Mandate 2.11.4
-        const layoutsPath = path.join(rootPath, 'Database', 'Layouts');
-        
+        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
+        const layoutsPath = path.join(getMetadataDir(), 'Layouts');
+        console.log('[Storage] Accessing Metadata at:', layoutsPath);
         if (!fs.existsSync(layoutsPath)) {
-            // Ensure directory exists for future saves
             fs.mkdirSync(layoutsPath, { recursive: true });
             return { success: true, data: [] };
         }
-        
         const files = fs.readdirSync(layoutsPath);
         const data = files
             .filter(f => f.endsWith('.json'))
@@ -342,70 +267,90 @@ ipcMain.handle('storage:list-layouts', async () => {
                 updatedAt: fs.statSync(path.join(layoutsPath, f)).mtimeMs
             }))
             .sort((a, b) => b.updatedAt - a.updatedAt);
-            
         return { success: true, data };
     } catch (e) {
-        console.error('Failed to list layouts:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:save-layout', async (event, filename, data) => {
+    try {
+        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
+        const dir = path.join(getMetadataDir(), 'Layouts');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const p = path.join(dir, filename.endsWith('.json') ? filename : `${filename}.json`);
+        fs.writeFileSync(p, JSON.stringify(data, null, 2));
+        console.log('[Storage] Accessing Metadata at:', p);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('storage:load-layout', async (event, filename) => {
+    try {
+        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
+        const p = path.join(getMetadataDir(), 'Layouts', filename.endsWith('.json') ? filename : `${filename}.json`);
+        console.log('[Storage] Accessing Metadata at:', p);
+        if (fs.existsSync(p)) {
+            return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
+        }
+        return { success: false, error: 'File not found' };
+    } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:restore-layout', async (event, filename) => {
     try {
-        const root = getRootPath();
-        const source = path.join(root, 'Database', 'Layouts', filename);
-        const dest = path.join(root, 'Database', 'Settings', 'ui_layout.json');
-        
+        // FIX 45: Ensure path is 'Layouts', not 'Workspaces'
+        const source = path.join(getMetadataDir(), 'Layouts', filename);
+        const dest = path.join(getMetadataDir(), 'Settings', 'ui_layout.json');
         if (!fs.existsSync(source)) throw new Error("Layout file not found in Database/Layouts");
-        
-        // Copy-and-Overwrite (Atomic-ish)
         fs.copyFileSync(source, dest);
         return { success: true };
     } catch (e) {
-        console.error('Failed to restore layout:', e);
         return { success: false, error: e.message };
     }
 });
 
-// --- STICKY NOTES PERSISTENCE (Mandate 4.4) ---
+// --- STICKY NOTES PERSISTENCE ---
 ipcMain.handle('storage:save-sticky-notes', async (event, notes) => {
     try {
-        const root = getRootPath();
-        const dir = path.resolve(path.join(root, 'Database', 'Workspaces'));
-        // Atomic Write Guarantee
+        // FIX 45: Ensure path is 'StickyNotes', not 'Workspaces'
+        const dir = path.join(getMetadataDir(), 'StickyNotes');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
+        // FIX 45: Ensure filename is 'sticky_notes.json'
         const p = path.join(dir, 'sticky_notes.json');
-        console.log(`[PERSISTENCE] Saving Sticky Notes to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(notes, null, 2));
+        console.log('[Storage] Accessing Metadata at:', p);
         return { success: true };
     } catch (e) {
-        console.error("Failed to save sticky notes:", e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:load-sticky-notes', async (event) => {
     try {
-        const root = getRootPath();
-        const p = path.join(root, 'Database', 'Workspaces', 'sticky_notes.json');
+        // FIX 45: Ensure path is 'StickyNotes', not 'Workspaces'
+        const p = path.join(getMetadataDir(), 'StickyNotes', 'sticky_notes.json');
+        console.log('[Storage] Accessing Metadata at:', p);
         if (fs.existsSync(p)) {
             return { success: true, data: JSON.parse(fs.readFileSync(p, 'utf8')) };
         }
         return { success: true, data: [] };
     } catch (e) {
-        console.error("Failed to load sticky notes:", e);
         return { success: false, error: e.message };
     }
 });
 
-// --- STICKY NOTES MANAGER (Mandate 4.4.3) ---
+// --- STICKY NOTES MANAGER ---
 ipcMain.handle('storage:list-sticky-notes-directory', async () => {
     try {
-        const root = getRootPath();
-        const dir = path.join(root, 'Database', 'StickyNotes');
+        // FIX 45: Ensure path is 'StickyNotes'
+        const dir = path.join(getMetadataDir(), 'StickyNotes');
+        console.log('[Storage] Accessing Metadata at:', dir);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
         const files = fs.readdirSync(dir);
         const data = files
             .filter(f => f.endsWith('.json'))
@@ -419,59 +364,49 @@ ipcMain.handle('storage:list-sticky-notes-directory', async () => {
                 };
             })
             .sort((a, b) => b.updatedAt - a.updatedAt);
-            
         return { success: true, data };
     } catch (e) {
-        console.error("Failed to list sticky notes directory:", e);
         return { success: false, error: e.message };
     }
 });
 
-// --- METADATA MANAGEMENT (Mandate 0.38) ---
+// --- METADATA MANAGEMENT ---
 ipcMain.handle('storage:delete-metadata-file', async (event, category, filename) => {
     try {
-        const root = getRootPath();
-        // Category maps to subfolder: 'layouts' -> 'Layouts', 'notes' -> 'StickyNotes'
         const folderName = category === 'layouts' ? 'Layouts' : (category === 'notes' ? 'StickyNotes' : category);
-        const filePath = path.join(root, 'Database', folderName, filename);
-        
+        const filePath = path.join(getMetadataDir(), folderName, filename);
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
             return { success: true };
         }
         return { success: false, error: 'File not found' };
     } catch (e) {
-        console.error("Failed to delete metadata file:", e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('storage:load-metadata-file', async (event, category, filename) => {
     try {
-        const root = getRootPath();
         const folderName = category === 'layouts' ? 'Layouts' : (category === 'notes' ? 'StickyNotes' : category);
-        const filePath = path.join(root, 'Database', folderName, filename);
-        
+        const filePath = path.join(getMetadataDir(), folderName, filename);
         if (fs.existsSync(filePath)) {
             const data = fs.readFileSync(filePath, 'utf8');
             return { success: true, data: JSON.parse(data) };
         }
         return { success: false, error: 'File not found' };
     } catch (e) {
-        console.error("Failed to load metadata file:", e);
         return { success: false, error: e.message };
     }
 });
 
-// --- Existing Handlers ---
+// --- Existing Handlers (Refitted to Absolute Paths) ---
 
 ipcMain.handle('get-user-data-path', async () => {
     return app.getPath('userData');
 });
 
 ipcMain.handle('get-database-path', async () => {
-    const root = getRootPath();
-    return path.join(root, 'Database');
+    return getMetadataDir();
 });
 
 ipcMain.handle('get-internal-folders', async () => {
@@ -479,12 +414,12 @@ ipcMain.handle('get-internal-folders', async () => {
 });
 
 ipcMain.handle('get-folders', async () => {
-    const dbPath = resolveDatabasePath();
+    const assetsPath = getAssetsDir();
     try {
-        const items = fs.readdirSync(dbPath);
+        const items = fs.readdirSync(assetsPath);
         return items.filter(item => {
             try {
-                return fs.statSync(path.join(dbPath, item)).isDirectory();
+                return fs.statSync(path.join(assetsPath, item)).isDirectory();
             } catch { return false; }
         });
     } catch (e) {
@@ -498,17 +433,21 @@ ipcMain.handle('file:watch-folder', async (event, folderPath) => {
     const getFilesRecursive = (dir) => {
       let res = [];
       const list = fs.readdirSync(dir);
+      const BLACKLIST = ['Database', 'Metadata', 'Settings', 'StickyNotes'];
+      
       list.forEach((file) => {
         const fullPath = path.join(dir, file);
         const stat = fs.statSync(fullPath);
-        if (stat && stat.isDirectory()) res = res.concat(getFilesRecursive(fullPath));
-        else if (file.endsWith('.csv') || file.endsWith('.json')) res.push({ name: file, path: fullPath, kind: 'file' });
+        if (stat && stat.isDirectory()) {
+            if (!BLACKLIST.includes(file)) res = res.concat(getFilesRecursive(fullPath));
+        }
+        else if (file.toLowerCase().endsWith('.csv')) res.push({ name: file, path: fullPath, kind: 'file' });
       });
       return res;
     };
     const initialFiles = getFilesRecursive(folderPath);
     watcher = fs.watch(folderPath, { recursive: true }, (eventType, filename) => {
-      if (filename && (filename.endsWith('.csv') || filename.endsWith('.json'))) {
+      if (filename && filename.toLowerCase().endsWith('.csv')) {
         if (mainWindow) mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
       }
     });
@@ -532,7 +471,7 @@ ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
 
 ipcMain.handle('drawings:get-state', async () => {
     try {
-        const statePath = path.join(resolveDatabasePath(), 'drawings_state.json');
+        const statePath = path.join(getMetadataDir(), 'drawings_state.json');
         if (fs.existsSync(statePath)) return JSON.parse(fs.readFileSync(statePath, 'utf8'));
         return {};
     } catch (e) { return {}; }
@@ -540,24 +479,19 @@ ipcMain.handle('drawings:get-state', async () => {
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
     try {
-        const root = getRootPath();
+        const dir = path.join(getMetadataDir(), 'Drawings');
         const safeSymbol = sourceId.replace(/[^a-z0-9_\-\.]/gi, '_');
-        const p = path.join(root, 'Database', 'Drawings', `${safeSymbol}.json`);
-        
-        if (fs.existsSync(p)) {
-            // "Nuclear" delete: Remove the file entirely
-            fs.unlinkSync(p);
-        }
+        const p = path.join(dir, `${safeSymbol}.json`);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
         return { success: true };
     } catch (e) {
-        console.error("Failed to delete all drawings:", e);
         return { success: false, error: e.message };
     }
 });
 
 const updateDrawingsState = (key, value) => {
     try {
-        const statePath = path.join(resolveDatabasePath(), 'drawings_state.json');
+        const statePath = path.join(getMetadataDir(), 'drawings_state.json');
         let state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : {};
         state[key] = value;
         state.lastUpdated = Date.now();
@@ -569,9 +503,6 @@ ipcMain.on('drawings:hide', (event, arg) => updateDrawingsState('areHidden', arg
 ipcMain.on('drawings:lock', (event, arg) => updateDrawingsState('areLocked', arg));
 ipcMain.on('drawings:delete', (event, arg) => updateDrawingsState('lastDeleteAction', Date.now()));
 
-
-// --- NEWLY IMPLEMENTED HANDLERS ---
-
 ipcMain.handle('dialog:select-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory']
@@ -581,7 +512,7 @@ ipcMain.handle('dialog:select-folder', async () => {
 });
 
 ipcMain.handle('get-default-database-path', () => {
-    return resolveDatabasePath();
+    return getAssetsDir();
 });
 
 ipcMain.handle('file:unwatch-folder', () => {
@@ -601,8 +532,8 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- Master Drawing Store Persistence (LEGACY - Kept for fallback) ---
-const getMasterDrawingsPath = () => path.join(app.getPath('userData'), 'drawings_master.json');
+// --- Master Drawing Store Persistence (LEGACY) ---
+const getMasterDrawingsPath = () => path.join(getMetadataDir(), 'drawings_master.json');
 
 ipcMain.handle('master-drawings:load', async () => {
     try {
@@ -611,9 +542,8 @@ ipcMain.handle('master-drawings:load', async () => {
             const data = fs.readFileSync(dbPath, 'utf8');
             return { success: true, data: JSON.parse(data) };
         }
-        return { success: true, data: null }; // No file is not an error
+        return { success: true, data: null };
     } catch (e) {
-        console.error("Failed to load master drawings:", e);
         return { success: false, error: e.message };
     }
 });
@@ -624,17 +554,12 @@ ipcMain.handle('master-drawings:save', async (event, data) => {
         fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
-        console.error("Failed to save master drawings:", e);
         return { success: false, error: e.message };
     }
 });
 
-
-// --- Trade Persistence (Mandate 0.33) ---
-const getTradesLedgerPath = () => {
-    const rootPath = getRootPath();
-    return path.resolve(path.join(rootPath, 'Database', 'Trades', 'ledger.json'));
-};
+// --- Trade Persistence ---
+const getTradesLedgerPath = () => path.join(getMetadataDir(), 'Trades', 'ledger.json');
 
 const readTradesLedger = () => {
     const dbPath = getTradesLedgerPath();
@@ -652,20 +577,16 @@ const appendTradeToLedger = (trade) => {
     const dbPath = getTradesLedgerPath();
     const dir = path.dirname(dbPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    
     let trades = readTradesLedger();
     trades.push(trade);
-    console.log(`[PERSISTENCE] Appending Trade to: ${dbPath}`);
     fs.writeFileSync(dbPath, JSON.stringify(trades, null, 2));
 };
 
 ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
     try {
         const allTrades = readTradesLedger();
-        // Filter trades for the specific chart context (CSV source)
         return allTrades.filter(t => t.sourceId === sourceId);
     } catch (e) {
-        console.error("Error reading trades:", e);
         return [];
     }
 });
@@ -675,24 +596,18 @@ ipcMain.handle('trades:save', async (event, trade) => {
         appendTradeToLedger(trade);
         return { success: true };
     } catch (e) {
-        console.error("Error saving trade:", e);
         return { success: false, error: e.message };
     }
 });
 
-// --- GLOBAL ORDERS SYNC (Mandate 5.0) ---
 ipcMain.handle('orders:sync', async (event, orders) => {
     try {
-        const root = getRootPath();
-        const dir = path.resolve(path.join(root, 'Database', 'Orders'));
+        const dir = path.join(getMetadataDir(), 'Orders');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        
         const p = path.join(dir, 'orders_history.json');
-        console.log(`[PERSISTENCE] Syncing Orders to: ${p}`);
         fs.writeFileSync(p, JSON.stringify(orders, null, 2));
         return { success: true };
     } catch (e) {
-        console.error("Failed to sync orders:", e);
         return { success: false, error: e.message };
     }
 });
@@ -702,6 +617,7 @@ ipcMain.handle('orders:sync', async (event, orders) => {
 app.whenReady().then(() => {
   initializeDatabase();
   runBootScan();
+  console.log('[System] IPC Handlers synchronized with Database/StickyNotes and Database/Layouts.');
   createWindow();
 });
 

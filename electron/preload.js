@@ -56,8 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getInternalFolders: () => ipcRenderer.invoke('get-internal-folders'),
     getInternalLibrary: () => ipcRenderer.invoke('get-internal-folders'), // Alias for compatibility
     openFolder: (subpath) => ipcRenderer.invoke('shell:open-folder', subpath),
-    // Specific diagnostic to reveal DB path
-    openDBFolder: () => ipcRenderer.invoke('system:open-db-folder'),
+    getStoragePath: () => ipcRenderer.invoke('get-storage-path'),
     
     // --- Master Drawing Store Persistence (LEGACY) ---
     loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
@@ -75,6 +74,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveSettings: (filename, data) => invokeSaveSettings(filename, data),
     loadSettings: (filename) => ipcRenderer.invoke('storage:load-settings', filename),
     listLayouts: () => ipcRenderer.invoke('storage:list-layouts'),
+    saveLayout: (filename, data) => ipcRenderer.invoke('storage:save-layout', filename, data),
+    loadLayout: (filename) => ipcRenderer.invoke('storage:load-layout', filename),
     restoreLayout: (filename) => ipcRenderer.invoke('storage:restore-layout', filename),
 
     // --- Sticky Notes (Mandate 4.4) ---

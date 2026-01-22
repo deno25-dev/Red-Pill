@@ -1,21 +1,21 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
 
-interface GlobalErrorBoundaryProps {
+interface Props {
   children?: ReactNode;
   fallback?: ReactNode;
   errorMessage?: string; // Optional custom message
   onErrorCaptured?: (error: string) => void;
 }
 
-interface GlobalErrorBoundaryState {
+interface State {
   hasError: boolean;
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, GlobalErrorBoundaryState> {
-  constructor(props: GlobalErrorBoundaryProps) {
+export class GlobalErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
     super(props);
     this.state = {
       hasError: false,
@@ -23,7 +23,7 @@ export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, Glo
     };
   }
 
-  static getDerivedStateFromError(error: Error): GlobalErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }

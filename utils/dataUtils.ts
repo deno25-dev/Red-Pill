@@ -833,8 +833,8 @@ export const findFileForTimeframe = (files: any[], currentTitle: string, targetT
 // Updated to be robust against permission errors and invalid handles
 export async function scanRecursive(dirHandle: any): Promise<any[]> {
     const files: any[] = [];
-    // BLACKLIST: Metadata folders that should be ignored by the market data scanner
-    const BLACKLIST = ['StickyNotes', 'Layouts', 'Settings', 'Trades', 'Orders', 'Drawings', 'ObjectTree', 'Workspaces'];
+    // Mandate: Strict folder blacklist for recursive scanner
+    const BLACKLIST = ['Database', 'Metadata', 'Settings', 'StickyNotes'];
 
     async function traverse(handle: any, currentPath: string) {
         if (!handle || typeof handle.values !== 'function') return;
@@ -843,24 +843,19 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
             for await (const entry of handle.values()) {
                 try {
                     if (entry.kind === 'file') {
-                        // Strict Extension Filter (Mandate 3.2)
-                        // Ignore .json files here. They are metadata, not chart data.
-                        const name = entry.name.toLowerCase();
-                        if (name.endsWith('.csv') || name.endsWith('.txt')) {
-                           // The 'entry' is a FileSystemFileHandle. It's not a plain object.
-                           // We create a new object that carries the folder info but is compatible with consumers.
+                        // Mandate: Strict Extension Lock
+                        if (entry.name.toLowerCase().endsWith('.csv')) {
                            const fileObject = {
                                name: entry.name,
                                kind: entry.kind,
-                               getFile: () => entry.getFile(), // Pass along the method
-                               folder: currentPath ? currentPath.split('/')[0] : '.', // Use folder name or '.' for root
-                               handle: entry // Keep original handle if needed
+                               getFile: () => entry.getFile(), 
+                               folder: currentPath ? currentPath.split('/')[0] : '.', 
+                               handle: entry 
                            };
                            files.push(fileObject);
                         }
                     } else if (entry.kind === 'directory') {
-                        // Blacklist Check (Mandate 3.1)
-                        // Don't traverse into system folders
+                        // Mandate: Skip Blacklisted folders
                         if (!BLACKLIST.includes(entry.name)) {
                             await traverse(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
                         }
@@ -873,6 +868,6 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
             console.error("Error scanning directory:", handle.name, err);
         }
     }
-    await traverse(dirHandle, ''); // Start with an empty path for the root
+    await traverse(dirHandle, ''); 
     return files;
 }

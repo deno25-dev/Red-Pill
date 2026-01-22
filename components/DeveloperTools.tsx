@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool, FolderOpen } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
 import { useDevLogs } from '../hooks/useDevLogs';
@@ -10,17 +10,19 @@ interface DeveloperToolsProps {
   lastError: string | null;
   chartRenderTime: number | null;
   onOpenStickyNotes?: () => void;
-  // REMOVED: onOpenLayoutDB prop as it is now handled via event
+  onOpenLayoutDB?: () => void;
 }
 
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
   chartRenderTime,
-  onOpenStickyNotes
+  onOpenStickyNotes,
+  onOpenLayoutDB
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'runtime' | 'system'>('runtime');
+  const [storagePath, setStoragePath] = useState<string>('Unknown');
   
   // Runtime Logs
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -30,6 +32,16 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
   const { logs: devLogs, addLog: addDevLog, clearLogs: clearDevLogs } = useDevLogs();
   
   const isOnline = useOnlineStatus();
+
+  // Fetch Storage Path
+  useEffect(() => {
+      const electron = (window as any).electronAPI;
+      if (electron && electron.getStoragePath) {
+          electron.getStoragePath().then((path: string) => {
+              setStoragePath(path);
+          }).catch(() => {});
+      }
+  }, [isOpen]);
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -72,6 +84,7 @@ Timestamp: ${new Date().toISOString()}
 Browser: ${navigator.userAgent}
 Connection: ${isOnline ? 'Online' : 'Offline'}
 Active Data Source: ${activeDataSource || 'None'}
+Storage Root: ${storagePath}
 Last Chart Render: ${chartRenderTime ? `${chartRenderTime.toFixed(2)}ms` : 'N/A'}
 Last Error: ${lastError || 'None'}
 
@@ -88,16 +101,6 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       if (confirm('NUCLEAR OPTION: This will permanently delete all drawings/metadata for the CURRENT chart from the database. Are you sure?')) {
           window.dispatchEvent(new CustomEvent('redpill-nuclear-clear'));
           debugLog('Data', 'Nuclear Clear Triggered by user');
-      }
-  };
-
-  const handleRevealDB = async () => {
-      const electron = (window as any).electronAPI;
-      if (electron && electron.openDBFolder) {
-          const result = await electron.openDBFolder();
-          if (!result.success) {
-              alert(`Could not open folder.\nSystem Error: ${result.error}\nManual Path: ${result.path}`);
-          }
       }
   };
 
@@ -160,6 +163,15 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                 {activeDataSource || 'No Data Loaded'}
                 </span>
             </div>
+            </div>
+            <div className="bg-black/80 p-3 flex flex-col gap-1 col-span-2 border-t border-emerald-900/50">
+                <span className="text-[10px] text-emerald-700 uppercase">Local Storage Root</span>
+                <div className="flex items-center gap-2 overflow-hidden" title={storagePath}>
+                    <ShieldAlert size={14} className="shrink-0 text-emerald-600" />
+                    <span className="text-emerald-300/70 truncate text-[10px] font-mono break-all">
+                        {storagePath}
+                    </span>
+                </div>
             </div>
         </div>
       )}
@@ -228,27 +240,20 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
       {/* Actions */}
       <div className="bg-black border-t border-emerald-900/50">
           {/* Action Row 1: DB Tools */}
-          <div className="p-2 grid grid-cols-3 gap-2 border-b border-emerald-900/30">
+          <div className="p-2 grid grid-cols-2 gap-2 border-b border-emerald-900/30">
                 <button 
                     onClick={onOpenStickyNotes}
                     className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <FileJson size={12} />
-                    Notes DB
+                    Inspect Notes DB
                 </button>
                 <button 
                     onClick={() => window.dispatchEvent(new CustomEvent('TOGGLE_LAYOUT_MANAGER'))}
                     className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <Layout size={12} />
-                    Layout DB
-                </button>
-                <button 
-                    onClick={handleRevealDB}
-                    className="flex items-center justify-center gap-1 bg-amber-900/10 hover:bg-amber-800/30 text-amber-400 py-1.5 px-2 rounded border border-amber-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
-                >
-                    <FolderOpen size={12} />
-                    Reveal DB
+                    Inspect Layout DB
                 </button>
           </div>
           

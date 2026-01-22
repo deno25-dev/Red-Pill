@@ -452,6 +452,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const [reinitCount, setReinitCount] = useState(0);
   const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
   const { register, forceClear, registry } = useDrawingRegistry(chartRef, seriesRef);
+  const prevDataStartTime = useRef<number | null>(null);
 
   useEffect(() => {
       const container = chartContainerRef.current;
@@ -609,6 +610,23 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => { if (!chartRef.current) return; if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current as any); seriesRef.current = null; } let newSeries; if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 }); else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 }); else { const upColor = config.upColor || COLORS.bullish; const downColor = config.downColor || COLORS.bearish; const wickUpColor = config.wickUpColor || COLORS.bullish; const wickDownColor = config.wickDownColor || COLORS.bearish; const borderUpColor = config.borderUpColor || upColor; const borderDownColor = config.borderDownColor || downColor; newSeries = chartRef.current.addSeries(CandlestickSeries, { upColor, downColor, borderVisible: true, borderUpColor, borderDownColor, wickUpColor, wickDownColor }); } seriesRef.current = newSeries as ISeriesApi<SeriesType>; newSeries.setData(processedData as any); handleSnapToRecent(true); const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe); const lastCandle = data.length > 0 ? data[data.length - 1] : null; primitive.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data); register('drawings-primitive', primitive); newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw(); }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount, handleSnapToRecent]); 
   useEffect(() => { 
       if (!seriesRef.current || !chartRef.current) return; 
+      
+      // FIX: Prevent setData conflict during active playback to resolve 'Cannot update oldest data' error.
+      // During playback, the animation loop manages series updates. Calling setData via React state updates (replayIndex change)
+      // can cause race conditions where setData resets the series to a state incompatible with the next pending update.
+      // We only allow setData if the dataset itself changed significantly (e.g. timeframe switch), detected via start time change.
+      if (isPlaying) {
+          const isIncremental = prevDataStartTime.current === processedData[0]?.time;
+          // Update ref for future checks
+          prevDataStartTime.current = processedData[0]?.time;
+          
+          if (isIncremental) {
+              return; 
+          }
+      }
+      
+      prevDataStartTime.current = processedData[0]?.time;
+
       let savedRange: LogicalRange | null = null; 
       if (isReplayActive) { 
           savedRange = chartRef.current.timeScale().getVisibleLogicalRange(); 
@@ -632,7 +650,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       } catch(e) {} 
       
       if (volumeSeriesRef.current && config.showVolume) { const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish; const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish; volumeSeriesRef.current.setData(data.map(d => ({ time: (d.time / 1000) as Time, value: d.volume, color: d.close >= d.open ? volUp : volDown }))); } if (smaSeriesRef.current && config.showSMA) { const smaSeriesData = []; for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: (data[i].time / 1000) as Time, value: smaData[i] as number }); } smaSeriesRef.current.setData(smaSeriesData); } 
-  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent, isReplayActive]); 
+  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent, isReplayActive, isPlaying]); 
   useEffect(() => { if (!chartRef.current) return; if (config.showVolume) { if (!volumeSeriesRef.current) { volumeSeriesRef.current = chartRef.current.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' }); chartRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: config.volumeTopMargin || 0.8, bottom: 0 } }); } } else if (volumeSeriesRef.current) { chartRef.current.removeSeries(volumeSeriesRef.current); volumeSeriesRef.current = null; } if (config.showSMA) { if (!smaSeriesRef.current) smaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: COLORS.sma, lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false }); } else if (smaSeriesRef.current) { chartRef.current.removeSeries(smaSeriesRef.current); smaSeriesRef.current = null; } }, [config.showVolume, config.showSMA, config.volumeTopMargin]);
   
   const pointToScreen = (p: DrawingPoint) => { if (!chartRef.current || !seriesRef.current) return { x: OFF_SCREEN, y: OFF_SCREEN }; try { if (!p.time || !Number.isFinite(p.time) || p.time <= 0) return { x: OFF_SCREEN, y: OFF_SCREEN }; const timeScale = chartRef.current.timeScale(); const price = seriesRef.current.priceToCoordinate(p.price); let x = timeScale.timeToCoordinate(p.time / 1000 as Time); if (x === null) { const idx = timeToIndexRef.current.get(p.time); if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical); else if (propsRef.current.data.length > 0) { const currentData = propsRef.current.data; const lastCandle = currentData[currentData.length - 1]; const tfMs = getTimeframeDuration(propsRef.current.timeframe as any); const diff = p.time - lastCandle.time; const bars = diff / tfMs; const targetLogical = (currentData.length - 1) + bars; x = timeScale.logicalToCoordinate(targetLogical as Logical); } } return { x: (x !== null && Number.isFinite(x)) ? x : OFF_SCREEN, y: (price !== null && Number.isFinite(price)) ? price : OFF_SCREEN }; } catch (e) { return { x: OFF_SCREEN, y: OFF_SCREEN }; } };

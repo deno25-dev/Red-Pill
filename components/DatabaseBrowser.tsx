@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { X, Database, FileJson, Layout, RotateCcw, AlertTriangle } from 'lucide-react';
 import { debugLog } from '../utils/logger';
@@ -64,9 +65,12 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
       const electron = (window as any).electronAPI;
       if (mode === 'layouts' && electron) {
           try {
-              const res = await electron.loadSettings(item.filename);
+              // Use loadLayout (for snapshots) or loadMetadataFile directly
+              const res = electron.loadLayout ? await electron.loadLayout(item.filename) : await electron.loadMetadataFile('layouts', item.filename);
               if (res.success) {
                   setContentPreview(JSON.stringify(res.data, null, 2));
+              } else {
+                  setContentPreview('Error loading content.');
               }
           } catch(e) {
               setContentPreview('Error loading content.');
@@ -81,13 +85,11 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
       const electron = (window as any).electronAPI;
       if (electron) {
           try {
-              // 1. Read the selected layout
-              const res = await electron.loadSettings(selectedItem.filename);
-              if (res.success && res.data) {
-                  // 2. Overwrite ui_layout.json (the active layout)
-                  await electron.saveSettings('ui_layout.json', res.data);
+              // 1. Restore layout file
+              const res = await electron.restoreLayout(selectedItem.filename);
+              if (res.success) {
                   debugLog('Data', `Layout restored from ${selectedItem.filename}`);
-                  // 3. Reload
+                  // 2. Reload
                   window.location.reload();
               }
           } catch (e) {
@@ -128,7 +130,7 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
                                         className={`w-full text-left px-3 py-2 rounded text-xs truncate transition-colors ${selectedItem?.filename === item.filename ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-[#1e293b] hover:text-white'}`}
                                     >
                                         <div className="font-medium">{item.filename}</div>
-                                        <div className="text-[9px] opacity-70">Database/Settings/</div>
+                                        <div className="text-[9px] opacity-70">Database/Layouts/</div>
                                     </button>
                                 ))
                             )}
@@ -165,7 +167,7 @@ export const DatabaseBrowser: React.FC<DatabaseBrowserProps> = ({ isOpen, onClos
             
             {/* Footer */}
             <div className="px-4 py-2 border-t border-[#334155] bg-[#1e293b] text-[10px] text-slate-500 flex justify-between">
-                <span>{mode === 'notes' ? 'Direct Read from Database/Workspaces/' : 'Direct Read from Database/Settings/'}</span>
+                <span>{mode === 'notes' ? 'Direct Read from Database/StickyNotes/' : 'Direct Read from Database/Layouts/'}</span>
                 {!(window as any).electronAPI && <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={10} /> Web Mode (LocalStorage Fallback)</span>}
             </div>
         </div>
