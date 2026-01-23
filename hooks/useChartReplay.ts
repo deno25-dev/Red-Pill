@@ -84,6 +84,9 @@ export const useChartReplay = ({
   useEffect(() => {
     if (!seriesRef.current || !fullData || fullData.length === 0) return;
 
+    // Only re-init if not playing (prevents stutter on minor updates)
+    if (isPlaying) return;
+
     bufferCursorRef.current = 0;
     lastFrameTimeRef.current = 0;
     currentIndexRef.current = startIndex; 
@@ -108,7 +111,7 @@ export const useChartReplay = ({
         bufferSize: replayBufferRef.current.length 
     });
 
-  }, [fullData]); 
+  }, [fullData]); // Keep this simple, specific logic for seeks handles deeper updates
 
   // --- LOGIC 2: SEEKING (RECUT) & PROP LOCK ---
   useEffect(() => {
@@ -126,7 +129,7 @@ export const useChartReplay = ({
 
       // 3. Proximity Firewall (Anti-Loopback) - Increased Tolerance to 30 (Mandate 0.40.2)
       const diff = Math.abs(startIndex - lastSyncedIndexRef.current);
-      if (diff < 30) { 
+      if (diff < 20) { 
           return; 
       }
       
@@ -297,7 +300,7 @@ export const useChartReplay = ({
       
       const diff = Math.abs(startIndex - currentIndexRef.current);
       // Increased Tolerance to 30 for Manual Seek logic match
-      if (diff < 30 && onSyncStateRef.current) {
+      if (diff < 20 && onSyncStateRef.current) {
           lastSyncedIndexRef.current = currentIndexRef.current;
           onSyncStateRef.current(currentIndexRef.current, currentTimeRef.current, currentPriceRef.current);
       }

@@ -11,6 +11,7 @@ interface UseSymbolPersistenceProps {
   folders?: Folder[];
   config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
+  isReplayActive: boolean;
 }
 
 export const useSymbolPersistence = ({
@@ -20,6 +21,7 @@ export const useSymbolPersistence = ({
   folders,
   config,
   visibleRange,
+  isReplayActive
 }: UseSymbolPersistenceProps) => {
   const { log, info, error } = useReport('Persistence');
   const [isHydrating, setIsHydrating] = useState(true);
@@ -97,6 +99,11 @@ export const useSymbolPersistence = ({
   // Save Function
   const persistState = useCallback(async (stateToSave: ChartState) => {
       if (!symbol) return;
+      
+      if (isReplayActive) {
+          // Silent Block: Do not log every frame to avoid console spam
+          return;
+      }
 
       const lowerSymbol = symbol.toLowerCase();
       if (lowerSymbol.endsWith('.csv') || lowerSymbol.endsWith('.txt')) {
@@ -118,11 +125,13 @@ export const useSymbolPersistence = ({
         console.error("Failed to save chart state:", e);
         error(`Error saving state for ${symbol}`, { error: e.message });
       }
-  }, [symbol, electron]);
+  }, [symbol, electron, isReplayActive]);
 
   // 1. Debounced Save on Change
   useEffect(() => {
     if (!symbol || isHydrating || !currentStateRef.current) return;
+
+    if (isReplayActive) return;
 
     const handler = setTimeout(() => {
         if (currentStateRef.current) {
@@ -133,21 +142,21 @@ export const useSymbolPersistence = ({
     return () => {
       clearTimeout(handler);
     };
-  }, [symbol, drawings, folders, config, visibleRange, isHydrating, persistState]);
+  }, [symbol, drawings, folders, config, visibleRange, isHydrating, persistState, isReplayActive]);
 
   // 2. Auto-Save Interval (30s)
   useEffect(() => {
       if (!symbol || isHydrating) return;
 
       const interval = setInterval(() => {
-          if (currentStateRef.current) {
+          if (currentStateRef.current && !isReplayActive) {
               log(`Auto-saving state (30s interval)`, { symbol });
               persistState(currentStateRef.current);
           }
       }, 30000);
 
       return () => clearInterval(interval);
-  }, [symbol, isHydrating, persistState]);
+  }, [symbol, isHydrating, persistState, isReplayActive]);
 
   return { isHydrating, rehydrate: loadState };
 };

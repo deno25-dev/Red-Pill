@@ -63,6 +63,8 @@ interface ChartWorkspaceProps {
   // Replay Sync Callback (Passed from App)
   onReplaySync?: (index: number, time: number, price: number, metricTimestamp?: number) => void;
   onReplayComplete?: () => void;
+  
+  onReplayPointSelect?: (time: number) => void;
 }
 
 // --- GHOST HEADER COMPONENT ---
@@ -108,10 +110,6 @@ const GhostHeader: React.FC<{ tabId: string, initialPrice: number, initialPrev: 
                 }
             }
             
-            // Note: Volume is tricky as it is per-candle. 
-            // Ideally we pass volume in event, but lightweight chart handles candle updates.
-            // We'll skip dynamic volume for now to save bandwidth unless passed in event.
-            
             if (timeRef.current) {
                 const d = new Date(time);
                 // Fast manual formatting YYYY-MM-DD HH:MM:SS
@@ -149,9 +147,9 @@ const GhostHeader: React.FC<{ tabId: string, initialPrice: number, initialPrev: 
             <div className="text-[10px] text-slate-400">
                 Vol: <span ref={volRef} className="text-slate-300 font-mono">{initialVol.toFixed(0)}</span>
             </div>
-            <div className="h-4 w-px bg-slate-600"></div>
-            {/* Hidden time ref container for binding, although main time is in footer usually. 
-                If we want header time, we can add it here. */}
+            <div className="h-4 w-px bg-slate-600 hidden">
+               <span ref={timeRef}></span>
+            </div>
         </>
     );
 });
@@ -187,7 +185,8 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   onSyncTrades,
   hasUnsavedTrades,
   onReplaySync,
-  onReplayComplete
+  onReplayComplete,
+  onReplayPointSelect
 }) => {
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
   const { trades: persistedTrades } = useTradePersistence(tradeSourceId);
@@ -203,7 +202,8 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
           setLocalData(vault.data);
           setLocalReplayIndex(vault.replayIndex);
       }
-  }, [tab.id, tab.timeframe, tab.sourceId, tabVault]); // Only re-fetch on major metadata changes
+  // Added tab.isReplayMode and isReplaySelecting to dependency array to force refresh on Cut
+  }, [tab.id, tab.timeframe, tab.sourceId, tabVault, tab.isReplayMode, tab.isReplaySelecting]); 
 
   // Sync Logic: Only hydrate if local state is empty but persistence has data.
   useEffect(() => {
@@ -242,10 +242,13 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
       // 2. Debounced Save to Global Persistence
       if (rangeSaveTimer.current) clearTimeout(rangeSaveTimer.current);
       
+      // DO NOT SAVE during replay to prevent lag
+      if (tab.isReplayPlaying) return;
+
       rangeSaveTimer.current = setTimeout(() => {
           if (onVisibleRangeChange) onVisibleRangeChange(range);
       }, 5000); // 5 Seconds debounce
-  }, [tab.id, tabVault, onVisibleRangeChange]);
+  }, [tab.id, tabVault, onVisibleRangeChange, tab.isReplayPlaying]);
 
   useEffect(() => {
       if (prevHydrating.current && !isHydrating && drawings.length > 0) {
@@ -279,7 +282,7 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
 
   const smaData = useMemo(() => { if (!tab.config.showSMA) return []; return calculateSMA(displayedData, tab.config.smaPeriod); }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
   
-  // --- HEADER DATA ---
+  // --- HEADER DATA (Initial State) ---
   const currentPrice = useMemo(() => { if (displayedData.length === 0) return 0; return displayedData[displayedData.length - 1].close; }, [displayedData]);
   const prevPrice = displayedData.length > 1 ? displayedData[displayedData.length - 2].close : currentPrice;
   const currentVolume = useMemo(() => { if (displayedData.length === 0) return 0; return displayedData[displayedData.length - 1].volume; }, [displayedData]);
@@ -354,46 +357,7 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   const deleteSelectedDrawing = () => { if (selectedDrawingId) { onSaveHistory?.(); const newDrawings = drawings.filter(d => !selectedDrawingIds.has(d.id)); onUpdateDrawings(newDrawings); setSelectedDrawingId(null); setSelectedDrawingIds(new Set()); } };
   
   const handleReplayPointSelect = (timeInMs: number) => { 
-      if (!tab.isReplaySelecting) return; 
-      
-      const vault = tabVault.current.get(tab.id);
-      if (vault) {
-          // 1. Find Cut Index
-          let idx = vault.data.findIndex((d: any) => d.time >= timeInMs); 
-          if (idx === -1) idx = vault.data.length - 1;
-          
-          const cutTime = vault.data[idx].time;
-
-          // 2. Find Raw Index (for timeframe consistency)
-          let rawIdx = vault.rawData.findIndex((d: any) => d.time >= cutTime);
-          if (rawIdx === -1) rawIdx = vault.rawData.length - 1;
-
-          // 3. Execute Cut (Destructive Slice retaining History)
-          vault.data = vault.data.slice(0, idx + 1);
-          vault.rawData = vault.rawData.slice(0, rawIdx + 1);
-
-          // 4. Update Pointers
-          vault.replayIndex = vault.data.length - 1; // New head
-          vault.replayGlobalTime = cutTime;
-          vault.simulatedPrice = null;
-
-          // 5. Trigger UI Refresh
-          // Updating localData state forces displayedData to recalculate based on the NEW truncated vault data
-          setLocalData([...vault.data]); 
-          setLocalReplayIndex(vault.replayIndex);
-      }
-      
-      updateTab({ 
-          isReplaySelecting: false, 
-          isReplayMode: tab.isAdvancedReplayMode ? false : true, 
-          isAdvancedReplayMode: tab.isAdvancedReplayMode, 
-          isReplayPlaying: false
-      });
-      
-      if (vault && onReplaySync) {
-          const idx = vault.replayIndex;
-          onReplaySync(idx, vault.data[idx].time, vault.data[idx].close);
-      }
+      if (onReplayPointSelect) onReplayPointSelect(timeInMs);
   };
   
   const handleToolComplete = () => { if (!isStayInDrawingMode) onSelectTool?.('cross'); };
@@ -402,6 +366,16 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   const selectedDrawingType = useMemo(() => { if (selectedDrawingId) return drawings.find(d => d.id === selectedDrawingId)?.type; return activeToolId; }, [selectedDrawingId, drawings, activeToolId]);
   const chartComponentKey = useMemo(() => { return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`; }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
   const handleTradeClick = (trade: Trade) => { setFocusTimestamp(trade.timestamp); };
+
+  const areAllDrawingsLocked = useMemo(() => {
+    if (!tab || !tab.drawings || tab.drawings.length === 0) return false;
+    return tab.drawings.every((d: Drawing) => d.properties.locked);
+  }, [tab]);
+
+  const areAllDrawingsHidden = useMemo(() => {
+      if (!tab || !tab.drawings || tab.drawings.length === 0) return false;
+      return tab.drawings.every((d: Drawing) => !(d.properties.visible ?? true));
+  }, [tab]);
 
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">

@@ -425,6 +425,7 @@ const App: React.FC = () => {
       folders: activeTab?.folders || [],
       config: activeTab?.config,
       visibleRange: tabVault.current.get(activeTab?.id)?.visibleRange || null,
+      isReplayActive: activeTab?.isReplayPlaying || false
   });
 
   // 1. Restore Session on Boot
@@ -511,6 +512,12 @@ const App: React.FC = () => {
   // 3. Auto-save session state
   useEffect(() => {
     if (appStatus !== 'ACTIVE') return;
+
+    // MANDATE 0.40.4: Persistence Silence (Kill-Switch)
+    // If ANY chart is playing back, we must FREEZE all disk I/O operations from this effect.
+    if (tabs.some(t => t.isReplayPlaying)) {
+        return;
+    }
 
     const saveTimeout = setTimeout(() => {
       const stateToSave = {
@@ -961,13 +968,13 @@ const App: React.FC = () => {
               
               const displayData = resampleData(uniqueData, tab.timeframe);
               
-              // Calculate replay index offset
-              const prevLength = vault.data.length;
-              
               // Update Vault
               vault.rawData = uniqueData;
               vault.data = displayData;
-              vault.replayIndex = vault.replayIndex + (displayData.length - prevLength);
+              
+              // Adjust replay index to maintain position relative to history
+              const newReplayIndex = (vault.replayIndex || 0) + (displayData.length - vault.data.length);
+              vault.replayIndex = newReplayIndex;
 
               // Update State (Lightweight)
               updateTab(tabId, {
@@ -1176,8 +1183,36 @@ const App: React.FC = () => {
           }
       }
 
-      // 3. DO NOT CALL SETTABS. The ChartWorkspace will pick up changes via its own hooks or refs.
+      // 3. Dispatch visual event for GhostHeader (Zero-React update)
+      window.dispatchEvent(new CustomEvent('replay-tick', {
+          detail: { tabId, price, time }
+      }));
+
+      // 4. DO NOT CALL SETTABS. The ChartWorkspace will pick up changes via its own hooks or refs.
   }, []);
+
+  const handleReplayPointSelect = useCallback((time: number, tabId?: string) => {
+      const targetId = tabId || activeTabId;
+      const tab = tabs.find(t => t.id === targetId);
+      if (!tab) return;
+      const vault = tabVault.current.get(targetId);
+      if (!vault) return;
+
+      const index = findIndexForTimestamp(vault.data, time);
+      
+      // Update Vault
+      vault.replayIndex = index;
+      vault.replayGlobalTime = time;
+      vault.simulatedPrice = null;
+
+      // Update State
+      updateTab(targetId, {
+          isReplaySelecting: false,
+          isReplayMode: tab.isAdvancedReplayMode ? false : true,
+          isAdvancedReplayMode: tab.isAdvancedReplayMode ? true : false,
+          isReplayPlaying: false
+      });
+  }, [activeTabId, tabs, updateTab]);
 
   const handleLayoutAction = async (action: string) => {
     if (!activeTab) return;
@@ -1733,6 +1768,7 @@ const App: React.FC = () => {
                                         hasUnsavedTrades={hasUnsavedOrders}
                                         onReplaySync={(idx, time, price, mt) => handleReplaySync(tab.id, idx, time, price, mt)}
                                         onReplayComplete={() => updateTab(tab.id, { isReplayPlaying: false })}
+                                        onReplayPointSelect={(time) => handleReplayPointSelect(time, tab.id)}
                                     />
                                 </Popout>
                             );
@@ -1826,6 +1862,7 @@ const App: React.FC = () => {
                         hasUnsavedTrades={hasUnsavedOrders}
                         onReplaySync={(idx, time, price, mt) => handleReplaySync(activeTab.id, idx, time, price, mt)}
                         onReplayComplete={() => updateTab(activeTab.id, { isReplayPlaying: false })}
+                        onReplayPointSelect={(time) => handleReplayPointSelect(time, activeTab.id)}
                     />
                 )}
             </div>
@@ -1889,6 +1926,7 @@ const App: React.FC = () => {
                             hasUnsavedTrades={hasUnsavedOrders}
                             onReplaySync={(idx, time, price, mt) => handleReplaySync(tab.id, idx, time, price, mt)}
                             onReplayComplete={() => updateTab(tab.id, { isReplayPlaying: false })}
+                            onReplayPointSelect={(time) => handleReplayPointSelect(time, tab.id)}
                         />
                     </div>
                 );
