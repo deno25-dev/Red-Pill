@@ -4,6 +4,8 @@ import App from './src/components/App';
 import { GlobalModalManager } from './src/components/GlobalModalManager';
 import './src/index.css';
 
+console.log('Bridge: main.tsx mounted');
+
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error("Root element not found");
 

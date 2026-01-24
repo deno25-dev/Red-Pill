@@ -1,1 +1,1 @@
-// DELETED - Use src/main.tsx
+import './main.tsx';

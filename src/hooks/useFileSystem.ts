@@ -1,5 +1,5 @@
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { tauriAPI, isTauri } from '../utils/tauri';
 
 export const useFileSystem = () => {
@@ -9,9 +9,14 @@ export const useFileSystem = () => {
   const [files, setFiles] = useState<any[]>([]);
 
   const connectFolder = useCallback(async () => {
-      // In Tauri we might use a dialog, but for now we assume auto-scan of Assets
+      // In Tauri mode, we typically scan the Assets folder automatically.
+      // If we implement a 'Select Folder' dialog in Rust later, this would invoke it.
+      if (isBridgeAvailable) {
+          // For now, this is a no-op or just confirms the asset scan
+          return 'Assets';
+      }
       return null;
-  }, []);
+  }, [isBridgeAvailable]);
 
   const disconnect = useCallback(async () => {
       setCurrentPath('');
@@ -23,14 +28,16 @@ export const useFileSystem = () => {
           const details = await tauriAPI.getFileDetails(path);
           return details.exists;
       }
-      return true; // Web assumption
+      // In web mode, we can't easily check file existence without re-requesting handles
+      // Assume true to avoid breaking the UI flow
+      return true;
   }, [isBridgeAvailable]);
 
   const connectDefaultDatabase = useCallback(async () => {
       if (isBridgeAvailable) {
           const internal = await tauriAPI.scanAssets();
           setFiles(internal || []);
-          setCurrentPath('Internal Database');
+          setCurrentPath('Internal Assets');
       }
   }, [isBridgeAvailable]);
 
