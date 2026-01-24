@@ -26,18 +26,24 @@ export const getLocalChartData = async (fileSource: File | string, chunkSize: nu
     
     // Determine size based on environment
     if (typeof fileSource === 'string') {
-        if (isTauri()) {
+        if (isTauri() && !fileSource.startsWith('Assets') && !fileSource.startsWith('./')) {
+            // Absolute path in Tauri (e.g. C:/Users/...)
             const stats = await tauriAPI.getFileDetails(fileSource);
             fileSize = stats.size;
-        } else if (fileSource.startsWith('/') || fileSource.startsWith('http')) {
-            // WEB MODE (FETCH HEAD)
+        } else {
+            // WEB MODE (FETCH HEAD) or Relative Asset in Tauri
+            // Note: HEAD requests might not work on some static servers, fallback to GET if needed or just guess
             try {
                 const response = await fetch(fileSource, { method: 'HEAD' });
-                const length = response.headers.get('content-length');
-                if (length) fileSize = parseInt(length, 10);
-                else fileSize = 5 * 1024 * 1024; // Fallback estimate
+                if (response.ok) {
+                    const length = response.headers.get('content-length');
+                    if (length) fileSize = parseInt(length, 10);
+                    else fileSize = 5 * 1024 * 1024; // Fallback estimate
+                } else {
+                    fileSize = 5 * 1024 * 1024;
+                }
             } catch (e) {
-                fileSize = 0;
+                fileSize = 5 * 1024 * 1024; // Safe fallback
             }
         }
     } else {
@@ -72,17 +78,18 @@ export const getLocalChartData = async (fileSource: File | string, chunkSize: nu
 
 // Utility to read a specific chunk of a local file
 export const readChunk = async (fileSource: File | string, start: number, end: number): Promise<string> => {
-    // Tauri Bridge Path
-    if (isTauri() && typeof fileSource === 'string' && !fileSource.startsWith('/')) {
+    // Tauri Bridge Path (Absolute)
+    if (isTauri() && typeof fileSource === 'string' && !fileSource.startsWith('Assets') && !fileSource.startsWith('./')) {
         const length = end - start;
         return await tauriAPI.readChunk(fileSource, start, length);
     }
 
-    // Public Asset Fetch (Web Mode)
-    if (typeof fileSource === 'string' && (fileSource.startsWith('/') || fileSource.startsWith('http'))) {
+    // Public Asset Fetch (Web Mode or Relative)
+    if (typeof fileSource === 'string') {
         try {
+            // Fetch handles relative paths natively
             const response = await fetch(fileSource);
-            if (!response.ok) throw new Error("Failed to fetch asset");
+            if (!response.ok) throw new Error(`Failed to fetch asset: ${response.statusText}`);
             const text = await response.text();
             return text.slice(start, end);
         } catch (e) {

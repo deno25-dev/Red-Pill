@@ -1,10 +1,9 @@
-
 {
   "name": "red-pill-charting",
   "productName": "Red Pill Charting",
   "version": "1.3.0",
   "private": true,
-  "main": "dist/index.html",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -28,21 +27,9 @@
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
-    "concurrently": "^8.2.2",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.3",
     "vite": "^5.2.6"
-  },
-  "build": {
-    "appId": "com.redpill.charting",
-    "productName": "Red Pill Charting",
-    "directories": {
-      "output": "release"
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "public/icon.ico"
-    }
   }
 }

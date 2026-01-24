@@ -1,4 +1,4 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { report } from '../utils/logger';
 
@@ -15,7 +15,8 @@ interface State {
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends React.Component<Props, State> {
+// An Error Boundary must be a class that extends React.Component to handle lifecycle methods like getDerivedStateFromError and componentDidCatch.
+export class GlobalErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = {

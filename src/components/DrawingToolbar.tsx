@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Trash2, 
@@ -59,7 +60,7 @@ const applyAlphaToHex = (hex: string, alpha: number): string => {
     
     // Normalize short hex #FFF -> #FFFFFF
     if (clean.length === 3) {
-        clean = clean.split('').map(c => c+c).join('');
+        clean = clean.split('').map((c: string) => c+c).join('');
     }
     // Strip existing alpha if present
     if (clean.length === 8) {
@@ -105,7 +106,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
       
       let clean = (targetColor || '#3b82f6').startsWith('#') ? (targetColor || '#3b82f6').slice(1) : (targetColor || '#3b82f6');
       if (clean.length === 8) clean = clean.slice(0, 6);
-      if (clean.length === 3) clean = clean.split('').map(c => c+c).join('');
+      if (clean.length === 3) clean = clean.split('').map((c: string) => c+c).join('');
       setManualHex(clean.toUpperCase());
   }, [properties?.color, properties?.backgroundColor, colorTab]);
 

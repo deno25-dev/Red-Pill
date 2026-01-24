@@ -54,7 +54,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = ({
       
       items.forEach(item => {
           // Generate a deterministic but slightly fluctuating mock price
-          const hash = item.symbol.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+          const hash = item.symbol.split('').reduce((a: number, b: string) => a + b.charCodeAt(0), 0);
           const basePrice = 1000 + (hash % 50000);
           const variance = (Math.random() - 0.5) * (basePrice * 0.02); // 2% fluctuation
           
