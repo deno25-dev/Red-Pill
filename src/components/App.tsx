@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './Toolbar';
 import { Sidebar } from './Sidebar';
@@ -14,12 +15,12 @@ import { StickyNoteOverlay } from './StickyNoteOverlay';
 import { DatabaseBrowser } from './DatabaseBrowser';
 import { StickyNoteManager } from './modals/StickyNoteManager';
 import { LayoutManager } from './modals/LayoutManager';
-import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing, ActivePanel, Folder } from '../types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from '../utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
+import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing, ActivePanel, Folder } from '@/types';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from '@/utils/dataUtils';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '@/utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './DeveloperTools';
-import { debugLog } from '../utils/logger';
+import { debugLog } from '@/utils/logger';
 import { useFileSystem } from '@/hooks/useFileSystem';
 import { useTradePersistence } from '@/hooks/useTradePersistence';
 import { useSymbolPersistence } from '@/hooks/useSymbolPersistence';
@@ -1519,277 +1520,193 @@ const App: React.FC = () => {
             })}
         </div>
     );
-  };
-  
-  const renderContent = () => {
-    switch(appStatus) {
-        case 'BOOT':
-            return <SplashController />;
-        case 'LIBRARY':
-            return (
-                <>
-                    <AssetLibrary
-                        isOpen={true}
-                        onClose={() => {}} // Cannot close in this state
-                        onSelect={(file: any, tf: Timeframe) => handleFileSelect(file, tf)}
-                        databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
-                        files={isBridgeAvailable ? [] : explorerFiles}
-                        onRefresh={isBridgeAvailable ? undefined : connectDefaultDatabase}
-                    />
-                    <div className="fixed bottom-4 right-4 z-[9999]">
-                        <button
-                            onClick={handleDebugBypass}
-                            className="px-3 py-2 bg-danger hover:opacity-80 text-white text-xs font-mono rounded shadow-lg border border-red-500 transition-colors"
-                        >
-                            DEBUG: Enter Workspace
-                        </button>
-                    </div>
-                </>
-            );
-        case 'ACTIVE':
-            if (!activeTab) return null; // Guard against render before activeTab is set
-            return (
-                <div className="flex flex-col h-screen bg-app-bg text-text-primary overflow-hidden">
-                    <DeveloperTools 
-                        activeDataSource={activeDataSource} 
-                        lastError={lastError} 
-                        chartRenderTime={chartRenderTime}
-                        onOpenStickyNotes={() => window.dispatchEvent(new CustomEvent('TOGGLE_STICKY_NOTE_MANAGER'))}
-                    />
-
-                    {/* Database Inspector Modal */}
-                    <DatabaseBrowser 
-                        isOpen={isDbBrowserOpen} 
-                        onClose={() => setIsDbBrowserOpen(false)} 
-                        mode={dbMode} 
-                    />
-
-                    <CandleSettingsDialog 
-                        isOpen={isCandleSettingsOpen}
-                        onClose={() => setIsCandleSettingsOpen(false)}
-                        config={activeTab.config}
-                        onUpdateConfig={(updates: Partial<ChartConfig>) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
-                    />
-
-                    <BackgroundSettingsDialog 
-                        isOpen={isBackgroundSettingsOpen}
-                        onClose={() => setIsBackgroundSettingsOpen(false)}
-                        config={activeTab.config}
-                        onUpdateConfig={(updates: Partial<ChartConfig>) => updateActiveTab({ config: { ...activeTab.config, ...updates } })}
-                    />
-                    
-                    <AssetLibrary
-                        isOpen={isAssetLibraryOpen}
-                        onClose={() => setIsAssetLibraryOpen(false)}
-                        onSelect={(file: any, tf: Timeframe) => {
-                            startFileStream(file, file.name, undefined, tf);
-                            setIsAssetLibraryOpen(false);
-                        }}
-                        databasePath={isBridgeAvailable ? 'Internal Database' : databasePath}
-                        files={isBridgeAvailable ? [] : explorerFiles}
-                        onRefresh={isBridgeAvailable ? undefined : connectDefaultDatabase}
-                    />
-
-                    <TabBar 
-                        tabs={tabs} 
-                        activeTabId={activeTabId} 
-                        onSwitch={handleSwitchTab} 
-                        onClose={handleCloseTab} 
-                        onDetach={handleDetachTab} 
-                        onAdd={handleAddTab} 
-                    />
-
-                    <Toolbar 
-                        onFileUpload={handleFileUpload}
-                        toggleTheme={toggleTheme}
-                        isDark={activeTab.config.theme === 'dark'}
-                        onToggleIndicator={toggleIndicator}
-                        showSMA={activeTab.config.showSMA}
-                        showVolume={activeTab.config.showVolume}
-                        chartType={activeTab.config.chartType}
-                        onChartTypeChange={handleChartTypeChange}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        onToggleReplay={handleToggleReplay}
-                        isReplayMode={activeTab.isReplayMode || activeTab.isReplaySelecting}
-                        onToggleAdvancedReplay={handleToggleAdvancedReplay}
-                        isAdvancedReplayMode={activeTab.isAdvancedReplayMode}
-                        onOpenLocalData={() => setIsAssetLibraryOpen(true)}
-                        onLayoutAction={handleLayoutAction}
-                        isSymbolSync={isSymbolSync}
-                        isIntervalSync={isIntervalSync}
-                        isCrosshairSync={isCrosshairSync}
-                        isTimeSync={isTimeSync}
-                        onToggleTradingPanel={() => setIsTradingPanelOpen(!isTradingPanelOpen)}
-                        isTradingPanelOpen={isTradingPanelOpen}
-                        isLibraryOpen={isLibraryOpen}
-                        onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
-                        onToggleLayers={() => setActivePanel('layers')}
-                        isLayersOpen={activePanel === 'layers'}
-                        onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
-                        onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
-                        tickerSymbol={currentSymbolName}
-                        tickerPrice={currentPrice}
-                        tickerPrevPrice={prevPrice}
-                        favoriteTimeframes={favoriteTimeframes}
-                        onToggleFavoriteTimeframe={toggleFavoriteTimeframe}
-                        showGridlines={activeTab.config.showGridlines ?? true}
-                        onToggleGridlines={toggleGridlines}
-                        showCrosshair={activeTab.config.showCrosshair ?? true}
-                        onToggleCrosshair={() => updateActiveTab({ config: { ...activeTab.config, showCrosshair: !(activeTab.config.showCrosshair ?? true) } })}
-                        
-                        onAddStickyNote={addStickyNote}
-                        isStickyNotesVisible={isStickyNotesVisible}
-                        onToggleStickyNotes={toggleStickyNotes}
-                        onOpenStickyNotesFolder={handleOpenStickyNotesFolder}
-                    />
-
-                    <div className="flex flex-1 overflow-hidden relative">
-                        <DrawingPalette 
-                            activeToolId={activeToolId}
-                            onSelectTool={setActiveToolId}
-                            favoriteTools={favoriteTools}
-                            onToggleFavorite={toggleFavorite}
-                            isFavoritesBarVisible={isFavoritesBarVisible}
-                            onToggleFavoritesBar={() => setIsFavoritesBarVisible(!isFavoritesBarVisible)}
-                            areAllDrawingsLocked={areAllDrawingsLocked}
-                            areAllDrawingsHidden={areAllDrawingsHidden}
-                            isMagnetMode={isMagnetMode}
-                            onToggleMagnet={() => setIsMagnetMode(!isMagnetMode)}
-                            isStayInDrawingMode={isStayInDrawingMode}
-                            onToggleStayInDrawingMode={() => setIsStayInDrawingMode(!isStayInDrawingMode)}
-                            onClearAll={handleClearAll}
-                        />
-
-                        <FilePanel 
-                            isOpen={isLibraryOpen}
-                            onClose={() => setIsLibraryOpen(false)}
-                            onFileSelect={handleLibraryFileSelect}
-                            onFileListChange={setExplorerFiles}
-                            onFolderNameChange={setExplorerFolderName}
-                            overrideFiles={filePanelOverride?.files}
-                            overridePath={filePanelOverride?.path}
-                            fileFilter={filePanelFilter}
-                        />
-
-                        {renderLayout()}
-                        
-                        <Sidebar activePanel={activePanel} onTogglePanel={setActivePanel}>
-                            {activePanel === 'watchlist' && (
-                                <Watchlist 
-                                    currentSymbol={currentSymbolName} 
-                                    onSelectSymbol={(s) => {
-                                        console.log('Watchlist selected:', s);
-                                    }} 
-                                />
-                            )}
-                            {activePanel === 'layers' && (
-                                <LayersPanel 
-                                    drawings={activeTab.drawings} 
-                                    onUpdateDrawings={(newDrawings: Drawing[]) => { 
-                                        handleSaveHistory(); 
-                                        updateActiveTab({ drawings: newDrawings });
-                                    }} 
-                                    selectedDrawingIds={new Set(selectedDrawingId ? [selectedDrawingId] : [])} 
-                                    onSelectDrawing={handleSelectDrawing} 
-                                    onClose={() => setActivePanel('none')} 
-                                    position={undefined} 
-                                    folders={activeTab.folders} 
-                                    onUpdateFolders={(folders: Folder[]) => { 
-                                        updateActiveTab({ folders }); 
-                                    }} 
-                                    sourceId={activeTab.sourceId} 
-                                />
-                            )}
-                            {activePanel === 'details' && (
-                                <div className="p-4 text-slate-400 text-xs">
-                                    <h3 className="font-bold text-white mb-2">Symbol Info</h3>
-                                    <p>Symbol: {currentSymbolName}</p>
-                                    <p>Source: {activeDataSource}</p>
-                                    <p>Timeframe: {activeTab.timeframe}</p>
-                                </div>
-                            )}
-                        </Sidebar>
-
-                        <StickyNoteOverlay 
-                            notes={notes}
-                            isVisible={isStickyNotesVisible}
-                            onUpdateNote={updateStickyNote}
-                            onRemoveNote={removeStickyNote}
-                            onFocusNote={bringStickyNoteToFront}
-                        />
-                        
-                        {!isTradingPanelDetached && (
-                            <TradingPanel 
-                                isOpen={isTradingPanelOpen}
-                                onClose={() => setIsTradingPanelOpen(false)}
-                                symbol={activeTab.title}
-                                currentPrice={currentPrice}
-                                isDetached={false}
-                                onToggleDetach={() => setIsTradingPanelDetached(true)}
-                                onOrderSubmit={handleOrderSubmit}
-                            />
-                        )}
-                    </div>
-
-                    {tabs.map(tab => {
-                        if (tab.isDetached) {
-                            return (
-                                <Popout 
-                                    key={tab.id} 
-                                    title={`${tab.title} - Red Pill Charting`} 
-                                    onClose={() => handleAttachTab(tab.id)}
-                                >
-                                    <ChartWorkspace 
-                                        key={tab.sourceId || tab.id}
-                                        tab={activeTab}
-                                        updateTab={(updates: Partial<TabSession>) => updateTab(tab.id, updates)}
-                                        onTimeframeChange={(tf: Timeframe) => handleTimeframeChange(tab.id, tf)}
-                                        favoriteTools={[]} 
-                                        onSelectTool={() => {}}
-                                        activeToolId=""
-                                        areDrawingsLocked={false}
-                                        isMagnetMode={false}
-                                        favoriteTimeframes={favoriteTimeframes}
-                                        onBackToLibrary={() => setAppStatus('LIBRARY')}
-                                        drawings={tab.drawings}
-                                        onUpdateDrawings={(newDrawings: Drawing[]) => updateTab(tab.id, { drawings: newDrawings })}
-                                        isHydrating={isHydrating && tab.id === activeTabId}
-                                    />
-                                </Popout>
-                            );
-                        }
-                        return null;
-                    })}
-                    
-                    {isTradingPanelDetached && isTradingPanelOpen && (
-                        <Popout 
-                            title="Trading Panel" 
-                            onClose={() => setIsTradingPanelDetached(false)}
-                        >
-                            <TradingPanel 
-                                isOpen={true}
-                                onClose={() => setIsTradingPanelOpen(false)}
-                                symbol={activeTab.title}
-                                currentPrice={currentPrice}
-                                isDetached={true}
-                                onToggleDetach={() => setIsTradingPanelDetached(false)}
-                                onOrderSubmit={handleOrderSubmit}
-                            />
-                        </Popout>
-                    )}
-                </div>
-            );
-        default:
-            return null;
-    }
-  }
+};
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-app-bg">
-        {renderContent()}
-        <StickyNoteManager />
-        <LayoutManager />
+    <div className="flex flex-col h-screen bg-[#0f172a] text-slate-300 overflow-hidden font-sans select-none">
+      <Toolbar
+        onFileUpload={handleFileUpload}
+        toggleTheme={toggleTheme}
+        isDark={activeTab?.config?.theme === 'dark'}
+        onToggleIndicator={toggleIndicator}
+        showSMA={activeTab?.config?.showSMA ?? false}
+        showVolume={activeTab?.config?.showVolume ?? true}
+        chartType={activeTab?.config?.chartType || 'candlestick'}
+        onChartTypeChange={handleChartTypeChange}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onToggleReplay={handleToggleReplay}
+        isReplayMode={activeTab?.isReplayMode ?? false}
+        onToggleAdvancedReplay={handleToggleAdvancedReplay}
+        isAdvancedReplayMode={activeTab?.isAdvancedReplayMode ?? false}
+        onOpenLocalData={() => setIsAssetLibraryOpen(true)}
+        onLayoutAction={handleLayoutAction}
+        onToggleTradingPanel={() => setIsTradingPanelOpen(!isTradingPanelOpen)}
+        isTradingPanelOpen={isTradingPanelOpen}
+        isLibraryOpen={isLibraryOpen}
+        onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
+        onToggleLayers={() => setActivePanel(activePanel === 'layers' ? 'none' : 'layers')}
+        isLayersOpen={activePanel === 'layers'}
+        isSymbolSync={isSymbolSync}
+        isIntervalSync={isIntervalSync}
+        isCrosshairSync={isCrosshairSync}
+        isTimeSync={isTimeSync}
+        onOpenCandleSettings={() => setIsCandleSettingsOpen(true)}
+        onOpenBackgroundSettings={() => setIsBackgroundSettingsOpen(true)}
+        tickerSymbol={currentSymbolName}
+        tickerPrice={currentPrice}
+        tickerPrevPrice={prevPrice}
+        favoriteTimeframes={favoriteTimeframes}
+        onToggleFavoriteTimeframe={toggleFavoriteTimeframe}
+        showGridlines={activeTab?.config?.showGridlines ?? true}
+        onToggleGridlines={toggleGridlines}
+        showCrosshair={activeTab?.config?.showCrosshair ?? true}
+        onToggleCrosshair={() => {
+            if (activeTabId) {
+                updateTab(activeTabId, { config: { ...activeTab.config, showCrosshair: !(activeTab.config.showCrosshair ?? true) } });
+            }
+        }}
+        onAddStickyNote={addStickyNote}
+        isStickyNotesVisible={isStickyNotesVisible}
+        onToggleStickyNotes={toggleStickyNotes}
+        onOpenStickyNotesFolder={handleOpenStickyNotesFolder}
+      />
+
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar activePanel={activePanel} onTogglePanel={setActivePanel}>
+            {activePanel === 'watchlist' && (
+                <Watchlist 
+                    currentSymbol={activeTab?.title || ''} 
+                    onSelectSymbol={(s) => {
+                        if (activeTabId) {
+                            updateTab(activeTabId, { title: s, symbolId: s }); 
+                        }
+                    }}
+                />
+            )}
+            {activePanel === 'layers' && (
+                <LayersPanel 
+                    drawings={activeTab?.drawings || []}
+                    onUpdateDrawings={(d) => {
+                        if(activeTabId) updateTab(activeTabId, { drawings: d });
+                    }}
+                    selectedDrawingIds={selectedDrawingId ? new Set([selectedDrawingId]) : new Set()}
+                    onSelectDrawing={handleSelectDrawing}
+                    onClose={() => setActivePanel('none')}
+                    folders={activeTab?.folders}
+                    onUpdateFolders={(f) => {
+                        if(activeTabId) updateTab(activeTabId, { folders: f });
+                    }}
+                    sourceId={activeTab?.sourceId}
+                />
+            )}
+        </Sidebar>
+
+        <div className="flex-1 flex flex-col relative min-w-0 bg-app-bg">
+            <TabBar 
+                tabs={tabs}
+                activeTabId={activeTabId}
+                onSwitch={handleSwitchTab}
+                onClose={handleCloseTab}
+                onDetach={handleDetachTab}
+                onAdd={handleAddTab}
+            />
+            
+            {appStatus === 'BOOT' && <SplashController />}
+            
+            <AssetLibrary 
+                isOpen={isAssetLibraryOpen}
+                onClose={() => setIsAssetLibraryOpen(false)}
+                onSelect={handleFileSelect}
+                files={explorerFiles}
+                onRefresh={() => {}}
+                databasePath={databasePath}
+            />
+
+            <FilePanel 
+                isOpen={isLibraryOpen}
+                onClose={() => {
+                    setIsLibraryOpen(false);
+                    setFilePanelOverride(null);
+                    setFilePanelFilter(null);
+                }}
+                onFileSelect={handleLibraryFileSelect}
+                onFileListChange={setExplorerFiles}
+                onFolderNameChange={setExplorerFolderName}
+                overrideFiles={filePanelOverride?.files}
+                overridePath={filePanelOverride?.path}
+                fileFilter={filePanelFilter}
+            />
+
+            {renderLayout()}
+            
+            <StickyNoteOverlay 
+                notes={notes}
+                isVisible={isStickyNotesVisible}
+                onUpdateNote={updateStickyNote}
+                onRemoveNote={removeStickyNote}
+                onFocusNote={bringStickyNoteToFront}
+            />
+            <DatabaseBrowser 
+                isOpen={isDbBrowserOpen}
+                onClose={() => setIsDbBrowserOpen(false)}
+                mode={dbMode}
+            />
+            <StickyNoteManager />
+            <LayoutManager />
+            
+            <CandleSettingsDialog 
+                isOpen={isCandleSettingsOpen}
+                onClose={() => setIsCandleSettingsOpen(false)}
+                config={activeTab?.config || {}}
+                onUpdateConfig={(updates) => {
+                    if (activeTabId) updateTab(activeTabId, { config: { ...activeTab.config, ...updates } });
+                }}
+            />
+            <BackgroundSettingsDialog 
+                isOpen={isBackgroundSettingsOpen}
+                onClose={() => setIsBackgroundSettingsOpen(false)}
+                config={activeTab?.config || {}}
+                onUpdateConfig={(updates) => {
+                    if (activeTabId) updateTab(activeTabId, { config: { ...activeTab.config, ...updates } });
+                }}
+            />
+            <DeveloperTools 
+                activeDataSource={activeDataSource}
+                lastError={lastError}
+                chartRenderTime={chartRenderTime}
+                onOpenStickyNotes={handleOpenStickyNotesFolder}
+            />
+            
+            {isTradingPanelDetached ? (
+                isTradingPanelOpen && (
+                    <Popout title={`Trade ${activeTab?.title}`} onClose={() => setIsTradingPanelOpen(false)}>
+                        <TradingPanel 
+                            isOpen={true}
+                            onClose={() => setIsTradingPanelOpen(false)}
+                            symbol={activeTab?.title || 'BTC'}
+                            currentPrice={currentPrice}
+                            isDetached={true}
+                            onToggleDetach={() => setIsTradingPanelDetached(false)}
+                            onOrderSubmit={handleOrderSubmit}
+                        />
+                    </Popout>
+                )
+            ) : (
+                <div className={`absolute top-0 right-0 h-full transition-transform duration-300 z-30 ${isTradingPanelOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+                    <TradingPanel 
+                        isOpen={true}
+                        onClose={() => setIsTradingPanelOpen(false)}
+                        symbol={activeTab?.title || 'BTC'}
+                        currentPrice={currentPrice}
+                        isDetached={false}
+                        onToggleDetach={() => setIsTradingPanelDetached(true)}
+                        onOrderSubmit={handleOrderSubmit}
+                    />
+                </div>
+            )}
+        </div>
+      </div>
     </div>
   );
 };
