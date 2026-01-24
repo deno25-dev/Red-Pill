@@ -1,4 +1,3 @@
-
 {
   "name": "red-pill-charting",
   "productName": "Red Pill Charting",
@@ -43,8 +42,7 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
-      "Assets/**/*"
+      "electron/**/*"
     ],
     "win": {
       "target": "nsis",

@@ -1,6 +1,6 @@
 
 import React, { useRef } from 'react';
-import { useFileSystem } from '@/hooks/useFileSystem';
+import { useFileSystem } from '../hooks/useFileSystem';
 import { FolderOpen, FileText, Loader2, AlertTriangle, FileSpreadsheet } from 'lucide-react';
 
 export const LocalDataExplorer: React.FC = () => {

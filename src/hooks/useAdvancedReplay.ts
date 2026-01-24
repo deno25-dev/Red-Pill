@@ -1,8 +1,8 @@
 
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { ISeriesApi, Time, SeriesType } from 'lightweight-charts';
-import { OHLCV, Timeframe } from '@/types';
-import { getTimeframeDuration } from '@/utils/dataUtils';
+import { OHLCV, Timeframe } from '../types';
+import { getTimeframeDuration } from '../utils/dataUtils';
 
 interface UseAdvancedReplayProps {
   seriesRef: React.MutableRefObject<ISeriesApi<SeriesType> | null>;

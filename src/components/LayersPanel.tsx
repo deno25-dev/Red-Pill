@@ -15,7 +15,7 @@ import {
   FolderPlus
 } from 'lucide-react';
 import { Drawing, type Folder as FolderType } from '../types';
-import { ALL_TOOLS_LIST } from '../constants';
+import { ALL_TOOLS_LIST } from '../constants/index';
 
 interface LayersPanelProps {
   drawings: Drawing[];
@@ -30,7 +30,6 @@ interface LayersPanelProps {
   sourceId?: string;
 }
 
-// ... (KEEP TreeNode component exactly as is) ...
 interface TreeNodeProps {
   item: Drawing | FolderType;
   type: 'drawing' | 'folder';
@@ -336,11 +335,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
     onSelectDrawing(null);
   }, [sourceId, electron, onSelectDrawing]);
 
-  // Drag handlers omitted for brevity but logic remains same as before...
-  // Just wrapping the return JSX for embedded vs floating
-
   const handleDragStart = (e: React.DragEvent, id: string, type: 'drawing' | 'folder') => {
-      // (Simplified: Same logic as previous file)
       if (type === 'drawing' && !selectedDrawingIds?.has(id)) {
           onSelectDrawing(id); 
           const payload = [id];
@@ -385,7 +380,6 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                   onUpdateFoldersRef.current(updatedFolders);
               }
           } else {
-              // Reorder logic (same as before)
               const itemsToMove = currentDrawings.filter(d => movedIds.includes(d.id));
               const remaining = currentDrawings.filter(d => !movedIds.includes(d.id));
               let insertIndex = remaining.findIndex(d => d.id === targetId);
@@ -424,46 +418,80 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
                   {folder.isExpanded && reversedChildren.map(child => (
                       <TreeNode key={child.id} item={child} type="drawing" level={1} isSelected={selectedDrawingIds?.has(child.id) ?? false} onSelect={onSelectDrawing} onToggleVisible={handleToggleVisible} onToggleLock={handleToggleLock} onDelete={handleDelete} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />
                   ))}
-                  {folder.isExpanded && reversedChildren.length === 0 && <div className="text-[10px] text-slate-600 pl-8 py-1 italic">Empty Folder</div>}
+                  {folder.isExpanded && reversedChildren.length === 0 && (
+                      <div className="text-[10px] text-slate-600 pl-8 py-1 italic">Empty Folder</div>
+                  )}
               </div>
           );
       });
+
       [...rootDrawings].reverse().forEach(d => {
-          elements.push(<TreeNode key={d.id} item={d} type="drawing" level={0} isSelected={selectedDrawingIds?.has(d.id) ?? false} onSelect={onSelectDrawing} onToggleVisible={handleToggleVisible} onToggleLock={handleToggleLock} onDelete={handleDelete} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />);
+          elements.push(
+              <TreeNode key={d.id} item={d} type="drawing" level={0} isSelected={selectedDrawingIds?.has(d.id) ?? false} onSelect={onSelectDrawing} onToggleVisible={handleToggleVisible} onToggleLock={handleToggleLock} onDelete={handleDelete} onDragStart={handleDragStart} onDragOver={handleDragOver} onDrop={handleDrop} />
+          );
       });
+
       return elements;
   };
 
-  // CONDITIONAL WRAPPER: If position prop exists, it's floating. Else, embedded.
-  const containerClass = position 
-    ? "absolute z-40 w-64 bg-[#1e293b]/90 backdrop-blur-md border border-[#334155] rounded-xl shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200"
-    : "flex flex-col h-full bg-[#1e293b]";
-
-  const style = position ? { left: position.x, top: position.y } : {};
-
   return (
-    <div className={containerClass} style={style}>
+    <div
+      className="absolute z-40 w-64 bg-[#1e293b]/90 backdrop-blur-md border border-[#334155] rounded-xl shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200"
+      style={position ? { left: position.x, top: position.y } : { right: '1rem', top: '5rem' }}
+    >
       {/* Header */}
-      <div onMouseDown={onHeaderMouseDown} className={`flex items-center justify-between p-3 border-b border-[#334155] bg-[#0f172a]/50 ${position ? 'cursor-move' : ''}`}>
+      <div
+        onMouseDown={onHeaderMouseDown}
+        className="flex items-center justify-between p-3 border-b border-[#334155] cursor-move bg-[#0f172a]/50"
+      >
         <div className="flex items-center gap-2 text-sm font-bold text-slate-200">
           <Layers size={16} />
           <span>Object Tree</span>
         </div>
         <div className="flex items-center gap-1">
-            <button className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white" title="New Folder" onClick={(e) => { e.stopPropagation(); handleCreateFolder(); }}><FolderPlus size={14} /></button>
-            <button className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-red-400" title="Delete All Drawings" onClick={handleDeleteAll}><Trash2 size={14} /></button>
-            {/* Close button only if floating */}
-            {onClose && position && <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white"><X size={16} /></button>}
+            <button 
+                className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white"
+                title="New Folder"
+                onClick={(e) => { 
+                    e.stopPropagation(); 
+                    handleCreateFolder(); 
+                }}
+            >
+                <FolderPlus size={14} />
+            </button>
+            <button 
+                className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-red-400"
+                title="Delete All Drawings"
+                onClick={handleDeleteAll}
+            >
+                <Trash2 size={14} />
+            </button>
+            <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:bg-slate-700 hover:text-white">
+                <X size={16} />
+            </button>
         </div>
       </div>
 
       {/* Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar" onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }} onDrop={handleRootDrop}>
-        {drawings.length === 0 && folders.length === 0 ? <div className="p-8 text-center text-xs text-slate-500">No drawings on chart.</div> : renderTree()}
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto custom-scrollbar max-h-[400px] min-h-[100px]"
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+        onDrop={handleRootDrop} 
+      >
+        {drawings.length === 0 && folders.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-500">No drawings on chart.</div>
+        ) : (
+            renderTree()
+        )}
       </div>
       
       {/* Footer Info */}
-      {selectedDrawingIds && selectedDrawingIds.size > 1 && <div className="px-3 py-1 bg-blue-900/20 text-xs text-blue-300 border-t border-[#334155] text-center font-medium">{selectedDrawingIds.size} items selected</div>}
+      {selectedDrawingIds && selectedDrawingIds.size > 1 && (
+          <div className="px-3 py-1 bg-blue-900/20 text-xs text-blue-300 border-t border-[#334155] text-center font-medium">
+              {selectedDrawingIds.size} items selected
+          </div>
+      )}
     </div>
   );
 };

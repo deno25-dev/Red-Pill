@@ -1,17 +1,16 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
-  Eye,
-  EyeOff,
-  Lock,
-  Unlock,
-  Magnet,
-  Star,
-  ChevronRight,
-  Trash2,
+  Eye, 
+  EyeOff, 
+  Lock, 
+  Unlock, 
+  Magnet, 
+  Star, 
+  ChevronRight, 
+  Trash2, 
   Pencil
 } from 'lucide-react';
-import { TOOLS } from '../constants';
+import { TOOLS } from '@/constants/index';
 
 interface DrawingPaletteProps {
   activeToolId: string;

@@ -6,14 +6,14 @@ import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, Folder, Trade } from '../types';
-import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
-import { ALL_TOOLS_LIST, COLORS } from '../constants';
+import { TabSession, Timeframe, DrawingProperties, Drawing, Folder, Trade } from '@/types';
+import { calculateSMA } from '@/utils/dataUtils';
+import { COLORS, ALL_TOOLS_LIST } from '@/constants/index';
 import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2, Link as LinkIcon } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
-import { useTradePersistence } from '../hooks/useTradePersistence';
-import { loadUILayout, saveUILayout } from '../utils/storage';
-import { useInversion } from '../hooks/useInversion';
+import { useTradePersistence } from '@/hooks/useTradePersistence';
+import { loadUILayout, saveUILayout } from '@/utils/storage';
+import { useInversion } from '@/hooks/useInversion';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -189,7 +189,6 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const isDraggingToolbar = useRef(false);
   const toolbarDragStart = useRef({ x: 0, y: 0 });
   const toolbarStartPos = useRef({ x: 0, y: 0 });
-  const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'));
   useEffect(() => { loadUILayout().then(layout => { if (layout && layout.toolbarPos) { setToolbarPos(layout.toolbarPos); } else { setToolbarPos({ x: window.innerWidth / 2 - 150, y: 60 }); } }); }, []);
   const handleToolbarMouseDown = (e: React.MouseEvent) => { isDraggingToolbar.current = true; toolbarDragStart.current = { x: e.clientX, y: e.clientY }; toolbarStartPos.current = { ...toolbarPos }; e.preventDefault(); e.stopPropagation(); const win = (e.view as unknown as Window) || window; const handleMouseMove = (ev: MouseEvent) => { if (!isDraggingToolbar.current) return; setToolbarPos({ x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) }); }; const handleMouseUp = (ev: MouseEvent) => { isDraggingToolbar.current = false; win.removeEventListener('mousemove', handleMouseMove); win.removeEventListener('mouseup', handleMouseUp); const newPos = { x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) }; saveUILayout({ toolbarPos: newPos }); }; win.addEventListener('mousemove', handleMouseMove); win.addEventListener('mouseup', handleMouseUp); };
 
@@ -237,7 +236,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 <div className="pl-2 pr-1 text-slate-500 cursor-move hover:text-slate-300 transition-colors"><GripVertical size={14} /></div><div className="w-px h-4 bg-[#334155] mx-1"></div>{favoriteTools.map(toolId => { const tool = ALL_TOOLS_LIST.find((t: any) => t.id === toolId); if (!tool) return null; return (<button key={toolId} onClick={(e) => { e.stopPropagation(); onSelectTool?.(toolId); }} className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${activeToolId === toolId ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} onMouseDown={(e) => e.stopPropagation()} title={tool.label}><tool.icon size={18} /></button>); })}
             </div>
         )}
-        <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== -1 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
+        <DrawingToolbar isVisible={!!(selectedDrawingId || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'))} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== -1 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={drawings} 
@@ -254,7 +253,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 sourceId={tab.sourceId} 
             />
         )}
-        {(tab.isReplayMode || tab.isAdvancedReplayMode) && (<ReplayControls isPlaying={tab.isReplayPlaying} onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} onStepForward={() => { if (tab.isReplayMode) { const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1); updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close }); } else { const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe); let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime); if (nextIndex === -1) nextIndex = tab.data.length - 1; updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open }); } }} onReset={() => { const newIdx = Math.max(0, tab.data.length - 100); updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open }) }} onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} speed={tab.replaySpeed} onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} position={replayPos.x !== 0 ? replayPos : undefined} onHeaderMouseDown={handleReplayMouseDown} isAdvancedMode={tab.isAdvancedReplayMode} />)}
+        {(tab.isReplayMode || tab.isAdvancedReplayMode) && (<ReplayControls isPlaying={tab.isReplayPlaying} onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} onStepForward={() => { if (tab.isReplayMode) { const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1); updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close }); } else { const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + (tab.timeframe === '1mn' ? 60000 : 0); /* Simplified step */ let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime); if (nextIndex === -1) nextIndex = tab.data.length - 1; updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open }); } }} onReset={() => { const newIdx = Math.max(0, tab.data.length - 100); updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open }) }} onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} speed={tab.replaySpeed} onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} position={replayPos.x !== 0 ? replayPos : undefined} onHeaderMouseDown={handleReplayMouseDown} isAdvancedMode={tab.isAdvancedReplayMode} />)}
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
         <div className="flex-1 w-full relative overflow-hidden">
         {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">{isHydrating ? 'Loading Layout...' : 'Processing Data...'}</div></div></div>}

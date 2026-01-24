@@ -2,13 +2,13 @@
 import { ChartState } from '../types';
 
 const DB_NAME = 'RedPillChartingDB';
-const HANDLE_STORE = 'handles'; // Used for Data Explorer (Last location)
-const DB_HANDLE_KEY = 'databaseRoot'; // Key for the specific Database folder
+const HANDLE_STORE = 'handles'; 
+const DB_HANDLE_KEY = 'databaseRoot'; 
 const STATE_STORE = 'appState';
 const RECENTS_STORE = 'recentFiles';
 const WATCHLIST_STORE = 'watchlist';
-const DRAWINGS_STORE = 'masterDrawingsStore'; // NEW: Single store for all drawings
-const DB_VERSION = 6; // Incremented version
+const DRAWINGS_STORE = 'masterDrawingsStore'; 
+const DB_VERSION = 6; 
 
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -24,20 +24,16 @@ export const initDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(RECENTS_STORE)) db.createObjectStore(RECENTS_STORE, { keyPath: 'name' });
       if (!db.objectStoreNames.contains(WATCHLIST_STORE)) db.createObjectStore(WATCHLIST_STORE, { keyPath: 'symbol' });
       
-      // DEPRECATE old store
       if (db.objectStoreNames.contains('chartMeta')) {
         db.deleteObjectStore('chartMeta');
       }
       
-      // NEW Master Store
       if (!db.objectStoreNames.contains(DRAWINGS_STORE)) {
         db.createObjectStore(DRAWINGS_STORE);
       }
     };
   });
 };
-
-// --- Data Explorer Persistence (Last Open Folder) ---
 
 export const saveExplorerHandle = async (handle: any) => {
   const db = await initDB();
@@ -72,8 +68,6 @@ export const clearExplorerHandle = async () => {
   });
 };
 
-// --- Database Persistence (Symbol Search Root) ---
-
 export const saveDatabaseHandle = async (handle: any) => {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
@@ -107,8 +101,6 @@ export const clearDatabaseHandle = async () => {
   });
 };
 
-// --- App State Persistence ---
-
 export const saveAppState = async (state: any) => {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
@@ -130,8 +122,6 @@ export const loadAppState = async () => {
     req.onerror = () => reject(req.error);
   });
 };
-
-// --- Recent Files Persistence ---
 
 export const addRecentFile = async (handle: any) => {
   const db = await initDB();
@@ -171,8 +161,6 @@ export const getRecentFiles = async () => {
   });
 };
 
-// --- Watchlist Persistence ---
-
 export const addToWatchlist = async (symbol: string) => {
     const db = await initDB();
     return new Promise<void>((resolve, reject) => {
@@ -211,8 +199,6 @@ export const getWatchlist = async () => {
     });
 };
 
-// --- MASTER DRAWING STORE PERSISTENCE ---
-
 export const saveMasterDrawingsStore = async (data: any) => {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
@@ -247,8 +233,6 @@ export const deleteChartMeta = async (sourceId: string) => {
   await saveMasterDrawingsStore(masterStore);
 };
 
-// --- UI LAYOUT PERSISTENCE (MANDATE 3.1) ---
-
 export const saveUILayout = async (layout: any) => {
   const electron = (window as any).electronAPI;
   if (electron && electron.saveSettings) {
@@ -268,7 +252,6 @@ export const loadUILayout = async () => {
   return local ? JSON.parse(local) : null;
 };
 
-// --- STICKY NOTES PERSISTENCE (Web Fallback) ---
 export const saveStickyNotesWeb = async (notes: any[]) => {
     localStorage.setItem('redpill_sticky_notes', JSON.stringify(notes));
 };
@@ -278,8 +261,6 @@ export const loadStickyNotesWeb = async () => {
     return data ? JSON.parse(data) : [];
 };
 
-// --- DEV LOGS PERSISTENCE (Tier 2) ---
-// Used for technical system history
 export const saveDevLogs = async (logs: any[]) => {
   const electron = (window as any).electronAPI;
   if (electron && electron.saveSettings) {
@@ -299,9 +280,7 @@ export const loadDevLogs = async () => {
   return local ? JSON.parse(local) : null;
 };
 
-// --- CHANGELOG PERSISTENCE (Tier 1: Manual Only) ---
 export const saveChangelog = async (data: any) => {
-  // Changelog is now primarily local storage for quick edits or seedData.ts for builds
   localStorage.setItem('app_changelog_data', typeof data === 'string' ? data : JSON.stringify(data));
 };
 

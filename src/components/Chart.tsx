@@ -22,7 +22,7 @@ import {
   SeriesType
 } from 'lightweight-charts';
 import { OHLCV, ChartConfig, Drawing, DrawingPoint, DrawingProperties, Trade, Timeframe } from '../types';
-import { COLORS } from '../constants';
+import { COLORS } from '../constants/index';
 import { smoothPoints, formatDuration, getTimeframeDuration } from '../utils/dataUtils';
 import { debugLog } from '../utils/logger';
 import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
@@ -364,7 +364,7 @@ interface TextInputState {
 interface ChartProps {
   id?: string;
   data: OHLCV[]; // Currently displayed data (slice)
-  smaData: (number | null)[]; // Added back
+  smaData: (number | null)[];
   config: ChartConfig;
   timeframe: string;
   onConfigChange?: (newConfig: ChartConfig) => void;

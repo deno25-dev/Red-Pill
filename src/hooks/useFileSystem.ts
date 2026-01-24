@@ -125,9 +125,10 @@ export const useFileSystem = () => {
       } else if (source instanceof File) {
         // Web Mode Fallback
         rawContent = await source.text();
-      } else {
-         // Should not happen in typical flow unless path passed in Web mode
-         throw new Error("Cannot read file source in current mode");
+      }
+
+      if (!rawContent && source instanceof File) {
+          rawContent = await source.text();
       }
 
       if (!rawContent) {
@@ -140,6 +141,7 @@ export const useFileSystem = () => {
 
       setData(parsedData);
       setCurrentFileName(pathStr.split(/[\\/]/).pop() || pathStr);
+      debugLog('Data', `Loaded file: ${pathStr}`, { count: parsedData.length });
       
     } catch (err: any) {
       console.error("[useFileSystem] Load Error:", err);

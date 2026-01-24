@@ -10,15 +10,13 @@ interface DeveloperToolsProps {
   lastError: string | null;
   chartRenderTime: number | null;
   onOpenStickyNotes?: () => void;
-  onOpenLayoutDB?: () => void;
 }
 
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
   chartRenderTime,
-  onOpenStickyNotes,
-  onOpenLayoutDB
+  onOpenStickyNotes
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'runtime' | 'system'>('runtime');
@@ -228,7 +226,7 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                     Inspect Notes DB
                 </button>
                 <button 
-                    onClick={onOpenLayoutDB}
+                    onClick={() => window.dispatchEvent(new CustomEvent('TOGGLE_LAYOUT_MANAGER'))}
                     className="flex items-center justify-center gap-1 bg-blue-900/10 hover:bg-blue-800/30 text-blue-400 py-1.5 px-2 rounded border border-blue-800/30 transition-colors uppercase text-[10px] font-bold tracking-wider"
                 >
                     <Layout size={12} />

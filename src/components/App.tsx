@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Toolbar } from './Toolbar';
 import { Sidebar } from './Sidebar';
@@ -16,11 +15,11 @@ import { DatabaseBrowser } from './DatabaseBrowser';
 import { StickyNoteManager } from './modals/StickyNoteManager';
 import { LayoutManager } from './modals/LayoutManager';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState, ChartConfig, Drawing, ActivePanel, Folder } from '../types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from './utils/dataUtils';
-import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from './utils/storage';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession, scanRecursive, findIndexForTimestamp } from '../utils/dataUtils';
+import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta, loadUILayout, saveUILayout } from '../utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './DeveloperTools';
-import { debugLog } from './utils/logger';
+import { debugLog } from '../utils/logger';
 import { useFileSystem } from '@/hooks/useFileSystem';
 import { useTradePersistence } from '@/hooks/useTradePersistence';
 import { useSymbolPersistence } from '@/hooks/useSymbolPersistence';

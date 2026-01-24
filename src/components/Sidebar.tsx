@@ -1,12 +1,12 @@
 
 import React from 'react';
-import { ActivePanel } from '@/types';
+import { ActivePanel } from '../types';
 import { Layers, List, AlignJustify } from 'lucide-react';
 
 interface SidebarProps {
   activePanel: ActivePanel;
   onTogglePanel: (panel: ActivePanel) => void;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activePanel, onTogglePanel, children }) => {
@@ -25,11 +25,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePanel, onTogglePanel, ch
       </div>
 
       {/* Navigation Strip */}
-      <div className="w-12 bg-[#0f172a] flex flex-col items-center py-4 gap-4 border-l border-[#334155] z-10">
+      <div className="w-12 bg-[#0f172a] flex flex-col items-center py-4 gap-4 border-l border-[#334155] z-10 shrink-0">
         <button
           onClick={() => onTogglePanel(activePanel === 'watchlist' ? 'none' : 'watchlist')}
           className={`p-2 rounded-lg transition-colors ${activePanel === 'watchlist' ? 'bg-[#334155] text-blue-400' : 'text-slate-400 hover:text-white hover:bg-[#1e293b]'}`}
-          title="Watchlist"
+          title="Watchlist (Alt+W)"
         >
           <List size={20} />
         </button>
@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePanel, onTogglePanel, ch
         <button
           onClick={() => onTogglePanel(activePanel === 'layers' ? 'none' : 'layers')}
           className={`p-2 rounded-lg transition-colors ${activePanel === 'layers' ? 'bg-[#334155] text-blue-400' : 'text-slate-400 hover:text-white hover:bg-[#1e293b]'}`}
-          title="Object Tree"
+          title="Object Tree (Alt+L)"
         >
           <Layers size={20} />
         </button>
