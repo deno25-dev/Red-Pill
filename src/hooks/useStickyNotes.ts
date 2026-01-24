@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { StickyNoteData } from '../types';
 import { saveStickyNotesWeb, loadStickyNotesWeb } from '../utils/storage';
@@ -11,16 +10,20 @@ export const useStickyNotes = () => {
   // Initial Load
   useEffect(() => {
     const load = async () => {
-      if (isTauri()) {
-        const res = await tauriAPI.loadStickyNotes();
-        if (res.success && Array.isArray(res.data)) {
-            setNotes(res.data);
+      try {
+        if (isTauri()) {
+          const res = await tauriAPI.loadStickyNotes();
+          if (res.success && Array.isArray(res.data)) {
+              setNotes(res.data);
+          }
+        } else {
+          const local = await loadStickyNotesWeb();
+          if (Array.isArray(local)) {
+              setNotes(local);
+          }
         }
-      } else {
-        const local = await loadStickyNotesWeb();
-        if (Array.isArray(local)) {
-            setNotes(local);
-        }
+      } catch (e) {
+        console.error("Failed to load sticky notes", e);
       }
     };
     load();
@@ -41,11 +44,14 @@ export const useStickyNotes = () => {
       title: 'New Note',
       content: '',
       inkData: null,
-      mode: 'text',
+      mode: 'text', // Default to text mode
       isMinimized: false,
-      position: { x: window.innerWidth / 2 - 125, y: window.innerHeight / 2 - 125 },
+      position: { 
+          x: window.innerWidth / 2 - 125, 
+          y: window.innerHeight / 2 - 125 
+      },
       size: { w: 250, h: 250 },
-      zIndex: 100,
+      zIndex: 100 + notes.length, // Ensure it's on top
       color: 'yellow'
     };
     

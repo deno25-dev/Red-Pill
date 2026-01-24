@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { Trade } from '../types';
 import { tauriAPI, isTauri } from '../utils/tauri';
@@ -18,14 +17,15 @@ export const useTradePersistence = (sourceId?: string) => {
           console.error("Failed to load trades from backend", e);
         }
       } else {
-        // Web Mode Fallback
-        const key = `trades_${sourceId}`;
+        // Web Mode Fallback: Key trades by the source ID (filename/symbol)
+        const key = `redpill_trades_${sourceId}`;
         const saved = localStorage.getItem(key);
         if (saved) {
           try {
             setTrades(JSON.parse(saved));
           } catch (e) {
             console.error("Failed to parse local trades", e);
+            setTrades([]);
           }
         } else {
             setTrades([]);
@@ -39,11 +39,21 @@ export const useTradePersistence = (sourceId?: string) => {
     setTrades(prev => [...prev, trade]);
     
     if (isTauri()) {
-      await tauriAPI.saveTrade(trade);
+      try {
+        await tauriAPI.saveTrade(trade);
+      } catch (e) {
+        console.error("Failed to save trade to backend", e);
+      }
     } else if (sourceId) {
-      const key = `trades_${sourceId}`;
-      const current = JSON.parse(localStorage.getItem(key) || '[]');
-      localStorage.setItem(key, JSON.stringify([...current, trade]));
+      // Web Mode Persistence
+      const key = `redpill_trades_${sourceId}`;
+      try {
+        const currentData = localStorage.getItem(key);
+        const currentTrades = currentData ? JSON.parse(currentData) : [];
+        localStorage.setItem(key, JSON.stringify([...currentTrades, trade]));
+      } catch (e) {
+        console.error("Failed to save trade locally", e);
+      }
     }
   }, [sourceId]);
 

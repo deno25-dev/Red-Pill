@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [react()],
   // Base './' is essential for Tauri and AI Studio preview environments
   base: './',
-  // Explicitly set root to current directory to acknowledge moved main.tsx
+  // Explicitly set root to current directory
   root: '.',
   publicDir: 'public',
   resolve: {
@@ -22,6 +22,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    fs: {
+      // Allow serving files from one level up to ensure visibility of all project resources
+      allow: ['..'],
+    },
   },
   build: {
     outDir: 'dist',
