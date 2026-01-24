@@ -1,13 +1,49 @@
+
 import React from 'react';
 
 export interface OHLCV {
-  time: number;
+  time: number; // Unix timestamp in seconds or milliseconds
   open: number;
   high: number;
   low: number;
   close: number;
   volume: number;
-  dateStr?: string;
+  dateStr?: string; // Original date string for display
+}
+
+export interface ChartConfig {
+  showVolume: boolean;
+  showSMA: boolean;
+  smaPeriod: number;
+  chartType: 'candlestick' | 'line' | 'area';
+  theme: 'dark' | 'light';
+  volumeTopMargin?: number; // 0.0 to 1.0, defines where volume section starts
+  priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
+  autoScale?: boolean;
+  invertScale?: boolean; // Mandate 4.5: Price Scale Inversion
+  showGridlines?: boolean;
+  showCrosshair?: boolean;
+  // Color overrides
+  upColor?: string;
+  downColor?: string;
+  wickUpColor?: string;
+  wickDownColor?: string;
+  borderUpColor?: string;
+  borderDownColor?: string;
+
+  // Background overrides
+  backgroundColor?: string; // Used for solid
+  backgroundType?: 'solid' | 'gradient'; // gradient maps to VerticalGradient
+  backgroundTopColor?: string;
+  backgroundBottomColor?: string;
+}
+
+export interface ToolItem {
+  id: string;
+  icon: React.ElementType;
+  label: string;
+  action: () => void;
+  active?: boolean;
 }
 
 export enum Timeframe {
@@ -26,28 +62,9 @@ export enum Timeframe {
   MN12 = '12M'
 }
 
-export interface ChartConfig {
-  showVolume: boolean;
-  showSMA: boolean;
-  smaPeriod: number;
-  chartType: 'candlestick' | 'line' | 'area';
-  theme: 'dark' | 'light';
-  volumeTopMargin?: number;
-  priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
-  autoScale?: boolean;
-  invertScale?: boolean;
-  showGridlines?: boolean;
-  showCrosshair?: boolean;
-  upColor?: string;
-  downColor?: string;
-  wickUpColor?: string;
-  wickDownColor?: string;
-  borderUpColor?: string;
-  borderDownColor?: string;
-  backgroundColor?: string;
-  backgroundType?: 'solid' | 'gradient';
-  backgroundTopColor?: string;
-  backgroundBottomColor?: string;
+export interface DrawingPoint {
+  time: number; // Unix timestamp (ms)
+  price: number;
 }
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
@@ -63,12 +80,7 @@ export interface DrawingProperties {
   visible?: boolean;
   locked?: boolean;
   textAlign?: 'left' | 'center' | 'right';
-  smoothing?: number;
-}
-
-export interface DrawingPoint {
-  time: number;
-  price: number;
+  smoothing?: number; // 0 to 20, 0 = raw input
 }
 
 export interface Drawing {
@@ -84,31 +96,13 @@ export interface Folder {
   id: string;
   name: string;
   isExpanded: boolean;
-  visible?: boolean;
-  locked?: boolean;
-}
-
-export interface Trade {
-  id: string;
-  sourceId: string;
-  symbol: string;
-  side: 'buy' | 'sell';
-  type: 'market' | 'limit' | 'stop';
-  price: number;
-  qty: number;
-  value: number;
-  timestamp: number;
-  status: 'filled' | 'open' | 'cancelled';
-  pnl?: number;
-  exitPrice?: number;
-  mode?: 'live' | 'simulated';
-  stopLoss?: number;
-  takeProfit?: number;
+  visible?: boolean; // New: Folder visibility toggle (affects children)
+  locked?: boolean;  // New: Folder lock toggle (affects children)
 }
 
 export interface FileStreamState {
-  file: File | null;
-  path?: string;
+  file: File | null; // Nullable for Electron mode
+  path?: string;     // Robust Bridge path
   cursor: number;
   leftover: string;
   isLoading: boolean;
@@ -116,36 +110,27 @@ export interface FileStreamState {
   fileSize: number;
 }
 
-export interface TabSession {
+export interface Trade {
   id: string;
-  title: string;
-  symbolId: string;
-  sourceId: string;
-  timeframe: Timeframe;
-  config: ChartConfig;
-  fileState?: FileStreamState;
-  filePath?: string;
-  isReplayMode: boolean;
-  isAdvancedReplayMode: boolean;
-  isReplaySelecting: boolean;
-  isReplayPlaying: boolean;
-  replaySpeed: number;
-  isDetached: boolean;
-  isMarketOverviewOpen: boolean;
-  drawings: Drawing[];
-  folders: Folder[];
-  trades: Trade[];
+  sourceId: string; // Links trade to specific CSV/Data source
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: 'market' | 'limit' | 'stop';
+  price: number; // Entry Price
+  qty: number;
+  value: number;
+  timestamp: number;
+  status: 'filled' | 'open' | 'cancelled';
+  pnl?: number;
+  exitPrice?: number;
+  mode?: 'live' | 'simulated'; // For replay trades
+  stopLoss?: number;
+  takeProfit?: number;
 }
 
-export interface TabVaultData {
-  rawData: OHLCV[];
-  data: OHLCV[];
-  replayIndex: number;
-  replayGlobalTime: number | null;
-  simulatedPrice: number | null;
-  visibleRange: { from: number; to: number } | null;
-  undoStack: HistorySnapshot[];
-  redoStack: HistorySnapshot[];
+export interface WatchlistItem {
+  symbol: string;
+  addedAt: number;
 }
 
 export interface HistorySnapshot {
@@ -161,27 +146,43 @@ export interface ChartState {
   folders?: Folder[];
   config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
+  // Optional metadata fields for compatibility
   symbol?: string;
   timeframe?: string;
 }
 
-export interface StickyNoteData {
+export interface TabSession {
   id: string;
   title: string;
-  content: string;
-  inkData: string | null;
-  mode: 'text' | 'ink';
-  isMinimized: boolean;
-  isPinned?: boolean;
-  position: { x: number; y: number };
-  size: { w: number; h: number };
-  zIndex: number;
-  color: 'yellow' | 'blue' | 'green' | 'red' | 'dark' | 'gray';
-}
+  symbolId: string; // Namespace-aware ID (e.g., "FOREX_GOLD")
+  sourceId: string; // Persistent unique ID for drawings/trades
+  rawData: OHLCV[];
+  data: OHLCV[];
+  timeframe: Timeframe;
+  config: ChartConfig;
+  
+  fileState?: FileStreamState;
+  filePath?: string; 
 
-export interface WatchlistItem {
-  symbol: string;
-  addedAt: number;
+  isReplayMode: boolean;
+  isAdvancedReplayMode: boolean;
+  isReplaySelecting: boolean; 
+  replayIndex: number;
+  replayGlobalTime: number | null; 
+  simulatedPrice: number | null; 
+  isReplayPlaying: boolean;
+  replaySpeed: number; 
+  isDetached: boolean;
+  
+  // Persisted UI State
+  isMarketOverviewOpen: boolean;
+
+  visibleRange: { from: number; to: number } | null;
+  trades: Trade[];
+  drawings: Drawing[];
+  folders: Folder[];
+  undoStack: HistorySnapshot[];
+  redoStack: HistorySnapshot[];
 }
 
 export interface SanitizationStats {
@@ -191,3 +192,21 @@ export interface SanitizationStats {
   outliers: number;
   totalRecords: number;
 }
+
+// Mandate 4.4: Sticky Note Engine
+export interface StickyNoteData {
+  id: string;
+  title: string; // New: Note Title
+  content: string; // Text content
+  inkData: string | null; // Base64 encoded image data for ink mode
+  mode: 'text' | 'ink';
+  isMinimized: boolean; // New: Minimized state
+  isPinned?: boolean; // New: Docking state (true = docked/absolute, false = undocked/fixed)
+  position: { x: number; y: number };
+  size: { w: number; h: number };
+  zIndex: number;
+  color: 'yellow' | 'blue' | 'green' | 'red' | 'dark' | 'gray';
+}
+
+// Mandate 4.0: Active Panel State for Sidebar
+export type ActivePanel = 'layers' | 'watchlist' | 'details' | 'none';

@@ -61,7 +61,7 @@ function drawMeasureLabel(ctx: CanvasRenderingContext2D, x: number, y: number, l
     const padding = 8; const lineHeight = 16;
     ctx.font = 'bold 11px sans-serif';
     let maxWidth = 0;
-    lines.forEach((line: string) => { const w = ctx.measureText(line).width; if (w > maxWidth) maxWidth = w; });
+    lines.forEach(line => { const w = ctx.measureText(line).width; if (w > maxWidth) maxWidth = w; });
     const rectW = maxWidth + padding * 2;
     const rectH = (lineHeight * lines.length) + padding;
     const rectX = x - rectW / 2;
@@ -71,7 +71,7 @@ function drawMeasureLabel(ctx: CanvasRenderingContext2D, x: number, y: number, l
     ctx.beginPath(); ctx.roundRect(rectX, rectY, rectW, rectH, 6); ctx.fill();
     ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    lines.forEach((line: string, idx: number) => { ctx.fillText(line, x, rectY + padding + (idx * lineHeight) + lineHeight / 2); });
+    lines.forEach((line, idx) => { ctx.fillText(line, x, rectY + padding + (idx * lineHeight) + lineHeight / 2); });
 }
 
 class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
@@ -183,7 +183,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
 
             const screenPoints = pointsToRender.map(pointToScreen);
             
-            if (screenPoints.every((p: {x: number, y: number}) => p.x === OFF_SCREEN && p.y === OFF_SCREEN)) return;
+            if (screenPoints.every(p => p.x === OFF_SCREEN && p.y === OFF_SCREEN)) return;
             const isSelected = d.id === this._source._selectedDrawingId;
             const isBeingDragged = d.id === dragDrawingId;
             const isHovered = d.id === _hoveredDrawingId;
@@ -284,14 +284,14 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                      target.textAlign = d.properties.textAlign || 'left'; target.textBaseline = 'top';
                      const lines = (d.properties.text || 'Text').split('\n');
                      const lineHeight = (d.properties.fontSize || 14) * 1.2;
-                     lines.forEach((line: string, i: number) => {
+                     lines.forEach((line, i) => {
                          target.fillText(line, screenPoints[0].x, screenPoints[0].y + (i * lineHeight));
                      });
                  }
             }
             if (isSelected && !isDragging && !isCreating) {
                  target.fillStyle = '#ffffff'; target.strokeStyle = '#3b82f6'; target.lineWidth = 1; target.setLineDash([]);
-                 screenPoints.forEach((p: {x: number, y: number}) => { if (p.x !== OFF_SCREEN) { target.beginPath(); target.arc(p.x, p.y, 4, 0, 2*Math.PI); target.fill(); target.stroke(); } });
+                 screenPoints.forEach(p => { if (p.x !== OFF_SCREEN) { target.beginPath(); target.arc(p.x, p.y, 4, 0, 2*Math.PI); target.fill(); target.stroke(); } });
             }
 
             target.restore();
@@ -364,7 +364,7 @@ interface TextInputState {
 interface ChartProps {
   id?: string;
   data: OHLCV[]; // Currently displayed data (slice)
-  smaData: (number | null)[];
+  smaData: (number | null)[]; // Added back
   config: ChartConfig;
   timeframe: string;
   onConfigChange?: (newConfig: ChartConfig) => void;
@@ -391,7 +391,7 @@ interface ChartProps {
   replayIndex?: number;
   isPlaying?: boolean;
   replaySpeed?: number;
-  onReplaySync?: (index: number, time: number, price: number, metricTimestamp?: number) => void;
+  onReplaySync?: (index: number, time: number, price: number) => void;
   onReplayComplete?: () => void;
   isAdvancedReplay?: boolean; 
   liveTimeRef?: React.MutableRefObject<number | null>; 
@@ -451,8 +451,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const [reinitCount, setReinitCount] = useState(0);
   const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
   const { register, forceClear, registry } = useDrawingRegistry(chartRef, seriesRef);
-  const prevDataStartTime = useRef<number | null>(null);
-  const prevDataLength = useRef<number>(0); // Track length to detect cuts
 
   useEffect(() => {
       const container = chartContainerRef.current;
@@ -481,7 +479,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   // --- REPLAY ENGINES ---
   
   useChartReplay({
-    chartRef, // Passed for Logical Range Freeze
     seriesRef,
     fullData,
     startIndex: replayIndex || 0,
@@ -560,7 +557,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           
           if (shouldSnap) { 
               if (isReplayActive) { 
-                  // Anti-Zoom Logic
                   const currentZoomWidth = currentRange.to - currentRange.from; 
                   const targetTo = currentHeadIndex + 2; 
                   const targetFrom = targetTo - currentZoomWidth; 
@@ -572,32 +568,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       });
   }, [isReplayActive, data.length]);
 
-  useEffect(() => { if (!chartContainerRef.current) return; const startTime = performance.now(); const chart = createChart(chartContainerRef.current, { layout: { background: { type: ColorType.Solid, color: 'var(--app-bg)' }, textColor: 'var(--text-secondary)', }, grid: { vertLines: { color: 'var(--border-color)' }, horzLines: { color: 'var(--border-color)' } }, width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight, crosshair: { mode: CrosshairMode.Normal }, timeScale: { borderColor: 'var(--border-color)', timeVisible: true, secondsVisible: false }, rightPriceScale: { borderColor: 'var(--border-color)' }, watermark: { visible: false, }, } as any); chartRef.current = chart; const endTime = performance.now(); const renderDuration = endTime - startTime; debugLog('Perf', `Chart instance initialized in ${renderDuration.toFixed(2)}ms`, { duration: renderDuration }); if (typeof window !== 'undefined') { window.dispatchEvent(new CustomEvent('chart-render-perf', { detail: { duration: renderDuration } })); } const handleResize = (width: number, height: number) => { if (chartRef.current && canvasRef.current) { const dpr = window.devicePixelRatio || 1; chartRef.current.applyOptions({ width, height }); canvasRef.current.width = width * dpr; canvasRef.current.height = height * dpr; canvasRef.current.style.width = `${width}px`; canvasRef.current.style.height = `${height}px`; const ctx = canvasRef.current.getContext('2d'); if (ctx) ctx.scale(dpr, dpr); requestDraw(); } }; const resizeObserver = new ResizeObserver((entries) => { if (entries.length === 0 || !entries[0].contentRect) return; const { width, height } = entries[0].contentRect; if (width > 0 && height > 0) { handleResize(width, height); } }); resizeObserver.observe(chartContainerRef.current); const handleChartClick = (param: MouseEventParams) => { if (param.point) { const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current; if (activeToolId === 'cross' || activeToolId === 'cursor') if (!isReplaySelecting) onSelectDrawing(null); } }; chart.subscribeClick(handleChartClick); const onSyncRange = (e: any) => { if (ignoreRangeChange.current || !propsRef.current.isSyncing) return; const { range, sourceId } = e.detail; if (sourceId !== propsRef.current.id) { ignoreRangeChange.current = true; isProgrammaticUpdate.current = true; chart.timeScale().setVisibleLogicalRange(range); setTimeout(() => { ignoreRangeChange.current = false; isProgrammaticUpdate.current = false; }, 50); } }; 
-  
-  const onSyncCrosshair = (e: any) => { 
-      const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; 
-      if (!shouldSync) return; 
-      const { point, sourceId } = e.detail; 
-      if (sourceId !== propsRef.current.id && chartRef.current && seriesRef.current) { 
-          chartRef.current.setCrosshairPosition( point.price, (point.time / 1000) as any, seriesRef.current ); 
-      } 
-  }; 
-  
-  window.addEventListener('chart-sync-range', onSyncRange); window.addEventListener('chart-sync-crosshair', onSyncCrosshair); chart.timeScale().subscribeVisibleLogicalRangeChange((range) => { requestDraw(); if (range && !ignoreRangeChange.current && propsRef.current.isSyncing) { window.dispatchEvent(new CustomEvent('chart-sync-range', { detail: { range, sourceId: propsRef.current.id } })); } if (range && propsRef.current.onRequestMoreData) { if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); rangeChangeTimeout.current = setTimeout(() => { if (range.from < 50) propsRef.current.onRequestMoreData?.(); }, 100); } if (range) { const currentData = propsRef.current.data; const lastIndex = currentData.length - 1; const dist = lastIndex - range.to; setShowScrollButton(dist > 10); if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) { if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); rangeDebounceTimeout.current = setTimeout(() => { if (!isProgrammaticUpdate.current) { propsRef.current.onVisibleRangeChange?.({ from: range.from, to: range.to }); } }, 500); } } }); 
-  
-  chart.subscribeCrosshairMove((param) => { 
-      const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; 
-      if (param.point && !ignoreRangeChange.current && shouldSync) { 
-          let price = 0; 
-          if (seriesRef.current) { 
-              const p = seriesRef.current.coordinateToPrice(param.point.y); 
-              if (p !== null) price = p; 
-          } 
-          window.dispatchEvent(new CustomEvent('chart-sync-crosshair', { detail: { point: { time: (param.time as any) * 1000, price: price, x: param.point.x, y: param.point.y }, sourceId: propsRef.current.id } })); 
-      } 
-  }); 
-  
-  return () => { window.removeEventListener('chart-sync-range', onSyncRange); window.removeEventListener('chart-sync-crosshair', onSyncCrosshair); resizeObserver.disconnect(); if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); if (rafId.current) cancelAnimationFrame(rafId.current); try { chart.unsubscribeClick(handleChartClick); } catch(e) {} if (registry && registry.current) { registry.current.clear(); } chart.remove(); chartRef.current = null; seriesRef.current = null; }; }, []);
+  useEffect(() => { if (!chartContainerRef.current) return; const startTime = performance.now(); const chart = createChart(chartContainerRef.current, { layout: { background: { type: ColorType.Solid, color: 'var(--app-bg)' }, textColor: 'var(--text-secondary)', }, grid: { vertLines: { color: 'var(--border-color)' }, horzLines: { color: 'var(--border-color)' } }, width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight, crosshair: { mode: CrosshairMode.Normal }, timeScale: { borderColor: 'var(--border-color)', timeVisible: true, secondsVisible: false }, rightPriceScale: { borderColor: 'var(--border-color)' }, watermark: { visible: false, }, } as any); chartRef.current = chart; const endTime = performance.now(); const renderDuration = endTime - startTime; debugLog('Perf', `Chart instance initialized in ${renderDuration.toFixed(2)}ms`, { duration: renderDuration }); if (typeof window !== 'undefined') { window.dispatchEvent(new CustomEvent('chart-render-perf', { detail: { duration: renderDuration } })); } const handleResize = (width: number, height: number) => { if (chartRef.current && canvasRef.current) { const dpr = window.devicePixelRatio || 1; chartRef.current.applyOptions({ width, height }); canvasRef.current.width = width * dpr; canvasRef.current.height = height * dpr; canvasRef.current.style.width = `${width}px`; canvasRef.current.style.height = `${height}px`; const ctx = canvasRef.current.getContext('2d'); if (ctx) ctx.scale(dpr, dpr); requestDraw(); } }; const resizeObserver = new ResizeObserver((entries) => { if (entries.length === 0 || !entries[0].contentRect) return; const { width, height } = entries[0].contentRect; if (width > 0 && height > 0) { handleResize(width, height); } }); resizeObserver.observe(chartContainerRef.current); const handleChartClick = (param: MouseEventParams) => { if (param.point) { const { activeToolId, isReplaySelecting, onSelectDrawing } = propsRef.current; if (activeToolId === 'cross' || activeToolId === 'cursor') if (!isReplaySelecting) onSelectDrawing(null); } }; chart.subscribeClick(handleChartClick); const onSyncRange = (e: any) => { if (ignoreRangeChange.current || !propsRef.current.isSyncing) return; const { range, sourceId } = e.detail; if (sourceId !== propsRef.current.id) { ignoreRangeChange.current = true; isProgrammaticUpdate.current = true; chart.timeScale().setVisibleLogicalRange(range); setTimeout(() => { ignoreRangeChange.current = false; isProgrammaticUpdate.current = false; }, 50); } }; const onSyncCrosshair = (e: any) => { const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; if (!shouldSync) return; const { point, sourceId } = e.detail; if (sourceId !== propsRef.current.id && chartRef.current && seriesRef.current) { chartRef.current.setCrosshairPosition( point.price, (point.time / 1000) as Time, seriesRef.current ); } }; window.addEventListener('chart-sync-range', onSyncRange); window.addEventListener('chart-sync-crosshair', onSyncCrosshair); chart.timeScale().subscribeVisibleLogicalRangeChange((range) => { requestDraw(); if (range && !ignoreRangeChange.current && propsRef.current.isSyncing) { window.dispatchEvent(new CustomEvent('chart-sync-range', { detail: { range, sourceId: propsRef.current.id } })); } if (range && propsRef.current.onRequestMoreData) { if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); rangeChangeTimeout.current = setTimeout(() => { if (range.from < 50) propsRef.current.onRequestMoreData?.(); }, 100); } if (range) { const currentData = propsRef.current.data; const lastIndex = currentData.length - 1; const dist = lastIndex - range.to; setShowScrollButton(dist > 10); if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) { if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); rangeDebounceTimeout.current = setTimeout(() => { if (!isProgrammaticUpdate.current) { propsRef.current.onVisibleRangeChange?.({ from: range.from, to: range.to }); } }, 500); } } }); chart.subscribeCrosshairMove((param) => { const shouldSync = propsRef.current.isSyncing || propsRef.current.isMasterSyncActive; if (param.point && !ignoreRangeChange.current && shouldSync) { let price = 0; if (seriesRef.current) { const p = seriesRef.current.coordinateToPrice(param.point.y); if (p !== null) price = p; } window.dispatchEvent(new CustomEvent('chart-sync-crosshair', { detail: { point: { time: (param.time as number) * 1000, price: price, x: param.point.x, y: param.point.y }, sourceId: propsRef.current.id } })); } }); return () => { window.removeEventListener('chart-sync-range', onSyncRange); window.removeEventListener('chart-sync-crosshair', onSyncCrosshair); resizeObserver.disconnect(); if (rangeChangeTimeout.current) clearTimeout(rangeChangeTimeout.current); if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current); if (rafId.current) cancelAnimationFrame(rafId.current); try { chart.unsubscribeClick(handleChartClick); } catch(e) {} if (registry && registry.current) { registry.current.clear(); } chart.remove(); chartRef.current = null; seriesRef.current = null; }; }, []);
   useEffect(() => { if (!chartRef.current) return; chartRef.current.applyOptions({ timeScale: { shiftVisibleRangeOnNewBar: !isReplayActive, allowShiftVisibleRangeOnWhitespaceReplacement: !isReplayActive, } }); }, [isReplayActive]);
   
   useEffect(() => { 
@@ -635,39 +606,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => { if (!chartRef.current) return; let background: any; if (config.backgroundType === 'gradient') { background = { type: ColorType.VerticalGradient, topColor: config.backgroundTopColor || (config.theme === 'light' ? '#F8FAFC' : '#0f172a'), bottomColor: config.backgroundBottomColor || (config.theme === 'light' ? '#E2E8F0' : '#0f172a'), }; } else if (config.backgroundColor) { background = { type: ColorType.Solid, color: config.backgroundColor, }; } else { background = { type: ColorType.Solid, color: config.theme === 'light' ? '#F8FAFC' : '#0f172a' }; } const textColor = config.theme === 'light' ? '#1E293B' : COLORS.text; let gridColor = 'transparent'; if (config.showGridlines !== false) { gridColor = config.theme === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(148, 163, 184, 0.1)'; } const borderColor = config.theme === 'light' ? '#CBD5E1' : '#334155'; chartRef.current.applyOptions({ layout: { background, textColor, }, grid: { vertLines: { color: gridColor }, horzLines: { color: gridColor } }, timeScale: { borderColor }, rightPriceScale: { borderColor }, }); const mode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal; chartRef.current.priceScale('right').applyOptions({ mode, autoScale: config.autoScale !== false, invertScale: !!config.invertScale }); }, [config.theme, config.showGridlines, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor, config.invertScale]);
   useEffect(() => { if (!chartRef.current) return; if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current as any); seriesRef.current = null; } let newSeries; if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 }); else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 }); else { const upColor = config.upColor || COLORS.bullish; const downColor = config.downColor || COLORS.bearish; const wickUpColor = config.wickUpColor || COLORS.bullish; const wickDownColor = config.wickDownColor || COLORS.bearish; const borderUpColor = config.borderUpColor || upColor; const borderDownColor = config.borderDownColor || downColor; newSeries = chartRef.current.addSeries(CandlestickSeries, { upColor, downColor, borderVisible: true, borderUpColor, borderDownColor, wickUpColor, wickDownColor }); } seriesRef.current = newSeries as ISeriesApi<SeriesType>; newSeries.setData(processedData as any); handleSnapToRecent(true); const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe); const lastCandle = data.length > 0 ? data[data.length - 1] : null; primitive.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data); register('drawings-primitive', primitive); newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw(); }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount, handleSnapToRecent]); 
-  
   useEffect(() => { 
       if (!seriesRef.current || !chartRef.current) return; 
-      
-      // --- REPLAY GUARD (Mandate 0.37 Performance) ---
-      // Prevents React from resetting the series data on every frame update during replay.
-      // We only allow setData if:
-      // 1. Not playing
-      // 2. Data source changed (Start time diff)
-      // 3. Significant length change (Manual Seek / Cut)
-      if (isPlaying && processedData.length > 0) {
-          const currentStart = processedData[0].time as number;
-          const prevStart = prevDataStartTime.current;
-          
-          // Check if start time is stable (Same dataset/timeframe)
-          const isSameSource = currentStart === prevStart;
-          
-          // Check if length changed significantly (Seek vs Playback)
-          // Playback adds 1 candle at a time (or small batch). Seeks change length drastically.
-          const lengthDiff = Math.abs(processedData.length - prevDataLength.current);
-          
-          // GUARD: If source is same and length diff is small (playback), SKIP setData.
-          // The useChartReplay hook handles the visual updates via series.update().
-          if (isSameSource && lengthDiff <= 2) {
-              // Update ref length but DO NOT call setData
-              prevDataLength.current = processedData.length;
-              return; 
-          }
-      }
-      
-      prevDataStartTime.current = (processedData[0]?.time as number) ?? null;
-      prevDataLength.current = processedData.length;
-
       let savedRange: LogicalRange | null = null; 
       if (isReplayActive) { 
           savedRange = chartRef.current.timeScale().getVisibleLogicalRange(); 
@@ -678,27 +618,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           
           seriesRef.current.setData(processedData as any); 
           
-          // Replay Cut-Point Stability Logic (Mandate 0.26 & 0.28)
-          if (isReplayActive) {
-              const lastIndex = processedData.length - 1;
-              
-              if (savedRange) {
-                  const currentZoomWidth = savedRange.to - savedRange.from;
-                  // Heuristic: If savedRange is valid (near the new head), restore it.
-                  // If it's completely out of bounds (e.g. user jumped far back), snap to new head.
-                  if (savedRange.from < lastIndex + 50) {
-                      chartRef.current.timeScale().setVisibleLogicalRange(savedRange);
-                  } else {
-                      // Smart Snap: Maintain zoom level but move to head
-                      chartRef.current.timeScale().setVisibleLogicalRange({
-                          from: lastIndex - currentZoomWidth + 5,
-                          to: lastIndex + 5
-                      } as LogicalRange);
-                  }
-              } else {
-                  // Fallback if no saved range
-                  handleSnapToRecent(false);
-              }
+          if (isReplayActive && savedRange) { 
+              chartRef.current.timeScale().setVisibleLogicalRange(savedRange); 
           } else { 
               handleSnapToRecent(false); 
           } 
@@ -710,14 +631,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       } catch(e) {} 
       
       if (volumeSeriesRef.current && config.showVolume) { const volUp = config.upColor ? config.upColor + '80' : COLORS.volumeBullish; const volDown = config.downColor ? config.downColor + '80' : COLORS.volumeBearish; volumeSeriesRef.current.setData(data.map(d => ({ time: (d.time / 1000) as Time, value: d.volume, color: d.close >= d.open ? volUp : volDown }))); } if (smaSeriesRef.current && config.showSMA) { const smaSeriesData = []; for(let i=0; i<data.length; i++) { if (smaData[i] !== null) smaSeriesData.push({ time: (data[i].time / 1000) as Time, value: smaData[i] as number }); } smaSeriesRef.current.setData(smaSeriesData); } 
-  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent, isReplayActive, isPlaying]); 
+  }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent, isReplayActive]); 
   useEffect(() => { if (!chartRef.current) return; if (config.showVolume) { if (!volumeSeriesRef.current) { volumeSeriesRef.current = chartRef.current.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' }); chartRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: config.volumeTopMargin || 0.8, bottom: 0 } }); } } else if (volumeSeriesRef.current) { chartRef.current.removeSeries(volumeSeriesRef.current); volumeSeriesRef.current = null; } if (config.showSMA) { if (!smaSeriesRef.current) smaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: COLORS.sma, lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false }); } else if (smaSeriesRef.current) { chartRef.current.removeSeries(smaSeriesRef.current); smaSeriesRef.current = null; } }, [config.showVolume, config.showSMA, config.volumeTopMargin]);
   
   const pointToScreen = (p: DrawingPoint) => { if (!chartRef.current || !seriesRef.current) return { x: OFF_SCREEN, y: OFF_SCREEN }; try { if (!p.time || !Number.isFinite(p.time) || p.time <= 0) return { x: OFF_SCREEN, y: OFF_SCREEN }; const timeScale = chartRef.current.timeScale(); const price = seriesRef.current.priceToCoordinate(p.price); let x = timeScale.timeToCoordinate(p.time / 1000 as Time); if (x === null) { const idx = timeToIndexRef.current.get(p.time); if (idx !== undefined) x = timeScale.logicalToCoordinate(idx as Logical); else if (propsRef.current.data.length > 0) { const currentData = propsRef.current.data; const lastCandle = currentData[currentData.length - 1]; const tfMs = getTimeframeDuration(propsRef.current.timeframe as any); const diff = p.time - lastCandle.time; const bars = diff / tfMs; const targetLogical = (currentData.length - 1) + bars; x = timeScale.logicalToCoordinate(targetLogical as Logical); } } return { x: (x !== null && Number.isFinite(x)) ? x : OFF_SCREEN, y: (price !== null && Number.isFinite(price)) ? price : OFF_SCREEN }; } catch (e) { return { x: OFF_SCREEN, y: OFF_SCREEN }; } };
   const snapToCandle = (x: number, y: number) => { const currentData = propsRef.current.data; if (!chartRef.current || !seriesRef.current || currentData.length === 0) return null; const logical = chartRef.current.timeScale().coordinateToLogical(x); if (logical === null || isNaN(logical)) return null; const idx = Math.round(logical); const candle = currentData[idx]; if (!candle) return null; const prices = [{ val: candle.open, y: seriesRef.current.priceToCoordinate(candle.open) }, { val: candle.high, y: seriesRef.current.priceToCoordinate(candle.high) }, { val: candle.low, y: seriesRef.current.priceToCoordinate(candle.low) }, { val: candle.close, y: seriesRef.current.priceToCoordinate(candle.close) }]; let nearest = prices[0]; let minDist = 99999; prices.forEach(p => { if (p.y !== null) { const d = Math.abs(y - p.y); if (d < minDist) { minDist = d; nearest = p; } } }); if (minDist < 30) return { time: candle.time, price: nearest.val }; return null; };
   const screenToPoint = (x: number, y: number, applyMagnet = false) => { if (!chartRef.current || !seriesRef.current) return null; if (applyMagnet && propsRef.current.isMagnetMode) { const snapped = snapToCandle(x, y); if (snapped) return snapped; } try { const timeScale = chartRef.current.timeScale(); const timeSeconds = timeScale.coordinateToTime(x); const price = seriesRef.current.coordinateToPrice(y); if (timeSeconds === null || price === null || !Number.isFinite(timeSeconds as number) || !Number.isFinite(price)) { const logical = timeScale.coordinateToLogical(x); if (logical !== null && propsRef.current.data.length > 0) { const currentData = propsRef.current.data; const lastIdx = currentData.length - 1; const diff = logical - lastIdx; const tfMs = getTimeframeDuration(propsRef.current.timeframe as any); const estimatedTime = currentData[lastIdx].time + (diff * tfMs); if (!Number.isFinite(estimatedTime)) return null; return { time: estimatedTime, price: price || 0 }; } return null; } return { time: (timeSeconds as number) * 1000, price }; } catch (e) { return null; } };
   const renderOverlay = () => { const canvas = canvasRef.current; if (!canvas || !chartRef.current) return; const ctx = canvas.getContext('2d'); if (!ctx) return; const width = chartContainerRef.current?.clientWidth || 0, height = chartContainerRef.current?.clientHeight || 0; ctx.clearRect(0, 0, width, height); if (propsRef.current.isReplaySelecting && replayMouseX.current !== null) { ctx.beginPath(); ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1; ctx.setLineDash([6, 4]); ctx.moveTo(replayMouseX.current, 0); ctx.lineTo(replayMouseX.current, height); ctx.stroke(); ctx.setLineDash([]); ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#ef4444'; ctx.fillText('Start Replay', replayMouseX.current + 5, 20); } const { isCreating, activeToolId, creatingPoints } = interactionState.current; if (isCreating && activeToolId === 'brush' && creatingPoints.length > 1) { const screenPoints = creatingPoints.map(pointToScreen); const props = propsRef.current.currentDefaultProperties; ctx.beginPath(); ctx.strokeStyle = props.color; ctx.lineWidth = props.lineWidth; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; if (props.lineStyle === 'dashed') ctx.setLineDash([10, 10]); else if (props.lineStyle === 'dotted') ctx.setLineDash([3, 6]); else ctx.setLineDash([]); let started = false; for(let i=0; i<screenPoints.length; i++) { const p = screenPoints[i]; if (p.x !== OFF_SCREEN && p.y !== OFF_SCREEN) { if (!started) { ctx.moveTo(p.x, p.y); started = true; } else { ctx.lineTo(p.x, p.y); } } } ctx.stroke(); } };
-  const getHitObject = (x: number, y: number) => { let hitHandle: { id: string; index: number } | null = null; let hitDrawing: Drawing | null = null; const { selectedDrawingId } = propsRef.current; const currentVisibleDrawings = visibleDrawingsRef.current; if (selectedDrawingId) { const d = currentVisibleDrawings.find(dr => dr.id === selectedDrawingId); if (d && !d.properties.locked && d.properties.visible !== false) { const screenPoints = d.points.map(pointToScreen); for(let i=0; i<screenPoints.length; i++) { const p = screenPoints[i]; if (p.x !== OFF_SCREEN && Math.hypot(p.x - x, p.y - y) < 8) { return { hitHandle: { id: d.id, index: i }, hitDrawing: d }; } } } } for (let i = currentVisibleDrawings.length - 1; i >= 0; i--) { const d = currentVisibleDrawings[i]; if (d.properties.visible === false) continue; const screenPoints = d.points.map(pointToScreen); if (screenPoints.every((p: {x: number, y: number}) => p.x === OFF_SCREEN)) continue; let hit = false; if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') { const p1 = screenPoints[0], p2 = screenPoints[1]; if (p1.x !== OFF_SCREEN && p2.x !== OFF_SCREEN && pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) hit = true; } else if (d.type === 'brush') { for (let j = 0; j < screenPoints.length - 1; j++) { const p1 = screenPoints[j], p2 = screenPoints[j+1]; if (p1.x !== OFF_SCREEN && p2.x !== OFF_SCREEN && pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) { hit = true; break; } } } else if (d.type === 'horizontal_line') { if (screenPoints[0]?.y !== OFF_SCREEN && Math.abs(y - screenPoints[0].y) < 6) hit = true; } else if (d.type === 'horizontal_ray') { if (screenPoints[0]?.y !== OFF_SCREEN && screenPoints[0]?.x !== OFF_SCREEN && Math.abs(y - screenPoints[0].y) < 6 && x >= screenPoints[0].x - 10) hit = true; } else if (d.type === 'vertical_line') { if (screenPoints[0]?.x !== OFF_SCREEN && Math.abs(x - screenPoints[0].x) < 6) hit = true; } else if (d.type === 'rectangle' || d.type === 'date_range' || d.type === 'measure') { const minX = Math.min(screenPoints[0].x, screenPoints[1].x), maxX = Math.max(screenPoints[0].x, screenPoints[1].x); const minY = d.type === 'date_range' ? 0 : Math.min(screenPoints[0].y, screenPoints[1].y); const maxY = d.type === 'date_range' ? 10000 : Math.max(screenPoints[0].y, screenPoints[1].y); if (x >= minX && x <= maxX && y >= minY && y <= maxY) { if (d.properties.filled || d.type === 'date_range' || d.type === 'measure') hit = true; else { const tol = 6; if (Math.abs(x - minX) < tol || Math.abs(x - maxX) < tol || Math.abs(y - minY) < tol || Math.abs(y - maxY) < tol) hit = true; } } } else if (d.type === 'triangle' || d.type === 'rotated_rectangle') { if (isPointInPoly(x, y, screenPoints as any)) hit = true; } else if (d.type === 'circle') { if (screenPoints.length >= 2) { const r = Math.hypot(screenPoints[1].x - screenPoints[0].x, screenPoints[1].y - screenPoints[0].y), dist = Math.hypot(x - screenPoints[0].x, y - screenPoints[0].y); if (d.properties.filled ? dist <= r : Math.abs(dist - r) < 6) hit = true; } } else if (d.type === 'text') { const p = screenPoints[0]; if (p?.x !== OFF_SCREEN) { const h = d.properties.fontSize || 14, w = (d.properties.text?.length || 4) * (h * 0.6); if (x >= p.x - 5 && x <= p.x + w && y >= p.y - 5 && y <= p.y + h + 5) hit = true; } } if (hit) { hitDrawing = d; break; } } return { hitHandle, hitDrawing }; };
+  const getHitObject = (x: number, y: number) => { let hitHandle: { id: string; index: number } | null = null; let hitDrawing: Drawing | null = null; const { selectedDrawingId } = propsRef.current; const currentVisibleDrawings = visibleDrawingsRef.current; if (selectedDrawingId) { const d = currentVisibleDrawings.find(dr => dr.id === selectedDrawingId); if (d && !d.properties.locked && d.properties.visible !== false) { const screenPoints = d.points.map(pointToScreen); for(let i=0; i<screenPoints.length; i++) { const p = screenPoints[i]; if (p.x !== OFF_SCREEN && Math.hypot(p.x - x, p.y - y) < 8) { return { hitHandle: { id: d.id, index: i }, hitDrawing: d }; } } } } for (let i = currentVisibleDrawings.length - 1; i >= 0; i--) { const d = currentVisibleDrawings[i]; if (d.properties.visible === false) continue; const screenPoints = d.points.map(pointToScreen); if (screenPoints.every(p => p.x === OFF_SCREEN)) continue; let hit = false; if (d.type === 'trend_line' || d.type === 'ray' || d.type === 'arrow_line') { const p1 = screenPoints[0], p2 = screenPoints[1]; if (p1.x !== OFF_SCREEN && p2.x !== OFF_SCREEN && pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) hit = true; } else if (d.type === 'brush') { for (let j = 0; j < screenPoints.length - 1; j++) { const p1 = screenPoints[j], p2 = screenPoints[j+1]; if (p1.x !== OFF_SCREEN && p2.x !== OFF_SCREEN && pDistance(x, y, p1.x, p1.y, p2.x, p2.y) < 6) { hit = true; break; } } } else if (d.type === 'horizontal_line') { if (screenPoints[0]?.y !== OFF_SCREEN && Math.abs(y - screenPoints[0].y) < 6) hit = true; } else if (d.type === 'horizontal_ray') { if (screenPoints[0]?.y !== OFF_SCREEN && screenPoints[0]?.x !== OFF_SCREEN && Math.abs(y - screenPoints[0].y) < 6 && x >= screenPoints[0].x - 10) hit = true; } else if (d.type === 'vertical_line') { if (screenPoints[0]?.x !== OFF_SCREEN && Math.abs(x - screenPoints[0].x) < 6) hit = true; } else if (d.type === 'rectangle' || d.type === 'date_range' || d.type === 'measure') { const minX = Math.min(screenPoints[0].x, screenPoints[1].x), maxX = Math.max(screenPoints[0].x, screenPoints[1].x); const minY = d.type === 'date_range' ? 0 : Math.min(screenPoints[0].y, screenPoints[1].y); const maxY = d.type === 'date_range' ? 10000 : Math.max(screenPoints[0].y, screenPoints[1].y); if (x >= minX && x <= maxX && y >= minY && y <= maxY) { if (d.properties.filled || d.type === 'date_range' || d.type === 'measure') hit = true; else { const tol = 6; if (Math.abs(x - minX) < tol || Math.abs(x - maxX) < tol || Math.abs(y - minY) < tol || Math.abs(y - maxY) < tol) hit = true; } } } else if (d.type === 'triangle' || d.type === 'rotated_rectangle') { if (isPointInPoly(x, y, screenPoints as any)) hit = true; } else if (d.type === 'circle') { if (screenPoints.length >= 2) { const r = Math.hypot(screenPoints[1].x - screenPoints[0].x, screenPoints[1].y - screenPoints[0].y), dist = Math.hypot(x - screenPoints[0].x, y - screenPoints[0].y); if (d.properties.filled ? dist <= r : Math.abs(dist - r) < 6) hit = true; } } else if (d.type === 'text') { const p = screenPoints[0]; if (p?.x !== OFF_SCREEN) { const h = d.properties.fontSize || 14, w = (d.properties.text?.length || 4) * (h * 0.6); if (x >= p.x - 5 && x <= p.x + w && y >= p.y - 5 && y <= p.y + h + 5) hit = true; } } if (hit) { hitDrawing = d; break; } } return { hitHandle, hitDrawing }; };
   
   const handleContainerMouseMove = (e: React.MouseEvent) => { 
       if (isReplaySelecting && canvasRef.current) { 

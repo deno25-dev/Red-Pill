@@ -1,25 +1,22 @@
 
-import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
 import { DrawingToolbar } from './DrawingToolbar';
 import { BottomPanel } from './BottomPanel';
 import { LayersPanel } from './LayersPanel';
 import { RecentMarketDataPanel } from './MarketStats';
-import { TabSession, Timeframe, DrawingProperties, Drawing, Folder, Trade, OHLCV, TabVaultData } from '../types';
+import { TabSession, Timeframe, DrawingProperties, Drawing, Folder, Trade } from '../types';
 import { calculateSMA, getTimeframeDuration } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { Settings, Check, Folder as FolderIcon, Lock, CheckCircle2, Link as LinkIcon, GripVertical } from 'lucide-react';
+import { GripVertical, Settings, Check, Folder as FolderIcon, Lock, CheckCircle2, Link as LinkIcon } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
 import { loadUILayout, saveUILayout } from '../utils/storage';
-import { report } from '../utils/logger';
+import { useInversion } from '../hooks/useInversion';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
-  // Ghost-Vault Access
-  tabVault: React.MutableRefObject<Map<string, TabVaultData>>;
-  
   updateTab: (updates: Partial<TabSession>) => void;
   onTimeframeChange: (tf: Timeframe) => void;
   loading?: boolean;
@@ -59,104 +56,14 @@ interface ChartWorkspaceProps {
   // Trade Sync Props
   onSyncTrades?: () => void;
   hasUnsavedTrades?: boolean;
-  
-  // Replay Sync Callback (Passed from App)
-  onReplaySync?: (index: number, time: number, price: number, metricTimestamp?: number) => void;
-  onReplayComplete?: () => void;
-  
-  onReplayPointSelect?: (time: number) => void;
+
+  // Lifted Selection State
+  selectedDrawingId?: string | null;
+  onSelectDrawing?: (id: string | null, e?: React.MouseEvent) => void;
 }
 
-// --- GHOST HEADER COMPONENT ---
-// This component subscribes directly to the replay-tick event
-// It updates the DOM directly via Refs, bypassing React State updates entirely.
-const GhostHeader: React.FC<{ tabId: string, initialPrice: number, initialPrev: number, initialVol: number }> = React.memo(({ tabId, initialPrice, initialPrev, initialVol }) => {
-    const priceRef = useRef<HTMLSpanElement>(null);
-    const changeRef = useRef<HTMLSpanElement>(null);
-    const volRef = useRef<HTMLSpanElement>(null);
-    const timeRef = useRef<HTMLSpanElement>(null);
-    
-    // Store prev price to calc change dynamically
-    const prevPriceRef = useRef(initialPrev);
-
-    useEffect(() => {
-        const handleTick = (e: any) => {
-            if (e.detail.tabId !== tabId) return;
-            const { price, time } = e.detail;
-            
-            if (priceRef.current) priceRef.current.innerText = price.toFixed(2);
-            
-            if (changeRef.current) {
-                const prev = prevPriceRef.current;
-                // Simple heuristic: If prev is 0 (init), try to use current as base
-                const base = prev === 0 ? price : prev; 
-                
-                const change = price - base;
-                const pct = base !== 0 ? (change / base) * 100 : 0;
-                const sign = change > 0 ? '+' : '';
-                changeRef.current.innerText = `${sign}${change.toFixed(2)} (${pct.toFixed(2)}%)`;
-                
-                // Direct DOM Class Manipulation for Performance
-                if (change >= 0) {
-                    priceRef.current?.classList.remove('text-red-400');
-                    priceRef.current?.classList.add('text-emerald-400');
-                    changeRef.current.classList.remove('text-red-500');
-                    changeRef.current.classList.add('text-emerald-500');
-                } else {
-                    priceRef.current?.classList.remove('text-emerald-400');
-                    priceRef.current?.classList.add('text-red-400');
-                    changeRef.current.classList.remove('text-emerald-500');
-                    changeRef.current.classList.add('text-red-500');
-                }
-            }
-            
-            if (timeRef.current) {
-                const d = new Date(time);
-                // Fast manual formatting YYYY-MM-DD HH:MM:SS
-                const yyyy = d.getFullYear();
-                const mm = String(d.getMonth() + 1).padStart(2, '0');
-                const dd = String(d.getDate()).padStart(2, '0');
-                const hh = String(d.getHours()).padStart(2, '0');
-                const min = String(d.getMinutes()).padStart(2, '0');
-                const ss = String(d.getSeconds()).padStart(2, '0');
-                
-                timeRef.current.innerText = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
-            }
-        };
-        
-        window.addEventListener('replay-tick', handleTick);
-        return () => window.removeEventListener('replay-tick', handleTick);
-    }, [tabId]);
-
-    // Initial Static Render
-    const initialChange = initialPrice - initialPrev;
-    const initialPct = initialPrev !== 0 ? (initialChange / initialPrev) * 100 : 0;
-    const isUp = initialChange >= 0;
-
-    return (
-        <>
-            <div className="flex items-baseline gap-3">
-                <span ref={priceRef} className={`text-sm font-mono font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {initialPrice.toFixed(2)}
-                </span>
-                <span ref={changeRef} className={`text-xs font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {initialChange > 0 ? '+' : ''}{initialChange.toFixed(2)} ({initialPct.toFixed(2)}%)
-                </span>
-            </div>
-            <div className="h-4 w-px bg-slate-600"></div>
-            <div className="text-[10px] text-slate-400">
-                Vol: <span ref={volRef} className="text-slate-300 font-mono">{initialVol.toFixed(0)}</span>
-            </div>
-            <div className="h-4 w-px bg-slate-600 hidden">
-               <span ref={timeRef}></span>
-            </div>
-        </>
-    );
-});
-
-const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({ 
+export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({ 
   tab, 
-  tabVault,
   updateTab, 
   onTimeframeChange,
   loading = false,
@@ -184,28 +91,15 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   liveTimeRef,
   onSyncTrades,
   hasUnsavedTrades,
-  onReplaySync,
-  onReplayComplete,
-  onReplayPointSelect
+  selectedDrawingId: propSelectedId,
+  onSelectDrawing: propOnSelectDrawing
 }) => {
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
   const { trades: persistedTrades } = useTradePersistence(tradeSourceId);
 
-  // --- PASSIVE DATA FETCHING (Mandate 0.40.3) ---
-  const [localData, setLocalData] = useState<OHLCV[]>([]);
-  const [localReplayIndex, setLocalReplayIndex] = useState(0);
+  // Apply Inversion Engine
+  useInversion(tab.config, (updates) => updateTab({ config: { ...tab.config, ...updates } }));
 
-  useEffect(() => {
-      // Pull data directly from the Vault
-      const vault = tabVault.current.get(tab.id);
-      if (vault) {
-          setLocalData(vault.data);
-          setLocalReplayIndex(vault.replayIndex);
-      }
-  // Added tab.isReplayMode and isReplaySelecting to dependency array to force refresh on Cut
-  }, [tab.id, tab.timeframe, tab.sourceId, tabVault, tab.isReplayMode, tab.isReplaySelecting]); 
-
-  // Sync Logic: Only hydrate if local state is empty but persistence has data.
   useEffect(() => {
       if (persistedTrades && persistedTrades.length > 0) {
           if (!tab.trades || tab.trades.length === 0) {
@@ -218,37 +112,29 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  
+  // Local state fallback if not provided via props
+  const [localSelectedDrawingId, setLocalSelectedDrawingId] = useState<string | null>(null);
+  const selectedDrawingId = propSelectedId !== undefined ? propSelectedId : localSelectedDrawingId;
+  const onSelectDrawing = propOnSelectDrawing || ((id, e) => setLocalSelectedDrawingId(id));
+
+  // Note: Simple multi-selection logic for local use if needed, but primary is single selection via prop
   const [selectedDrawingIds, setSelectedDrawingIds] = useState<Set<string>>(new Set());
+
+  // Sync set with single ID
+  useEffect(() => {
+      if (selectedDrawingId) {
+          setSelectedDrawingIds(new Set([selectedDrawingId]));
+      } else {
+          setSelectedDrawingIds(new Set());
+      }
+  }, [selectedDrawingId]);
+
   const [focusTimestamp, setFocusTimestamp] = useState<number | null>(null);
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({ color: COLORS.line, lineWidth: 1, lineStyle: 'solid', filled: false, backgroundColor: 'rgba(59, 130, 246, 0.1)', visible: true, locked: false, smoothing: 0 });
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [showLoadToast, setShowLoadToast] = useState(false);
   const prevHydrating = useRef(isHydrating);
-
-  // --- LOCAL RANGE BUFFERING ---
-  const visibleRangeRef = useRef<{ from: number; to: number } | null>(tabVault.current.get(tab.id)?.visibleRange || null);
-  const rangeSaveTimer = useRef<any>(null);
-
-  // Handle Internal Range Change (High Frequency)
-  const handleInternalRangeChange = useCallback((range: { from: number; to: number }) => {
-      // 1. Update local ref
-      visibleRangeRef.current = range;
-      
-      // Update Vault immediately for other components
-      const vault = tabVault.current.get(tab.id);
-      if (vault) vault.visibleRange = range;
-
-      // 2. Debounced Save to Global Persistence
-      if (rangeSaveTimer.current) clearTimeout(rangeSaveTimer.current);
-      
-      // DO NOT SAVE during replay to prevent lag
-      if (tab.isReplayPlaying) return;
-
-      rangeSaveTimer.current = setTimeout(() => {
-          if (onVisibleRangeChange) onVisibleRangeChange(range);
-      }, 5000); // 5 Seconds debounce
-  }, [tab.id, tabVault, onVisibleRangeChange, tab.isReplayPlaying]);
 
   useEffect(() => {
       if (prevHydrating.current && !isHydrating && drawings.length > 0) {
@@ -268,60 +154,21 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
 
   useEffect(() => { const timer = setInterval(() => setCurrentDate(new Date()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { const handleClickOutside = (event: MouseEvent) => { if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) { setIsChartSettingsOpen(false); } }; if (isChartSettingsOpen) document.addEventListener('mousedown', handleClickOutside); return () => document.removeEventListener('mousedown', handleClickOutside); }, [isChartSettingsOpen]);
-  useEffect(() => { const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (activeToolId && activeToolId !== 'cross') onSelectTool?.('cross'); else if (selectedDrawingId) { setSelectedDrawingId(null); setSelectedDrawingIds(new Set()); } } if (e.altKey && (e.key === 'i' || e.key === 'I')) { e.preventDefault(); updateTab({ config: { ...tab.config, invertScale: !tab.config.invertScale } }); } }; window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown); }, [activeToolId, selectedDrawingId, onSelectTool, tab.config, updateTab]);
+  useEffect(() => { const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (activeToolId && activeToolId !== 'cross') onSelectTool?.('cross'); else if (selectedDrawingId) { onSelectDrawing(null); } } }; window.addEventListener('keydown', handleKeyDown); return () => window.removeEventListener('keydown', handleKeyDown); }, [activeToolId, selectedDrawingId, onSelectTool, onSelectDrawing]);
   
-  // Calculate Display Data using Local Data (Vault Source)
-  const displayedData = useMemo(() => { 
-      if (tab.isReplaySelecting) return localData; 
-      if (tab.isReplayMode || tab.isAdvancedReplayMode) { 
-          const safeIndex = Math.max(0, localReplayIndex); 
-          return localData.slice(0, safeIndex + 1); 
-      } 
-      return localData; 
-  }, [localData, tab.isReplayMode, tab.isAdvancedReplayMode, localReplayIndex, tab.isReplaySelecting]);
-
+  const displayedData = useMemo(() => { if (tab.isReplaySelecting) return tab.data; if (tab.isReplayMode || tab.isAdvancedReplayMode) { const safeIndex = Math.max(0, tab.replayIndex); return tab.data.slice(0, safeIndex + 1); } return tab.data; }, [tab.data, tab.isReplayMode, tab.isAdvancedReplayMode, tab.replayIndex, tab.isReplaySelecting]);
   const smaData = useMemo(() => { if (!tab.config.showSMA) return []; return calculateSMA(displayedData, tab.config.smaPeriod); }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
-  
-  // --- HEADER DATA (Initial State) ---
   const currentPrice = useMemo(() => { if (displayedData.length === 0) return 0; return displayedData[displayedData.length - 1].close; }, [displayedData]);
   const prevPrice = displayedData.length > 1 ? displayedData[displayedData.length - 2].close : currentPrice;
-  const currentVolume = useMemo(() => { if (displayedData.length === 0) return 0; return displayedData[displayedData.length - 1].volume; }, [displayedData]);
+  const priceChange = currentPrice - prevPrice;
+  const percentChange = prevPrice !== 0 ? (priceChange / prevPrice) * 100 : 0;
+  const isUp = priceChange >= 0;
 
   const [headerPos, setHeaderPos] = useState({ x: 16, y: 16 });
   const isDraggingHeader = useRef(false);
   const headerDragStart = useRef({ x: 0, y: 0 });
   const headerStartPos = useRef({ x: 0, y: 0 });
-
-  const handleHeaderMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return;
-    
-    isDraggingHeader.current = true;
-    headerDragStart.current = { x: e.clientX, y: e.clientY };
-    headerStartPos.current = { ...headerPos };
-    
-    e.preventDefault();
-    
-    const win = (e.view as unknown as Window) || window;
-    
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!isDraggingHeader.current) return;
-      const dx = ev.clientX - headerDragStart.current.x;
-      const dy = ev.clientY - headerDragStart.current.y;
-      setHeaderPos({ 
-        x: Math.max(0, headerStartPos.current.x + dx), 
-        y: Math.max(0, headerStartPos.current.y + dy) 
-      });
-    };
-    
-    const handleMouseUp = () => {
-      isDraggingHeader.current = false;
-      win.removeEventListener('mousemove', handleMouseMove);
-      win.removeEventListener('mouseup', handleMouseUp);
-    };
-    
-    win.addEventListener('mousemove', handleMouseMove);
-    win.addEventListener('mouseup', handleMouseUp);
-  };
+  const handleHeaderMouseDown = (e: React.MouseEvent) => { if ((e.target as HTMLElement).closest('button')) return; isDraggingHeader.current = true; headerDragStart.current = { x: e.clientX, y: e.clientY }; headerStartPos.current = { ...headerPos }; e.preventDefault(); const win = (e.view as unknown as Window) || window; const handleMouseMove = (ev: MouseEvent) => { if (!isDraggingHeader.current) return; const dx = ev.clientX - headerDragStart.current.x; const dy = ev.clientY - headerDragStart.current.y; setHeaderPos({ x: Math.max(0, headerStartPos.current.x + dx), y: Math.max(0, headerStartPos.current.y + dy) }); }; const handleMouseUp = () => { isDraggingHeader.current = false; win.removeEventListener('mousemove', handleMouseMove); win.removeEventListener('mouseup', handleMouseUp); }; win.addEventListener('mousemove', handleMouseMove); win.addEventListener('mouseup', handleMouseUp); };
 
   const [favBarPos, setFavBarPos] = useState({ x: 0, y: 0 });
   const favBarRef = useRef<HTMLDivElement>(null);
@@ -344,7 +191,7 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   const toolbarStartPos = useRef({ x: 0, y: 0 });
   const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'));
   useEffect(() => { loadUILayout().then(layout => { if (layout && layout.toolbarPos) { setToolbarPos(layout.toolbarPos); } else { setToolbarPos({ x: window.innerWidth / 2 - 150, y: 60 }); } }); }, []);
-  const handleToolbarMouseDown = (e: React.MouseEvent) => { isDraggingToolbar.current = true; toolbarDragStart.current = { x: e.clientX, y: e.clientY }; toolbarStartPos.current = { ...toolbarPos }; e.preventDefault(); e.stopPropagation(); const win = (e.view as unknown as Window) || window; const handleMouseMove = (ev: MouseEvent) => { if (!isDraggingToolbar.current) return; setToolbarPos({ x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) }); }; const handleMouseUp = (ev: MouseEvent) => { isDraggingToolbar.current = false; win.removeEventListener('mousemove', handleMouseMove); win.removeEventListener('mouseup', handleMouseUp); }; win.addEventListener('mousemove', handleMouseMove); win.addEventListener('mouseup', handleMouseUp); };
+  const handleToolbarMouseDown = (e: React.MouseEvent) => { isDraggingToolbar.current = true; toolbarDragStart.current = { x: e.clientX, y: e.clientY }; toolbarStartPos.current = { ...toolbarPos }; e.preventDefault(); e.stopPropagation(); const win = (e.view as unknown as Window) || window; const handleMouseMove = (ev: MouseEvent) => { if (!isDraggingToolbar.current) return; setToolbarPos({ x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) }); }; const handleMouseUp = (ev: MouseEvent) => { isDraggingToolbar.current = false; win.removeEventListener('mousemove', handleMouseMove); win.removeEventListener('mouseup', handleMouseUp); const newPos = { x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) }; saveUILayout({ toolbarPos: newPos }); }; win.addEventListener('mousemove', handleMouseMove); win.addEventListener('mouseup', handleMouseUp); };
 
   const [layersPanelPos, setLayersPanelPos] = useState({ x: 0, y: 0 });
   const isDraggingLayers = useRef(false);
@@ -354,47 +201,30 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
   const handleLayersMouseDown = (e: React.MouseEvent) => { isDraggingLayers.current = true; layersDragStart.current = { x: e.clientX, y: e.clientY }; layersStartPos.current = { ...layersPanelPos }; e.preventDefault(); const win = (e.view as unknown as Window) || window; const handleMouseMove = (ev: MouseEvent) => { if (!isDraggingLayers.current) return; setLayersPanelPos({ x: layersStartPos.current.x + (ev.clientX - layersDragStart.current.x), y: layersStartPos.current.y + (ev.clientY - layersDragStart.current.y) }); }; const handleMouseUp = () => { isDraggingLayers.current = false; win.removeEventListener('mousemove', handleMouseMove); win.removeEventListener('mouseup', handleMouseUp); }; win.addEventListener('mousemove', handleMouseMove); win.addEventListener('mouseup', handleMouseUp); };
 
   const handleDrawingPropertyChange = (updates: Partial<DrawingProperties>) => { if (selectedDrawingId) { onSaveHistory?.(); const newDrawings = drawings.map(d => d.id === selectedDrawingId ? { ...d, properties: { ...d.properties, ...updates } } : d); onUpdateDrawings(newDrawings); setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates })); } else { setDefaultDrawingProperties((prev: any) => ({ ...prev, ...updates })); } };
-  const deleteSelectedDrawing = () => { if (selectedDrawingId) { onSaveHistory?.(); const newDrawings = drawings.filter(d => !selectedDrawingIds.has(d.id)); onUpdateDrawings(newDrawings); setSelectedDrawingId(null); setSelectedDrawingIds(new Set()); } };
-  
-  const handleReplayPointSelect = (timeInMs: number) => { 
-      if (onReplayPointSelect) onReplayPointSelect(timeInMs);
-  };
-  
+  const deleteSelectedDrawing = () => { if (selectedDrawingId) { onSaveHistory?.(); const newDrawings = drawings.filter(d => d.id !== selectedDrawingId); onUpdateDrawings(newDrawings); onSelectDrawing(null); } };
+  const handleReplayPointSelect = (timeInMs: number) => { if (!tab.isReplaySelecting) return; let idx = tab.data.findIndex((d: any) => d.time >= timeInMs); if (idx === -1) idx = tab.data.length - 1; updateTab({ isReplaySelecting: false, isReplayMode: tab.isAdvancedReplayMode ? false : true, isAdvancedReplayMode: tab.isAdvancedReplayMode, replayIndex: idx, replayGlobalTime: tab.data[idx].time, simulatedPrice: tab.data[idx].open, isReplayPlaying: false }); };
+  const handleReplaySync = (index: number, time: number, price: number) => { updateTab({ replayIndex: index, replayGlobalTime: time, simulatedPrice: price }); };
   const handleToolComplete = () => { if (!isStayInDrawingMode) onSelectTool?.('cross'); };
-  const handleSelectDrawing = (id: string | null, e?: React.MouseEvent) => { const isMultiSelect = e?.ctrlKey || e?.metaKey; if (id) { if (isMultiSelect) { const newSet = new Set(selectedDrawingIds); if (newSet.has(id)) { newSet.delete(id); if (id === selectedDrawingId) { const asArray = Array.from(newSet); setSelectedDrawingId(asArray.length > 0 ? asArray[asArray.length - 1] : null); } } else { newSet.add(id); setSelectedDrawingId(id); } setSelectedDrawingIds(newSet); } else { setSelectedDrawingId(id); setSelectedDrawingIds(new Set([id])); } } else { setSelectedDrawingId(null); setSelectedDrawingIds(new Set()); } };
+  const handleSelectDrawingWrapper = (id: string | null, e?: React.MouseEvent) => { onSelectDrawing(id, e); };
+  
   const activeProperties = useMemo(() => { if (selectedDrawingId) { const drawing = drawings.find(d => d.id === selectedDrawingId); return drawing?.properties ?? defaultDrawingProperties; } return defaultDrawingProperties; }, [selectedDrawingId, drawings, defaultDrawingProperties]);
   const selectedDrawingType = useMemo(() => { if (selectedDrawingId) return drawings.find(d => d.id === selectedDrawingId)?.type; return activeToolId; }, [selectedDrawingId, drawings, activeToolId]);
   const chartComponentKey = useMemo(() => { return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`; }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
   const handleTradeClick = (trade: Trade) => { setFocusTimestamp(trade.timestamp); };
 
-  const areAllDrawingsLocked = useMemo(() => {
-    if (!tab || !tab.drawings || tab.drawings.length === 0) return false;
-    return tab.drawings.every((d: Drawing) => d.properties.locked);
-  }, [tab]);
-
-  const areAllDrawingsHidden = useMemo(() => {
-      if (!tab || !tab.drawings || tab.drawings.length === 0) return false;
-      return tab.drawings.every((d: Drawing) => !(d.properties.visible ?? true));
-  }, [tab]);
-
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
         {/* Header */}
         <div onMouseDown={handleHeaderMouseDown} style={{ left: headerPos.x, top: headerPos.y }} className="absolute z-20 bg-[#1e293b]/90 backdrop-blur-sm px-4 py-2 rounded border border-slate-700 shadow-lg flex items-center gap-4 cursor-move select-none transition-shadow hover:shadow-xl hover:ring-1 hover:ring-slate-600/50">
-          <div className="flex items-center gap-1.5 mr-3 px-2 py-0.5 bg-[#0f172a]/50 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)] group/lock cursor-help transition-all hover:bg-emerald-900/20" title="Source Protected: Read-Only Mode. The original file on disk is never modified."><Lock size={10} className="text-emerald-500" /><span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest opacity-70 group-hover:lock:opacity-100 transition-opacity hidden sm:block">Secure</span></div>
+          <div className="flex items-center gap-1.5 mr-3 px-2 py-0.5 bg-[#0f172a]/50 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)] group/lock cursor-help transition-all hover:bg-emerald-900/20" title="Source Protected: Read-Only Mode. The original file on disk is never modified."><Lock size={10} className="text-emerald-500" /><span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest opacity-70 group-hover/lock:opacity-100 transition-opacity hidden sm:block">Secure</span></div>
           <h1 className="text-sm font-bold text-white tracking-wide truncate max-w-[150px]">{tab.title}</h1>
           <div className="h-4 w-px bg-slate-600"></div>
           <div className="flex items-center gap-0.5">
               {Object.values(Timeframe).filter(tf => !favoriteTimeframes || (favoriteTimeframes as any).includes(tf)).map((tf) => (<button key={String(tf)} onClick={() => onTimeframeChange(tf as any)} className={`px-2 py-0.5 text-[10px] font-bold rounded transition-colors ${tab.timeframe === tf ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200 hover:bg-[#334155]'}`}>{String(tf)}</button>))}
           </div>
           <div className="h-4 w-px bg-slate-600"></div>
-          {/* Replaced Static Header with GhostHeader */}
-          <GhostHeader 
-              tabId={tab.id} 
-              initialPrice={currentPrice} 
-              initialPrev={prevPrice} 
-              initialVol={currentVolume} 
-          />
+          <div className="flex items-baseline gap-3"><span className={`text-sm font-mono font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>{currentPrice.toFixed(2)}</span><span className={`text-xs font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>{priceChange > 0 ? '+' : ''}{priceChange.toFixed(2)} ({percentChange.toFixed(2)}%)</span></div>
+          <div className="h-4 w-px bg-slate-600"></div><div className="text-[10px] text-slate-400">Vol: <span className="text-slate-300 font-mono">{displayedData.length > 0 ? displayedData[displayedData.length - 1].volume.toFixed(0) : 0}</span></div>
           {tab.config.invertScale && (<><div className="h-4 w-px bg-slate-600"></div><span className="text-[9px] font-bold bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded border border-orange-500/30 uppercase tracking-wider animate-pulse" title="Chart Scale Inverted (Alt+I)">Inverted</span></>)}
           <div className="h-4 w-px bg-slate-600"></div>
           {onToggleMasterSync && (<button onClick={onToggleMasterSync} className={`p-1 rounded transition-colors ${isMasterSyncActive ? 'text-blue-400 bg-blue-400/10 shadow-[0_0_10px_rgba(59,130,246,0.3)] ring-1 ring-blue-500/30' : 'text-slate-400 hover:text-white hover:bg-[#334155]'}`} title={isMasterSyncActive ? "Master Sync Active (All charts follow)" : "Enable Master Sync"} onMouseDown={(e) => e.stopPropagation()}><LinkIcon size={14} className={isMasterSyncActive ? "fill-current" : ""} /></button>)}
@@ -413,7 +243,7 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
                 drawings={drawings} 
                 onUpdateDrawings={(newDrawings: any) => { onSaveHistory?.(); onUpdateDrawings(newDrawings); }} 
                 selectedDrawingIds={selectedDrawingIds} 
-                onSelectDrawing={handleSelectDrawing} 
+                onSelectDrawing={handleSelectDrawingWrapper} 
                 onClose={onToggleLayers || (() => {})} 
                 position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 
                 onHeaderMouseDown={handleLayersMouseDown} 
@@ -424,24 +254,7 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
                 sourceId={tab.sourceId} 
             />
         )}
-        {(tab.isReplayMode || tab.isAdvancedReplayMode) && (
-            <ReplayControls 
-                isPlaying={tab.isReplayPlaying} 
-                onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} 
-                onStepForward={() => { if (tab.isReplayMode) { const vault = tabVault.current.get(tab.id); if(!vault) return; const nextIndex = Math.min(vault.data.length - 1, vault.replayIndex + 1); onReplaySync?.(nextIndex, vault.data[nextIndex].time, vault.data[nextIndex].close); } else { const vault = tabVault.current.get(tab.id); if(!vault) return; const nextTime = (vault.replayGlobalTime || vault.data[vault.replayIndex].time) + getTimeframeDuration(tab.timeframe); let nextIndex = vault.data.findIndex((d: any) => d.time >= nextTime); if (nextIndex === -1) nextIndex = vault.data.length - 1; onReplaySync?.(nextIndex, vault.data[nextIndex].time, vault.data[nextIndex].open); } }} 
-                onReset={() => { const vault = tabVault.current.get(tab.id); if(!vault) return; const newIdx = Math.max(0, vault.data.length - 100); onReplaySync?.(newIdx, vault.data[newIdx].time, vault.data[newIdx].open); }} 
-                onClose={() => { const vault = tabVault.current.get(tab.id); updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false }); if(vault) onReplaySync?.(vault.data.length - 1, vault.data[vault.data.length-1].time, vault.data[vault.data.length-1].close); }} 
-                speed={tab.replaySpeed} 
-                onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} 
-                progress={displayedData.length > 0 ? (localReplayIndex / (localData.length - 1)) * 100 : 0} 
-                position={replayPos.x !== 0 ? replayPos : undefined} 
-                onHeaderMouseDown={handleReplayMouseDown} 
-                isAdvancedMode={tab.isAdvancedReplayMode}
-                // Ghost-Vault Props for Event Driven Updates
-                tabId={tab.id}
-                totalCandles={localData.length}
-            />
-        )}
+        {(tab.isReplayMode || tab.isAdvancedReplayMode) && (<ReplayControls isPlaying={tab.isReplayPlaying} onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} onStepForward={() => { if (tab.isReplayMode) { const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1); updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close }); } else { const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + getTimeframeDuration(tab.timeframe); let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime); if (nextIndex === -1) nextIndex = tab.data.length - 1; updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open }); } }} onReset={() => { const newIdx = Math.max(0, tab.data.length - 100); updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open }) }} onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} speed={tab.replaySpeed} onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} position={replayPos.x !== 0 ? replayPos : undefined} onHeaderMouseDown={handleReplayMouseDown} isAdvancedMode={tab.isAdvancedReplayMode} />)}
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
         <div className="flex-1 w-full relative overflow-hidden">
         {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">{isHydrating ? 'Loading Layout...' : 'Processing Data...'}</div></div></div>}
@@ -459,7 +272,7 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
           onToolComplete={handleToolComplete} 
           currentDefaultProperties={defaultDrawingProperties} 
           selectedDrawingId={selectedDrawingId} 
-          onSelectDrawing={handleSelectDrawing} 
+          onSelectDrawing={handleSelectDrawingWrapper} 
           onActionStart={onSaveHistory} 
           isReplaySelecting={tab.isReplaySelecting} 
           onReplayPointSelect={handleReplayPointSelect} 
@@ -467,18 +280,15 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
           areDrawingsLocked={areDrawingsLocked} 
           isMagnetMode={isMagnetMode} 
           isSyncing={isSyncing}
-          visibleRange={visibleRangeRef.current} // Pass initial/buffered range
-          onVisibleRangeChange={handleInternalRangeChange} // Handle internally
-          
-          // Pass Decoupled Props
-          fullData={localData} // Source from Vault
-          replayIndex={localReplayIndex}
+          visibleRange={tab.visibleRange}
+          onVisibleRangeChange={onVisibleRangeChange}
+          fullData={tab.data}
+          replayIndex={tab.replayIndex}
           isPlaying={tab.isReplayPlaying}
           replaySpeed={tab.replaySpeed}
-          onReplaySync={onReplaySync}
-          onReplayComplete={onReplayComplete}
+          onReplaySync={handleReplaySync}
+          onReplayComplete={() => updateTab({ isReplayPlaying: false })}
           isAdvancedReplay={tab.isAdvancedReplayMode}
-          
           trades={tab.trades || []}
           isDrawingSyncEnabled={isDrawingSyncEnabled}
           focusTimestamp={focusTimestamp}
@@ -501,10 +311,8 @@ const ChartWorkspaceComponent: React.FC<ChartWorkspaceProps> = ({
         
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
             <div className="flex gap-4"><span>O: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].open.toFixed(2) : '-'}</span></span><span>H: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].high.toFixed(2) : '-'}</span></span><span>L: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].low.toFixed(2) : '-'}</span></span><span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span></div>
-            <div className="flex items-center gap-4"><span className="hidden md:inline text-slate-600">Red Pill Charting v1.2.6 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span><div className="w-px h-3 bg-slate-700 hidden md:block"></div><span className="font-mono text-slate-400 flex items-center gap-2"><span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span><span>{currentDate.toLocaleTimeString('en-GB', { hour12: false })}</span><span className="text-slate-500 text-[9px] uppercase border border-slate-700 px-1 rounded">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span></span></div>
+            <div className="flex items-center gap-4"><span className="hidden md:inline text-slate-600">Red Pill Charting v1.2.5 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span><div className="w-px h-3 bg-slate-700 hidden md:block"></div><span className="font-mono text-slate-400 flex items-center gap-2"><span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span><span>{currentDate.toLocaleTimeString('en-GB', { hour12: false })}</span><span className="text-slate-500 text-[9px] uppercase border border-slate-700 px-1 rounded">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span></span></div>
         </div>
     </div>
   );
 };
-
-export const ChartWorkspace = React.memo(ChartWorkspaceComponent);

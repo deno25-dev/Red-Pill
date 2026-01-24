@@ -1,99 +1,137 @@
-import { useState, useEffect, useCallback } from 'react';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { StickyNoteData } from '../types';
 import { saveStickyNotesWeb, loadStickyNotesWeb } from '../utils/storage';
-import { tauriAPI, isTauri } from '../utils/tauri';
+import { debugLog } from '../utils/logger';
+import { tauriBridge } from '../utils/tauriBridge';
 
 export const useStickyNotes = () => {
-  const [notes, setNotes] = useState<StickyNoteData[]>([]);
-  const [isVisible, setIsVisible] = useState(true);
-
-  // Initial Load
-  useEffect(() => {
-    const load = async () => {
-      try {
-        if (isTauri()) {
-          const res = await tauriAPI.loadStickyNotes();
-          if (res.success && Array.isArray(res.data)) {
-              setNotes(res.data);
-          }
-        } else {
-          const local = await loadStickyNotesWeb();
-          if (Array.isArray(local)) {
-              setNotes(local);
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load sticky notes", e);
-      }
-    };
-    load();
-  }, []);
-
-  // Internal Persist Helper
-  const persist = useCallback(async (updatedNotes: StickyNoteData[]) => {
-    if (isTauri()) {
-      await tauriAPI.saveStickyNotes(updatedNotes);
-    } else {
-      await saveStickyNotesWeb(updatedNotes);
-    }
-  }, []);
-
-  const addNote = useCallback(() => {
-    const newNote: StickyNoteData = {
-      id: crypto.randomUUID(),
-      title: 'New Note',
-      content: '',
-      inkData: null,
-      mode: 'text', // Default to text mode
-      isMinimized: false,
-      position: { 
-          x: window.innerWidth / 2 - 125, 
-          y: window.innerHeight / 2 - 125 
-      },
-      size: { w: 250, h: 250 },
-      zIndex: 100 + notes.length, // Ensure it's on top
-      color: 'yellow'
-    };
+    const [notes, setNotes] = useState<StickyNoteData[]>([]);
+    const [isVisible, setIsVisible] = useState(true);
+    const hasLoaded = useRef(false);
     
-    const updated = [...notes, newNote];
-    setNotes(updated);
-    persist(updated);
-  }, [notes, persist]);
+    // Load notes on mount
+    useEffect(() => {
+        const load = async () => {
+            try {
+                let loadedNotes: StickyNoteData[] = [];
+                const isTauri = await tauriBridge.checkConnection();
+                
+                if (isTauri) {
+                    loadedNotes = await tauriBridge.loadStickyNotes();
+                } else {
+                    loadedNotes = await loadStickyNotesWeb();
+                }
+                
+                // Backwards compatibility for notes without isPinned
+                const processedNotes = (loadedNotes || []).map((n: any) => ({
+                    ...n,
+                    isPinned: n.isPinned ?? true, // Default to true (Docked)
+                    color: n.color || 'yellow'
+                }));
 
-  const updateNote = useCallback((id: string, updates: Partial<StickyNoteData>) => {
-    setNotes(prev => {
-      const updated = prev.map(n => n.id === id ? { ...n, ...updates } : n);
-      persist(updated); // Save on every update
-      return updated;
-    });
-  }, [persist]);
+                setNotes(processedNotes);
+                hasLoaded.current = true;
+                debugLog('UI', `Loaded ${processedNotes.length} sticky notes.`);
+            } catch (e) {
+                console.error("Failed to load sticky notes", e);
+            }
+        };
+        load();
+    }, []);
 
-  const removeNote = useCallback((id: string) => {
-    setNotes(prev => {
-      const updated = prev.filter(n => n.id !== id);
-      persist(updated);
-      return updated;
-    });
-  }, [persist]);
+    // Save notes on change (Throttled/Debounced Persistence)
+    useEffect(() => {
+        if (!hasLoaded.current) return;
 
-  const bringToFront = useCallback((id: string) => {
-    setNotes(prev => {
-      const maxZ = Math.max(...prev.map(n => n.zIndex || 0), 100);
-      return prev.map(n => n.id === id ? { ...n, zIndex: maxZ + 1 } : n);
-    });
-  }, []);
+        // Mandate: Throttled Saving (2000ms) to prevent write-lock freeze
+        const timer = setTimeout(async () => {
+            try {
+                const isTauri = await tauriBridge.checkConnection();
+                if (isTauri) {
+                    await tauriBridge.saveStickyNotes(notes);
+                } else {
+                    await saveStickyNotesWeb(notes);
+                }
+            } catch (e) {
+                console.error("Failed to save sticky notes", e);
+            }
+        }, 2000);
 
-  const toggleVisibility = useCallback(() => {
-      setIsVisible(prev => !prev);
-  }, []);
+        return () => clearTimeout(timer);
+    }, [notes]);
 
-  return {
-    notes,
-    isVisible,
-    addNote,
-    updateNote,
-    removeNote,
-    bringToFront,
-    toggleVisibility
-  };
+    // Event Listener for external adds (Manager)
+    useEffect(() => {
+        const handleAdd = (e: any) => {
+            const noteData = e.detail;
+            if (noteData) {
+                // Create a new instance from saved data to avoid ID collision if loading multiple times
+                const newNote: StickyNoteData = {
+                    ...noteData,
+                    id: crypto.randomUUID(), // Always new ID
+                    isPinned: false, // Default to undocked for visibility when loaded from manager
+                    position: { x: window.innerWidth / 2 - 100, y: window.innerHeight / 2 - 100 }, // Center it
+                    zIndex: Date.now() + 10000
+                };
+                setNotes(prev => [...prev, newNote]);
+                setIsVisible(true);
+            }
+        };
+        window.addEventListener('REDPILL_ADD_STICKY_NOTE', handleAdd);
+        return () => window.removeEventListener('REDPILL_ADD_STICKY_NOTE', handleAdd);
+    }, []);
+
+    // Optimistic UI Update Helpers
+    const addNote = useCallback(() => {
+        const newNote: StickyNoteData = {
+            id: crypto.randomUUID(),
+            title: 'New Note',
+            content: '',
+            inkData: null,
+            mode: 'text',
+            isMinimized: false,
+            isPinned: true, // Default: Docked
+            position: { x: window.innerWidth / 2 - 100, y: window.innerHeight / 2 - 100 },
+            size: { w: 200, h: 200 },
+            zIndex: Date.now() + 10000, // Mandate: Highest UI Layer
+            color: 'yellow'
+        };
+        // Immediate State Update
+        setNotes(prev => [...prev, newNote]);
+        setIsVisible(true);
+    }, []);
+
+    const updateNote = useCallback((id: string, updates: Partial<StickyNoteData>) => {
+        // Immediate State Update (Optimistic)
+        setNotes(prev => prev.map(n => n.id === id ? { ...n, ...updates, zIndex: Date.now() + 10000 } : n));
+    }, []);
+
+    const removeNote = useCallback((idToDelete: string) => {
+        setNotes(currentNotes => {
+            const updatedNotes = currentNotes.filter(note => note.id !== idToDelete);
+            return updatedNotes;
+        });
+    }, []);
+
+    const toggleVisibility = useCallback(() => {
+        setIsVisible(prev => !prev);
+    }, []);
+
+    const bringToFront = useCallback((id: string) => {
+        setNotes(prev => {
+            const maxZ = Math.max(...prev.map(n => n.zIndex), 10000);
+            return prev.map(n => n.id === id ? { ...n, zIndex: maxZ + 1 } : n);
+        });
+    }, []);
+
+    return {
+        notes,
+        isVisible,
+        addNote,
+        updateNote,
+        removeNote,
+        toggleVisibility,
+        bringToFront
+    };
 };

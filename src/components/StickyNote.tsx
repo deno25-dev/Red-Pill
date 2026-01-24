@@ -54,7 +54,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     const isTypingRef = useRef(false);
 
     // Sync from parent if changed externally (e.g. initial load or remote update)
-    // Only update if we are NOT currently typing to avoid cursor jumps
     useEffect(() => {
         if (!isTypingRef.current && note.content !== localContent) {
             setLocalContent(note.content);
@@ -76,7 +75,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     };
 
     const handleTextBlur = () => {
-        // Force update on blur
         if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
         onUpdate(note.id, { content: localContent });
         isTypingRef.current = false;
@@ -87,7 +85,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     const initialPos = useRef<{ x: number, y: number } | null>(null);
 
     const handleDragStart = (e: React.MouseEvent) => {
-        // Allow dragging only from header background or grip
         if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).tagName === 'INPUT') return;
         
         e.preventDefault();
@@ -155,8 +152,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
             if (ctx && note.inkData) {
                 const img = new Image();
                 img.onload = () => {
-                    // Critical: Reset composition to default before drawing image
-                    // Otherwise if previously in eraser mode, image might not draw correctly or erase background
                     ctx.globalCompositeOperation = 'source-over';
                     ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
                     ctx.drawImage(img, 0, 0);
@@ -183,7 +178,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
         if (inkTool === 'eraser') {
             ctx.globalCompositeOperation = 'destination-out';
             ctx.lineWidth = 20;
-            // Explicitly set opaque stroke for destination-out to work effectively
             ctx.strokeStyle = 'rgba(0,0,0,1)';
         } else {
             ctx.globalCompositeOperation = 'source-over';
@@ -203,7 +197,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        // Draw segment from lastPos to currentPos
         ctx.beginPath();
         ctx.moveTo(lastPos.current.x, lastPos.current.y);
         ctx.lineTo(x, y);
@@ -216,7 +209,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
         if (isDrawing && canvasRef.current) {
             setIsDrawing(false);
             lastPos.current = null;
-            // Always save. Even erasure is a change to the pixel data.
             onUpdate(note.id, { inkData: canvasRef.current.toDataURL() });
         }
     };
@@ -225,7 +217,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     const handleManualSave = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsSavedVisual(true);
-        // Force commit of text content if typing
         if (textUpdateTimer.current) clearTimeout(textUpdateTimer.current);
         onUpdate(note.id, { content: localContent });
         
@@ -233,14 +224,8 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     };
 
     const handleDelete = (e: React.PointerEvent) => {
-        // Critical: Stop propagation on PointerDown to prevent DragStart or Focus
-        // which might be attached to parent elements.
         e.stopPropagation();
         e.preventDefault();
-
-        console.log('FINAL_DELETE_ACTION:', note.id);
-        
-        // Immediate removal to prevent race conditions with confirm() blocking the event loop
         onRemove(note.id);
     };
 
@@ -250,18 +235,21 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
     };
 
     const theme = COLORS_CONFIG[note.color] || COLORS_CONFIG.yellow;
-    // If not pinned (Undocked), use Fixed positioning and high Z-Index
+    
+    // Mandate 4.4: Highest UI Layer (z-index > 10000)
+    // Note: The parent container also handles z-index, but we enforce it here for fixed positioning.
+    const effectiveZ = note.zIndex < 10000 ? note.zIndex + 10000 : note.zIndex;
+
     const positionStyle: React.CSSProperties = {
         left: note.position.x,
         top: note.position.y,
         width: note.size.w,
         height: note.isMinimized ? HEADER_HEIGHT : note.size.h,
-        zIndex: note.isPinned ? note.zIndex : 9999, // Undocked is always top
+        zIndex: effectiveZ,
         opacity: 0.98,
         position: note.isPinned ? 'absolute' : 'fixed',
     };
 
-    // Visuals for Undocked state
     const shadowClass = note.isPinned ? 'shadow-xl' : 'shadow-[0_0_25px_rgba(0,0,0,0.5)] ring-1 ring-white/20';
 
     return (
@@ -325,7 +313,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
 
                     <div className="w-px h-3 bg-black/10 mx-1"></div>
 
-                    {/* Mode Toggles (Only when expanded) */}
                     {!note.isMinimized && (
                         <>
                             <button 
@@ -355,7 +342,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         </>
                     )}
 
-                    {/* Manual Save */}
                     <button 
                         onClick={handleManualSave}
                         onMouseDown={(e) => e.stopPropagation()}
@@ -367,7 +353,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
 
                     <div className="w-px h-3 bg-black/10 mx-1"></div>
 
-                    {/* Minimize / Maximize */}
                     <button 
                         onClick={() => onUpdate(note.id, { isMinimized: !note.isMinimized })}
                         onMouseDown={(e) => e.stopPropagation()}
@@ -377,10 +362,9 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         {note.isMinimized ? <Maximize2 size={12} /> : <Minus size={12} />}
                     </button>
 
-                    {/* Close (Delete) - HIGH PRIORITY Z-INDEX */}
                     <button 
                         onPointerDown={handleDelete}
-                        onClick={(e) => e.stopPropagation()} // Global Event Kill for Safety
+                        onClick={(e) => e.stopPropagation()}
                         className="p-1 rounded hover:bg-red-500/20 hover:text-red-600 transition-colors z-[60] pointer-events-auto relative"
                         title="Close Note"
                     >
@@ -414,7 +398,6 @@ export const StickyNote: React.FC<StickyNoteProps> = ({ note, onUpdate, onRemove
                         />
                     )}
                     
-                    {/* Resize Handle (Only when expanded) */}
                     <div 
                         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize flex items-end justify-end p-0.5 opacity-50 hover:opacity-100"
                         onMouseDown={handleResizeStart}

@@ -1,6 +1,5 @@
 
 import { ChartState } from '../types';
-import { tauriAPI, isTauri } from './tauri';
 
 const DB_NAME = 'RedPillChartingDB';
 const HANDLE_STORE = 'handles'; // Used for Data Explorer (Last location)
@@ -111,9 +110,6 @@ export const clearDatabaseHandle = async () => {
 // --- App State Persistence ---
 
 export const saveAppState = async (state: any) => {
-  // Persistence Lock (Mandate 0.40.4)
-  if ((window as any).isReplayPlaying) return;
-
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STATE_STORE, 'readwrite');
@@ -254,16 +250,18 @@ export const deleteChartMeta = async (sourceId: string) => {
 // --- UI LAYOUT PERSISTENCE (MANDATE 3.1) ---
 
 export const saveUILayout = async (layout: any) => {
-  if (isTauri()) {
-      await tauriAPI.saveSettings('ui_layout.json', layout);
+  const electron = (window as any).electronAPI;
+  if (electron && electron.saveSettings) {
+      await electron.saveSettings('ui_layout.json', layout);
   } else {
       localStorage.setItem('redpill_ui_layout', JSON.stringify(layout));
   }
 };
 
 export const loadUILayout = async () => {
-  if (isTauri()) {
-      const res = await tauriAPI.loadSettings('ui_layout.json');
+  const electron = (window as any).electronAPI;
+  if (electron && electron.loadSettings) {
+      const res = await electron.loadSettings('ui_layout.json');
       if (res.success && res.data) return res.data;
   }
   const local = localStorage.getItem('redpill_ui_layout');
@@ -283,16 +281,18 @@ export const loadStickyNotesWeb = async () => {
 // --- DEV LOGS PERSISTENCE (Tier 2) ---
 // Used for technical system history
 export const saveDevLogs = async (logs: any[]) => {
-  if (isTauri()) {
-      await tauriAPI.saveSettings('dev_logs.json', logs);
+  const electron = (window as any).electronAPI;
+  if (electron && electron.saveSettings) {
+      await electron.saveSettings('dev_logs.json', logs);
   } else {
       localStorage.setItem('redpill_dev_system_logs', JSON.stringify(logs));
   }
 };
 
 export const loadDevLogs = async () => {
-  if (isTauri()) {
-      const res = await tauriAPI.loadSettings('dev_logs.json');
+  const electron = (window as any).electronAPI;
+  if (electron && electron.loadSettings) {
+      const res = await electron.loadSettings('dev_logs.json');
       if (res.success && res.data) return res.data;
   }
   const local = localStorage.getItem('redpill_dev_system_logs');

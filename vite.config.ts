@@ -1,38 +1,21 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  // Base './' is essential for Tauri and AI Studio preview environments
-  base: './',
-  // Explicitly set root to current directory
-  root: '.',
-  publicDir: 'public',
+  base: './', // Mandate 0.0.0: Ensures relative paths for Tauri/Electron assets
   resolve: {
     alias: {
-      // This maps the '@' symbol specifically to your src folder
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve('src'),
     },
   },
   server: {
-    port: 1420,
+    port: 5173,
     strictPort: true,
-    fs: {
-      // Allow serving files from one level up to ensure visibility of all project resources
-      allow: ['..'],
-    },
   },
   build: {
     outDir: 'dist',
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, 'index.html'),
-      },
-    },
-  },
+    emptyOutDir: true,
+  }
 });

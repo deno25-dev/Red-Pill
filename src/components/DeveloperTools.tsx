@@ -59,15 +59,10 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
 
     window.addEventListener('redpill-debug-log', handleLog);
     window.addEventListener('redpill-debug-clear', handleClear);
-    // Listen for telemetry events from the logger utility
-    window.addEventListener('redpill-telemetry', handleLog);
-    window.addEventListener('redpill-telemetry-clear', handleClear);
 
     return () => {
       window.removeEventListener('redpill-debug-log', handleLog);
       window.removeEventListener('redpill-debug-clear', handleClear);
-      window.removeEventListener('redpill-telemetry', handleLog);
-      window.removeEventListener('redpill-telemetry-clear', handleClear);
     };
   }, []);
 
@@ -82,7 +77,7 @@ Last Chart Render: ${chartRenderTime ? `${chartRenderTime.toFixed(2)}ms` : 'N/A'
 Last Error: ${lastError || 'None'}
 
 === RECENT RUNTIME LOGS (Last 20) ===
-${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[1].replace('Z','')}] [${l.component}] ${l.action}`).join('\n')}
+${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[1].replace('Z','')}] [${l.category}] ${l.message}`).join('\n')}
     `.trim();
 
     navigator.clipboard.writeText(report);
@@ -181,16 +176,16 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                     [{new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}]
                     </span>
                     <span className={`font-bold w-14 shrink-0 ${
-                    log.component === 'UI' ? 'text-purple-400' :
-                    log.component === 'Network' ? 'text-yellow-400' :
-                    log.component === 'Data' ? 'text-blue-400' :
-                    log.component === 'Auth' ? 'text-red-400' :
-                    log.component === 'Replay' ? 'text-orange-400' :
+                    log.category === 'UI' ? 'text-purple-400' :
+                    log.category === 'Network' ? 'text-yellow-400' :
+                    log.category === 'Data' ? 'text-blue-400' :
+                    log.category === 'Auth' ? 'text-red-400' :
+                    log.category === 'Replay' ? 'text-orange-400' :
                     'text-emerald-400'
                     }`}>
-                    {log.component}
+                    {log.category}
                     </span>
-                    <span className="text-emerald-100/80 break-all">{log.action}</span>
+                    <span className="text-emerald-100/80 break-all">{log.message}</span>
                 </div>
                 ))}
             </>

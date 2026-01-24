@@ -1,10 +1,8 @@
 
 import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
-import { tauriAPI, isTauri } from './tauri';
 
 // --- DATA COMMANDS ---
 
-// Mandate 0.3: The Red Pill Safety Toggle
 export const loadProtectedSession = async (fileSource: File | string, chunkSize: number): Promise<{
     rawData: OHLCV[];
     cursor: number;
@@ -15,7 +13,6 @@ export const loadProtectedSession = async (fileSource: File | string, chunkSize:
     return result;
 };
 
-// Command: get_local_chart_data
 export const getLocalChartData = async (fileSource: File | string, chunkSize: number): Promise<{
     rawData: OHLCV[];
     cursor: number;
@@ -24,36 +21,17 @@ export const getLocalChartData = async (fileSource: File | string, chunkSize: nu
 }> => {
     let fileSize = 0;
     
-    // Determine size based on environment
     if (typeof fileSource === 'string') {
-        if (isTauri() && !fileSource.startsWith('Assets') && !fileSource.startsWith('./')) {
-            // Absolute path in Tauri (e.g. C:/Users/...)
-            const stats = await tauriAPI.getFileDetails(fileSource);
+        const electron = (window as any).electronAPI;
+        if (electron) {
+            const stats = await electron.getFileDetails(fileSource);
             fileSize = stats.size;
-        } else {
-            // WEB MODE (FETCH HEAD) or Relative Asset in Tauri
-            // Note: HEAD requests might not work on some static servers, fallback to GET if needed or just guess
-            try {
-                const response = await fetch(fileSource, { method: 'HEAD' });
-                if (response.ok) {
-                    const length = response.headers.get('content-length');
-                    if (length) fileSize = parseInt(length, 10);
-                    else fileSize = 5 * 1024 * 1024; // Fallback estimate
-                } else {
-                    fileSize = 5 * 1024 * 1024;
-                }
-            } catch (e) {
-                fileSize = 5 * 1024 * 1024; // Safe fallback
-            }
         }
     } else {
-        // Web File Object
         fileSize = fileSource.size;
     }
 
     const start = Math.max(0, fileSize - chunkSize);
-    
-    // Read via appropriate bridge
     const text = await readChunk(fileSource, start, fileSize);
     
     const lines = text.split('\n');
@@ -76,29 +54,14 @@ export const getLocalChartData = async (fileSource: File | string, chunkSize: nu
     };
 };
 
-// Utility to read a specific chunk of a local file
 export const readChunk = async (fileSource: File | string, start: number, end: number): Promise<string> => {
-    // Tauri Bridge Path (Absolute)
-    if (isTauri() && typeof fileSource === 'string' && !fileSource.startsWith('Assets') && !fileSource.startsWith('./')) {
+    const electron = (window as any).electronAPI;
+
+    if (electron && typeof fileSource === 'string') {
         const length = end - start;
-        return await tauriAPI.readChunk(fileSource, start, length);
+        return await electron.readChunk(fileSource, start, length);
     }
 
-    // Public Asset Fetch (Web Mode or Relative)
-    if (typeof fileSource === 'string') {
-        try {
-            // Fetch handles relative paths natively
-            const response = await fetch(fileSource);
-            if (!response.ok) throw new Error(`Failed to fetch asset: ${response.statusText}`);
-            const text = await response.text();
-            return text.slice(start, end);
-        } catch (e) {
-            console.error("Asset Fetch Error:", e);
-            return "";
-        }
-    }
-
-    // Web File API Fallback
     if (fileSource instanceof File) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -141,7 +104,13 @@ export const sanitizeData = (
     smoothOutliers: boolean = false
 ): { data: OHLCV[], stats: SanitizationStats } => {
     const cleanData: OHLCV[] = [];
-    const stats: SanitizationStats = { fixedZeroes: 0, fixedLogic: 0, filledGaps: 0, outliers: 0, totalRecords: 0 };
+    const stats: SanitizationStats = { 
+        fixedZeroes: 0, 
+        fixedLogic: 0, 
+        filledGaps: 0, 
+        outliers: 0, 
+        totalRecords: 0 
+    };
     
     if (data.length === 0) return { data: [], stats };
 
@@ -149,7 +118,6 @@ export const sanitizeData = (
         let candle = { ...data[i] };
         const prev = cleanData.length > 0 ? cleanData[cleanData.length - 1] : null;
 
-        // 1. Zero-Value Fix
         let hadZero = false;
         if (candle.open === 0 || candle.high === 0 || candle.low === 0 || candle.close === 0) {
             if (prev) {
@@ -171,16 +139,19 @@ export const sanitizeData = (
         }
         if (hadZero) stats.fixedZeroes++;
 
-        // 2. Logic Check (H/L Integrity)
         let logicFixed = false;
-        if (candle.low > candle.high) { const temp = candle.low; candle.low = candle.high; candle.high = temp; logicFixed = true; }
+        if (candle.low > candle.high) {
+            const temp = candle.low;
+            candle.low = candle.high;
+            candle.high = temp;
+            logicFixed = true;
+        }
         if (candle.open > candle.high) { candle.high = candle.open; logicFixed = true; }
         if (candle.close > candle.high) { candle.high = candle.close; logicFixed = true; }
         if (candle.open < candle.low) { candle.low = candle.open; logicFixed = true; }
         if (candle.close < candle.low) { candle.low = candle.close; logicFixed = true; }
         if (logicFixed) stats.fixedLogic++;
 
-        // 3. Gap Filling
         if (prev && timeframeMs > 0) {
             const diff = candle.time - prev.time;
             const tolerance = timeframeMs * 0.1;
@@ -199,6 +170,19 @@ export const sanitizeData = (
             }
         }
 
+        if (prev && prev.close > 0) {
+            const pctChange = Math.abs((candle.close - prev.close) / prev.close);
+            if (pctChange > 0.5) {
+                stats.outliers++;
+                if (smoothOutliers) {
+                    candle.open = prev.close;
+                    candle.high = prev.close;
+                    candle.low = prev.close;
+                    candle.close = prev.close;
+                }
+            }
+        }
+
         cleanData.push(candle);
     }
 
@@ -206,17 +190,23 @@ export const sanitizeData = (
     return { data: cleanData, stats };
 };
 
-// --- UTILS ---
+// --- CALCULATIONS ---
+
 export const calculateSMA = (data: OHLCV[], period: number): (number | null)[] => {
   const smaData: (number | null)[] = new Array(data.length).fill(null);
   if (data.length < period) return smaData;
+
   let sum = 0;
-  for (let i = 0; i < period; i++) sum += data[i].close;
+  for (let i = 0; i < period; i++) {
+    sum += data[i].close;
+  }
   smaData[period - 1] = sum / period;
+
   for (let i = period; i < data.length; i++) {
     sum += data[i].close - data[i - period].close;
     smaData[i] = sum / period;
   }
+  
   return smaData;
 };
 
@@ -239,18 +229,35 @@ export const getTimeframeDuration = (timeframe: Timeframe): number => {
     return map[timeframe] || 60 * 1000;
 };
 
+export const formatDuration = (ms: number): string => {
+    const absMs = Math.abs(ms);
+    const mins = Math.floor(absMs / (60 * 1000));
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ${hours % 24}h`;
+    if (hours > 0) return `${hours}h ${mins % 60}m`;
+    return `${mins}m`;
+};
+
+// Automatic Timeframe Detection
 export const detectTimeframe = (data: OHLCV[]): Timeframe => {
     if (!data || data.length < 2) return Timeframe.M1;
+
     const diffs: number[] = [];
     const limit = Math.min(data.length - 1, 200); 
+    
     for(let i = 0; i < limit; i++) {
         const diff = data[i+1].time - data[i].time;
         if (diff > 0) diffs.push(diff);
     }
+    
     if (diffs.length === 0) return Timeframe.M1;
+
     const counts: Record<number, number> = {};
     let maxCount = 0;
     let mode = diffs[0];
+
     for(const d of diffs) {
         counts[d] = (counts[d] || 0) + 1;
         if(counts[d] > maxCount) {
@@ -258,31 +265,66 @@ export const detectTimeframe = (data: OHLCV[]): Timeframe => {
             mode = d;
         }
     }
+
     const minutes = Math.round(mode / (60 * 1000));
+    
     if (minutes === 1) return Timeframe.M1;
+    if (minutes === 3) return Timeframe.M3;
     if (minutes === 5) return Timeframe.M5;
     if (minutes === 15) return Timeframe.M15;
+    if (minutes === 30) return Timeframe.M30;
     if (minutes === 60) return Timeframe.H1;
+    if (minutes === 120) return Timeframe.H2;
     if (minutes === 240) return Timeframe.H4;
+    if (minutes === 720) return Timeframe.H12;
     if (minutes === 1440) return Timeframe.D1;
     if (minutes === 10080) return Timeframe.W1;
+    
+    if (minutes >= 40000 && minutes <= 45000) return Timeframe.MN1; 
+    if (minutes >= 500000) return Timeframe.MN12;
+
+    if (minutes < 3) return Timeframe.M1;
+    if (minutes < 5) return Timeframe.M3;
+    if (minutes < 15) return Timeframe.M5;
+    if (minutes < 30) return Timeframe.M15;
+    if (minutes < 60) return Timeframe.M30;
+    if (minutes < 120) return Timeframe.H1;
+    if (minutes < 240) return Timeframe.H2;
+    if (minutes < 720) return Timeframe.H4;
+    if (minutes < 1440) return Timeframe.H12;
+    
     return Timeframe.D1;
 };
 
+// Resample Data
 export const resampleData = (data: OHLCV[], timeframe: Timeframe | string): OHLCV[] => {
   if (!data || data.length === 0) return [];
   if (timeframe === Timeframe.M1) return [...data];
+
   const period = getTimeframeDuration(timeframe as Timeframe);
   const resampled: OHLCV[] = [];
+  
   let currentBucketTime: number | null = null;
   let currentCandle: OHLCV | null = null;
+
   for (let i = 0; i < data.length; i++) {
       const d = data[i];
       const bucketTime = Math.floor(d.time / period) * period;
+
       if (currentBucketTime === null || bucketTime !== currentBucketTime) {
-          if (currentCandle) resampled.push(currentCandle);
+          if (currentCandle) {
+              resampled.push(currentCandle);
+          }
           currentBucketTime = bucketTime;
-          currentCandle = { time: bucketTime, open: d.open, high: d.high, low: d.low, close: d.close, volume: d.volume };
+          currentCandle = {
+              time: bucketTime,
+              open: d.open,
+              high: d.high,
+              low: d.low,
+              close: d.close,
+              volume: d.volume,
+              dateStr: new Date(bucketTime).toLocaleString()
+          };
       } else {
           if (currentCandle) {
             currentCandle.high = Math.max(currentCandle.high, d.high);
@@ -292,62 +334,227 @@ export const resampleData = (data: OHLCV[], timeframe: Timeframe | string): OHLC
           }
       }
   }
-  if (currentCandle) resampled.push(currentCandle);
+
+  if (currentCandle) {
+      resampled.push(currentCandle);
+  }
+
   return resampled;
 };
 
+// --- CHUNK PARSING ---
+
 export const parseCSVChunk = (lines: string[]): OHLCV[] => {
   const data: OHLCV[] = [];
+
   for (const line of lines) {
     if (!line || !line.trim() || !/^\d/.test(line.trim())) continue;
+
     const delimiter = line.indexOf(';') > -1 ? ';' : ',';
     const parts = line.split(delimiter);
+
     if (parts.length < 5) continue;
+
     try {
         let dateStr = '';
         let timestamp = 0;
         let open = 0, high = 0, low = 0, close = 0, volume = 0;
+
         const p0 = parts[0].trim();
         const p1 = parts[1].trim();
+
         const isDateColumn = /^\d{8}$/.test(p0) || /^\d{4}[\.\-\/]\d{2}[\.\-\/]\d{2}$/.test(p0);
         const isTimeColumn = p1.includes(':');
+
         if (isDateColumn && isTimeColumn) {
             let cleanDate = p0.replace(/[\.\-\/]/g, '');
-            if (cleanDate.length === 8) cleanDate = `${cleanDate.substring(0,4)}-${cleanDate.substring(4,6)}-${cleanDate.substring(6,8)}`;
+            if (cleanDate.length === 8) {
+                cleanDate = `${cleanDate.substring(0,4)}-${cleanDate.substring(4,6)}-${cleanDate.substring(6,8)}`;
+            }
             dateStr = `${cleanDate}T${p1}`;
-            open = parseFloat(parts[2]); high = parseFloat(parts[3]); low = parseFloat(parts[4]); close = parseFloat(parts[5]);
-            if (parts.length > 6) volume = parseFloat(parts[6]) || 0;
+            open = parseFloat(parts[2]);
+            high = parseFloat(parts[3]);
+            low = parseFloat(parts[4]);
+            close = parseFloat(parts[5]);
+            if (parts.length > 6) {
+                const v = parseFloat(parts[6]);
+                volume = isNaN(v) ? 0 : v;
+            }
         } else {
              dateStr = p0;
-             open = parseFloat(parts[1]); high = parseFloat(parts[2]); low = parseFloat(parts[3]); close = parseFloat(parts[4]);
-             if (parts.length > 5) volume = parseFloat(parts[5]) || 0;
+             open = parseFloat(parts[1]);
+             high = parseFloat(parts[2]);
+             low = parseFloat(parts[3]);
+             close = parseFloat(parts[4]);
+             if (parts.length > 5) {
+                 const v = parseFloat(parts[5]);
+                 volume = isNaN(v) ? 0 : v;
+             }
         }
+
         if (isNaN(open) || isNaN(close)) continue;
+
         timestamp = new Date(dateStr).getTime();
+
         if (isNaN(timestamp)) {
             timestamp = parseFloat(dateStr);
             if (!isNaN(timestamp) && timestamp < 10000000000) timestamp *= 1000;
         }
+
         if (isNaN(timestamp) || timestamp <= 0) continue;
-        data.push({ time: timestamp, open, high, low, close, volume, dateStr });
-    } catch (e) {}
+
+        data.push({
+            time: timestamp,
+            open,
+            high,
+            low,
+            close,
+            volume,
+            dateStr: dateStr
+        });
+    } catch (e) {
+        // Skip malformed lines
+    }
   }
+  
   return data;
 }
 
+export const parseCSV = (text: string): OHLCV[] => {
+  const lines = text.trim().split('\n');
+  const data = parseCSVChunk(lines);
+  data.sort((a, b) => a.time - b.time);
+  
+  const uniqueData: OHLCV[] = [];
+  if (data.length > 0) {
+      uniqueData.push(data[0]);
+      for (let i = 1; i < data.length; i++) {
+          if (data[i].time !== data[i-1].time) {
+              uniqueData.push(data[i]);
+          }
+      }
+  }
+  return uniqueData;
+};
+
+// --- UTILS ---
+
+function perpendicularDistance(p: DrawingPoint, p1: DrawingPoint, p2: DrawingPoint): number {
+    const x = p.time;
+    const y = p.price;
+    const x1 = p1.time;
+    const y1 = p1.price;
+    const x2 = p2.time;
+    const y2 = p2.price;
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+
+    if (lenSq === 0) {
+        return Math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
+    }
+
+    const t = ((x - x1) * dx + (y - y1) * dy) / lenSq;
+    let closestX, closestY;
+
+    if (t < 0) {
+        closestX = x1;
+        closestY = y1;
+    } else if (t > 1) {
+        closestX = x2;
+        closestY = y2;
+    } else {
+        closestX = x1 + t * dx;
+        closestY = y1 + t * dy;
+    }
+
+    const distDx = x - closestX;
+    const distDy = y - closestY;
+    return Math.sqrt(distDx * distDx + distDy * distDy);
+}
+
+export const ramerDouglasPeucker = (points: DrawingPoint[], epsilon: number): DrawingPoint[] => {
+    if (points.length < 3) return points;
+
+    let dmax = 0;
+    let index = 0;
+    const end = points.length - 1;
+
+    for (let i = 1; i < end; i++) {
+        const d = perpendicularDistance(points[i], points[0], points[end]);
+        if (d > dmax) {
+            index = i;
+            dmax = d;
+        }
+    }
+
+    if (dmax > epsilon) {
+        const res1 = ramerDouglasPeucker(points.slice(0, index + 1), epsilon);
+        const res2 = ramerDouglasPeucker(points.slice(index), epsilon);
+        return res1.slice(0, res1.length - 1).concat(res2);
+    } else {
+        return [points[0], points[end]];
+    }
+};
+
+export const smoothPoints = (points: DrawingPoint[], iterations: number): DrawingPoint[] => {
+    const validPoints = points.filter(p => Number.isFinite(p.time) && Number.isFinite(p.price) && p.time > 0);
+    if (validPoints.length < 3) return validPoints;
+
+    let current = [...validPoints];
+    if (iterations > 0) {
+        for (let iter = 0; iter < iterations; iter++) {
+            const next = [current[0]];
+            for (let i = 1; i < current.length - 1; i++) {
+                const prev = current[i - 1];
+                const curr = current[i];
+                const nxt = current[i + 1];
+                next.push({
+                    time: (prev.time + curr.time + nxt.time) / 3,
+                    price: (prev.price + curr.price + nxt.price) / 3
+                });
+            }
+            next.push(current[current.length - 1]);
+            current = next;
+        }
+    }
+    return ramerDouglasPeucker(current, 0);
+};
+
+// Simple hash function
+const simpleHash = (str: string): string => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return hash.toString(16);
+};
+
+// Regex patterns for detecting timeframe in filename
 const TF_PATTERNS: Record<string, RegExp[]> = {
   [Timeframe.M1]: [/(?:^|[\W_])(1m|1mn)(?:in)?(?:[\W_]|$)/i, /m1$/i, /_1$/],
+  [Timeframe.M3]: [/(?:^|[\W_])3m(?:in)?(?:[\W_]|$)/i, /m3$/i, /_3$/],
   [Timeframe.M5]: [/(?:^|[\W_])5m(?:in)?(?:[\W_]|$)/i, /m5$/i, /_5$/],
   [Timeframe.M15]: [/(?:^|[\W_])15m(?:in)?(?:[\W_]|$)/i, /m15$/i, /_15$/],
+  [Timeframe.M30]: [/(?:^|[\W_])30m(?:in)?(?:[\W_]|$)/i, /m30$/i, /_30$/],
   [Timeframe.H1]: [/(?:^|[\W_])1h(?:r)?(?:[\W_]|$)/i, /(?:^|[\W_])60m(?:in)?(?:[\W_]|$)/i, /h1$/i, /_60$/],
+  [Timeframe.H2]: [/(?:^|[\W_])2h(?:r)?(?:[\W_]|$)/i, /h2$/i, /_120$/],
   [Timeframe.H4]: [/(?:^|[\W_])4h(?:r)?(?:[\W_]|$)/i, /(?:^|[\W_])240m(?:in)?(?:[\W_]|$)/i, /h4$/i, /_240$/],
+  [Timeframe.H12]: [/(?:^|[\W_])12h(?:r)?(?:[\W_]|$)/i, /h12$/i],
   [Timeframe.D1]: [/(?:^|[\W_])1d(?:ay)?(?:[\W_]|$)/i, /d1$/i, /daily/i, /_1440$/],
   [Timeframe.W1]: [/(?:^|[\W_])1w(?:eek)?(?:[\W_]|$)/i, /w1$/i, /weekly/i],
+  [Timeframe.MN1]: [/(?:^|[\W_])(1M|1mo)(?:onth)?(?:[\W_]|$)/i, /mn1$/i, /monthly/i],
+  [Timeframe.MN12]: [/(?:^|[\W_])12M(?:onth)?(?:[\W_]|$)/, /1y(?:ear)?/i, /yearly/i],
 };
 
 export const getBaseSymbolName = (filename: string): string => {
   let name = filename.replace(/\.(csv|txt|json)$/i, '');
-  Object.values(TF_PATTERNS).flat().forEach(regex => { name = name.replace(regex, ''); });
+  Object.values(TF_PATTERNS).flat().forEach(regex => {
+    name = name.replace(regex, '');
+  });
   return name.replace(/[_\-\s]+$/g, '').replace(/^[_\-\s]+/g, '').toUpperCase();
 };
 
@@ -355,7 +562,9 @@ export const getSymbolId = (fileName: string, folderName?: string): string => {
   const baseSymbol = getBaseSymbolName(fileName);
   if (folderName && folderName !== '.' && folderName.toLowerCase() !== 'assets') {
     const cleanFolder = folderName.split(/[\\/]/).pop()?.toUpperCase() || '';
-    if (cleanFolder && cleanFolder !== baseSymbol) return `${cleanFolder}_${baseSymbol}`;
+    if (cleanFolder && cleanFolder !== baseSymbol) {
+      return `${cleanFolder}_${baseSymbol}`;
+    }
   }
   return baseSymbol;
 };
@@ -367,15 +576,14 @@ export const getSourceId = (path: string, type: 'local' | 'asset' = 'local'): st
   const dirPath = parts.join('/');
   const baseName = getBaseSymbolName(filename);
   const uniqueKey = dirPath ? `${dirPath}/${baseName}` : baseName;
-  let hash = 0;
-  for (let i = 0; i < uniqueKey.length; i++) { hash = (hash << 5) - hash + uniqueKey.charCodeAt(i); hash |= 0; }
-  return `${type}_${hash.toString(16)}`;
+  return `${type}_${simpleHash(uniqueKey)}`;
 };
 
 export const findFileForTimeframe = (files: any[], currentTitle: string, targetTf: Timeframe): any | null => {
   if (!files || files.length === 0) return null;
   const currentBase = getBaseSymbolName(currentTitle);
   const patterns = TF_PATTERNS[targetTf] || [];
+  
   return files.find(f => {
     const fileBase = getBaseSymbolName(f.name);
     const isSymbolMatch = (fileBase === currentBase) || (fileBase === '') || (currentBase && f.name.toUpperCase().includes(currentBase));
@@ -391,70 +599,29 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
         try {
             // @ts-ignore
             for await (const entry of handle.values()) {
-                if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.csv')) {
-                   files.push({ name: entry.name, kind: entry.kind, getFile: () => entry.getFile(), folder: currentPath ? currentPath.split('/')[0] : '.', handle: entry });
-                } else if (entry.kind === 'directory' && !['Database', 'Metadata'].includes(entry.name)) {
-                    await traverse(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
+                try {
+                    if (entry.kind === 'file') {
+                        if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.json')) {
+                           const fileObject = {
+                               name: entry.name,
+                               kind: entry.kind,
+                               getFile: () => entry.getFile(), 
+                               folder: currentPath ? currentPath.split('/')[0] : '.', 
+                               handle: entry 
+                           };
+                           files.push(fileObject);
+                        }
+                    } else if (entry.kind === 'directory') {
+                        await traverse(entry, currentPath ? `${currentPath}/${entry.name}` : entry.name);
+                    }
+                } catch (innerErr) {
+                    console.warn("Skipping entry due to error:", entry.name, innerErr);
                 }
             }
-        } catch (err) {}
-    }
-    await traverse(dirHandle, ''); 
-    return files;
-}
-
-export const formatDuration = (ms: number): string => {
-    const absMs = Math.abs(ms);
-    const seconds = Math.floor(absMs / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) return `${days}d ${hours % 24}h`;
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    if (minutes > 0) return `${minutes}m`;
-    return `${seconds}s`;
-};
-
-// Smoothing logic for brush
-function perpendicularDistance(p: DrawingPoint, p1: DrawingPoint, p2: DrawingPoint): number {
-    const x = p.time, y = p.price, x1 = p1.time, y1 = p1.price, x2 = p2.time, y2 = p2.price;
-    const dx = x2 - x1, dy = y2 - y1, lenSq = dx * dx + dy * dy;
-    if (lenSq === 0) return Math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
-    const t = ((x - x1) * dx + (y - y1) * dy) / lenSq;
-    let cx, cy;
-    if (t < 0) { cx = x1; cy = y1; } else if (t > 1) { cx = x2; cy = y2; } else { cx = x1 + t * dx; cy = y1 + t * dy; }
-    const distDx = x - cx, distDy = y - cy;
-    return Math.sqrt(distDx * distDx + distDy * distDy);
-}
-
-export const ramerDouglasPeucker = (points: DrawingPoint[], epsilon: number): DrawingPoint[] => {
-    if (points.length < 3) return points;
-    let dmax = 0, index = 0, end = points.length - 1;
-    for (let i = 1; i < end; i++) {
-        const d = perpendicularDistance(points[i], points[0], points[end]);
-        if (d > dmax) { index = i; dmax = d; }
-    }
-    if (dmax > epsilon) {
-        const res1 = ramerDouglasPeucker(points.slice(0, index + 1), epsilon);
-        const res2 = ramerDouglasPeucker(points.slice(index), epsilon);
-        return res1.slice(0, res1.length - 1).concat(res2);
-    } else return [points[0], points[end]];
-};
-
-export const smoothPoints = (points: DrawingPoint[], iterations: number): DrawingPoint[] => {
-    const validPoints = points.filter(p => Number.isFinite(p.time) && Number.isFinite(p.price) && p.time > 0);
-    if (validPoints.length < 3) return validPoints;
-    let current = [...validPoints];
-    if (iterations > 0) {
-        for (let iter = 0; iter < iterations; iter++) {
-            const next = [current[0]]; 
-            for (let i = 1; i < current.length - 1; i++) {
-                next.push({ time: (current[i-1].time + current[i].time + current[i+1].time) / 3, price: (current[i-1].price + current[i].price + current[i+1].price) / 3 });
-            }
-            next.push(current[current.length - 1]);
-            current = next;
+        } catch (err) {
+            console.error("Error scanning directory:", handle.name, err);
         }
     }
-    return ramerDouglasPeucker(current, 0);
-};
+    await traverse(dirHandle, '');
+    return files;
+}
