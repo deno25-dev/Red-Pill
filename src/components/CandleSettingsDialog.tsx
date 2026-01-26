@@ -1,8 +1,8 @@
 
 import React from 'react';
 import { X, CandlestickChart } from 'lucide-react';
-import { ChartConfig } from '../types';
-import { COLORS } from '../constants/index';
+import { ChartConfig } from '@/types';
+import { COLORS } from '@/constants/index';
 
 interface CandleSettingsDialogProps {
   isOpen: boolean;

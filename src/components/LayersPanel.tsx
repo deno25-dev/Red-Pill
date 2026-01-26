@@ -14,8 +14,8 @@ import {
   ChevronRight,
   FolderPlus
 } from 'lucide-react';
-import { Drawing, type Folder as FolderType } from '../types';
-import { ALL_TOOLS_LIST } from '../constants/index';
+import { Drawing, type Folder as FolderType } from '@/types';
+import { ALL_TOOLS_LIST } from '@/constants/index';
 
 interface LayersPanelProps {
   drawings: Drawing[];
