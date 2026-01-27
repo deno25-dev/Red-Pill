@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, FileEdit, FileJson, Layout, FileClock, ClipboardList, PenTool } from 'lucide-react';
-import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '../utils/logger';
-import { useDevLogs } from '../hooks/useDevLogs';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { LogEntry, debugLog, clearLogs as clearRuntimeLogs, getLogHistory } from '@/utils/logger';
+import { useDevLogs } from '@/hooks/useDevLogs';
 
 interface DeveloperToolsProps {
   activeDataSource: string;

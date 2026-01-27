@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ActivePanel } from '../types';
+import { ActivePanel } from '@/types';
 import { Layers, List, AlignJustify } from 'lucide-react';
 
 interface SidebarProps {

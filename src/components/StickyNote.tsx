@@ -15,7 +15,7 @@ import {
     PinOff,
     Eraser
 } from 'lucide-react';
-import { StickyNoteData } from '../types';
+import { StickyNoteData } from '@/types';
 
 interface StickyNoteProps {
     note: StickyNoteData;

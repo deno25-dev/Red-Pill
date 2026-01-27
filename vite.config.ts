@@ -8,15 +8,23 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
-  base: './', // Mandate 0.0.0: Ensures relative paths for Tauri/Electron assets
+  // MANDATE 0.0.0: Ensures relative paths for Tauri/Electron assets
+  base: './', 
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      // MANDATE 0.1.0: Maps '@' to 'src' directory
+      // Using path.join with __dirname ensures the absolute path is correct 
+      // regardless of the environment (Local vs Sandbox)
+      '@': path.resolve(__dirname, './src'),
     },
   },
   server: {
     port: 5173,
     strictPort: true,
+    // Add specific HMR (Hot Module Replacement) settings for sandboxed environments
+    hmr: {
+      overlay: false
+    }
   },
   build: {
     outDir: 'dist',

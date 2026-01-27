@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { StickyNote } from './StickyNote';
-import { StickyNoteData } from '../types';
+import { StickyNoteData } from '@/types';
 
 interface StickyNoteOverlayProps {
     notes: StickyNoteData[];

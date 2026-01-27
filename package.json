@@ -3,13 +3,12 @@
   "productName": "Red Pill Charting",
   "version": "1.2.5",
   "private": true,
-  "main": "electron/main.js",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "dist": "tsc && vite build && electron-builder"
+    "tauri": "tauri"
   },
   "dependencies": {
     "clsx": "^2.1.0",
@@ -20,37 +19,15 @@
     "tailwind-merge": "^2.2.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.69",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.19",
-    "concurrently": "^8.2.2",
-    "electron": "^30.0.1",
-    "electron-builder": "^24.13.3",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.3",
-    "vite": "^5.2.6",
-    "wait-on": "^7.2.0"
-  },
-  "build": {
-    "appId": "com.redpill.charting",
-    "productName": "Red Pill Charting",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "public/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "vite": "^5.2.6"
   }
 }
