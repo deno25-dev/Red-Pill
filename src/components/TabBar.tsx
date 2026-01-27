@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { X, Plus, ExternalLink } from 'lucide-react';
-import { TabSession } from '@/types';
+import { TabSession } from '../types';
 
 interface TabBarProps {
   tabs: TabSession[];

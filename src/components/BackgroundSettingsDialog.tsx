@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { X, PaintBucket, Layers } from 'lucide-react';
-import { ChartConfig } from '@/types';
+import { ChartConfig } from '../types';
 
 interface BackgroundSettingsDialogProps {
   isOpen: boolean;

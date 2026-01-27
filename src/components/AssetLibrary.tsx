@@ -12,9 +12,9 @@ import {
   RefreshCw,
   Database
 } from 'lucide-react';
-import { getBaseSymbolName } from '@/utils/dataUtils';
+import { getBaseSymbolName } from '../utils/dataUtils';
 import { Timeframe } from '@/types';
-import { debugLog } from '@/utils/logger';
+import { debugLog } from '../utils/logger';
 
 interface AssetSymbol {
   name: string;

@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Folder, FileJson, X, RefreshCw, Trash2, Upload, Download } from 'lucide-react';
-import { getDatabaseHandle } from '@/utils/storage';
-import { scanRecursive } from '@/utils/dataUtils';
+import { getDatabaseHandle } from '../utils/storage';
+import { scanRecursive } from '../utils/dataUtils';
 
 interface DatabaseBrowserProps {
     isOpen: boolean;

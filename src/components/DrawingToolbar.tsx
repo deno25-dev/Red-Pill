@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Trash2, 
@@ -13,7 +12,7 @@ import {
   AlignRight,
   Activity
 } from 'lucide-react';
-import { DrawingProperties } from '@/types';
+import { DrawingProperties } from '../types';
 
 interface DrawingToolbarProps {
   properties?: DrawingProperties;

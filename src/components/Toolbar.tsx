@@ -40,7 +40,7 @@ import {
   Sparkles,
   Upload
 } from 'lucide-react';
-import { Timeframe } from '@/types';
+import { Timeframe } from '../types';
 
 interface ToolbarProps {
   onFileUpload: (file: File) => void;

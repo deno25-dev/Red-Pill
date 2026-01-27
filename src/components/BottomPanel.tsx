@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { ChevronUp, ChevronDown, Target, Save, AlertCircle } from 'lucide-react';
-import { Trade } from '@/types';
+import { Trade } from '../types';
 
 interface BottomPanelProps {
   isOpen: boolean;
