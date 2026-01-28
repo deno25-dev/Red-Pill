@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { ISeriesApi, Time } from 'lightweight-charts';
 import { OHLCV } from '../types';
+import { reportSelf } from './useTelemetry';
 
 interface UseAdvancedReplayProps {
   seriesRef: React.MutableRefObject<ISeriesApi<"Candlestick"> | null>;
@@ -32,6 +33,30 @@ export const useAdvancedReplay = ({
   const currentIndexRef = useRef<number>(startIndex);
   const currentPriceRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
+
+  // Telemetry Heartbeat (5s)
+  useEffect(() => {
+      if (!isActive) return;
+
+      const interval = setInterval(() => {
+          reportSelf('ReplayEngine (Advanced)', {
+              status: isPlaying ? 'Playing' : 'Paused',
+              buffer: {
+                  currentIndex: currentIndexRef.current,
+                  totalCandles: fullData?.length || 0,
+                  progressPct: fullData ? ((currentIndexRef.current / fullData.length) * 100).toFixed(1) + '%' : '0%'
+              },
+              simulation: {
+                  speed: `${speed}x`,
+                  virtualOffsetMs: Math.floor(virtualNowRef.current),
+                  simulatedPrice: currentPriceRef.current.toFixed(2)
+              },
+              isRealTimeSync: isPlaying // Simple proxy for now
+          });
+      }, 5000);
+
+      return () => clearInterval(interval);
+  }, [isActive, isPlaying, speed, fullData]);
 
   // NUCLEAR RESET LISTENER
   useEffect(() => {

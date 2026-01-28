@@ -185,3 +185,42 @@ export interface SanitizationStats {
   outliers: number;
   totalRecords: number;
 }
+
+// --- ELECTRON BRIDGE DEFINITIONS (STRICT) ---
+
+export interface IElectronAPI {
+  // File System
+  selectFolder: () => Promise<{ path: string; name: string } | null>;
+  watchFolder: (path: string) => Promise<any[]>;
+  unwatchFolder: () => Promise<void>;
+  readChunk: (filePath: string, start: number, length: number) => Promise<string>;
+  getFileDetails: (filePath: string) => Promise<{ exists: boolean; size: number }>;
+  getDefaultDatabasePath: () => Promise<string>;
+  getInternalFolders: () => Promise<any[]>;
+  getInternalLibrary: () => Promise<any[]>;
+  
+  // Persistence (SQLite/JSON Store)
+  loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;
+  saveMasterDrawings: (data: any) => Promise<{ success: boolean; error?: string }>;
+  getDrawingsState: () => Promise<any>;
+  deleteAllDrawings: (sourceId: string) => Promise<{ success: boolean; error?: string }>;
+  
+  // Layouts
+  saveLayout: (name: string, data: any) => Promise<{ success: boolean; error?: string }>;
+  loadLayout: (name: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  listLayouts: () => Promise<string[]>;
+
+  // Trades
+  getTradesBySource: (sourceId: string) => Promise<Trade[]>;
+  saveTrade: (trade: Trade) => Promise<{ success: boolean; error?: string }>;
+  
+  // Telemetry & Events
+  getSystemTelemetry: () => Promise<any>;
+  onFolderChange: (callback: (files: any[]) => void) => () => void;
+}
+
+declare global {
+  interface Window {
+    electronAPI?: IElectronAPI;
+  }
+}

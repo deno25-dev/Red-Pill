@@ -28,6 +28,7 @@ import { ChevronsRight, Check, X as XIcon } from 'lucide-react';
 import { useChartReplay } from '../hooks/useChartReplay';
 import { useAdvancedReplay } from '../hooks/useAdvancedReplay';
 import { useDrawingRegistry } from '../hooks/useDrawingRegistry';
+import { reportSelf } from '../hooks/useTelemetry';
 
 interface ChartProps {
   id?: string;
@@ -480,6 +481,17 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => {
     visibleDrawingsRef.current = visibleDrawings;
   }, [visibleDrawings]);
+
+  // Telemetry: Report Readiness
+  useEffect(() => {
+    if (chartRef.current) {
+        reportSelf('ChartEngine', {
+            status: 'Ready',
+            chartType: config.chartType,
+            series: seriesRef.current ? 'Attached' : 'Pending'
+        });
+    }
+  }, [config.chartType]);
 
   // Listen for force clear event
   useEffect(() => {

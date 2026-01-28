@@ -1,16 +1,14 @@
 
-
 import { useEffect, useState, useRef, useCallback } from 'react';
-// FIX: Added Folder type to handle chart state persistence.
 import { ChartState, ChartConfig, Drawing, Folder } from '../types';
 import { loadMasterDrawingsStore, saveMasterDrawingsStore } from '../utils/storage';
 import { debugLog } from '../utils/logger';
+import { reportSelf } from './useTelemetry';
 
 interface UseSymbolPersistenceProps {
   symbol: string | null;
   onStateLoaded: (state: ChartState | null) => void;
   drawings: Drawing[];
-  // FIX: Added folders to the persistence hook properties to save/load folder state.
   folders?: Folder[];
   config: ChartConfig;
   visibleRange: { from: number; to: number } | null;
@@ -20,7 +18,6 @@ export const useSymbolPersistence = ({
   symbol,
   onStateLoaded,
   drawings,
-  // FIX: Destructured folders prop.
   folders,
   config,
   visibleRange,
@@ -29,7 +26,7 @@ export const useSymbolPersistence = ({
   const onStateLoadedRef = useRef(onStateLoaded);
   onStateLoadedRef.current = onStateLoaded;
 
-  const electron = (window as any).electronAPI;
+  const electron = window.electronAPI;
 
   const loadState = useCallback(async () => {
     if (!symbol) {
@@ -37,14 +34,14 @@ export const useSymbolPersistence = ({
       onStateLoadedRef.current(null);
       return;
     }
-    
+
     setIsHydrating(true);
     let cancelled = false;
 
     try {
       let state: ChartState | null = null;
-      
-      if (electron && electron.loadMasterDrawings) {
+
+      if (electron) {
           const result = await electron.loadMasterDrawings();
           if (result.success && result.data && result.data[symbol]) {
               state = result.data[symbol];
@@ -60,28 +57,25 @@ export const useSymbolPersistence = ({
         debugLog('Data', `Persistence: Loaded state for ${symbol}`, state ? 'found' : 'not found');
         if (state) {
             console.log(`[RedPill] Loading ${state.drawings.length} drawings for Symbol: ${symbol}`);
+            reportSelf('Persistence', { action: 'Load', symbol, status: 'Success', items: state.drawings.length });
         }
         onStateLoadedRef.current(state);
       }
     } catch (e: any) {
       console.error("Failed to load chart state:", e);
       debugLog('Data', `Persistence: Error loading state for ${symbol}`, e.message);
+      reportSelf('Persistence', { action: 'Load', symbol, status: 'Error', error: e.message });
       if (!cancelled) onStateLoadedRef.current(null);
     } finally {
       if (!cancelled) setIsHydrating(false);
     }
-  }, [symbol, electron]); 
+  }, [symbol, electron]);
 
-  // Load initial state
   useEffect(() => {
     loadState();
-    
-    return () => {
-        // No clean cancellation for async, but we handle it via closure if needed
-    };
+    return () => { };
   }, [loadState]);
 
-  // Save state on change (debounced)
   useEffect(() => {
     if (!symbol || isHydrating) return;
 
@@ -90,14 +84,13 @@ export const useSymbolPersistence = ({
         sourceId: symbol,
         timestamp: Date.now(),
         drawings,
-        // FIX: Added folders to the state object that is persisted.
         folders,
         config,
         visibleRange,
       };
 
       try {
-        if (electron && electron.saveMasterDrawings) {
+        if (electron) {
             const result = await electron.loadMasterDrawings();
             const masterStore = result?.data || {};
             masterStore[symbol] = stateToSave;
@@ -107,17 +100,19 @@ export const useSymbolPersistence = ({
             masterStore[symbol] = stateToSave;
             await saveMasterDrawingsStore(masterStore);
         }
+
         debugLog('Data', `Persistence: Saved state for ${symbol}`);
+        reportSelf('Persistence', { action: 'Save', symbol, status: 'Success' });
       } catch (e: any) {
         console.error("Failed to save chart state:", e);
         debugLog('Data', `Persistence: Error saving state for ${symbol}`, e.message);
+        reportSelf('Persistence', { action: 'Save', symbol, status: 'Error', error: e.message });
       }
-    }, 1000); // 1s debounce
+    }, 1000);
 
     return () => {
       clearTimeout(handler);
     };
-  // FIX: Added folders to the dependency array to trigger save on change.
   }, [symbol, drawings, folders, config, visibleRange, isHydrating, electron]);
 
   return { isHydrating, rehydrate: loadState };

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -99,7 +100,8 @@ const App: React.FC = () => {
   const [chartRenderTime, setChartRenderTime] = useState<number | null>(null);
 
   // Electron File System Hook
-  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase } = useFileSystem();
+  // Now includes reportFileLoad for telemetry wiring
+  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -124,7 +126,9 @@ const App: React.FC = () => {
   
   // Initial Boot Sequence
   useEffect(() => {
-      const electron = (window as any).electronAPI;
+      const electron = window.electronAPI;
+      console.log('Window Object:', electron); // Verify Bridge Availability
+      
       if (electron) {
           // Load Drawing States
           if (electron.getDrawingsState) {
@@ -247,7 +251,7 @@ const App: React.FC = () => {
 
           try {
               // 1. Clear Backend via Dedicated Endpoint (Mandate 12.3)
-              const electron = (window as any).electronAPI;
+              const electron = window.electronAPI;
               
               if (electron && electron.deleteAllDrawings) {
                   await electron.deleteAllDrawings(tab.sourceId);
@@ -628,6 +632,11 @@ const App: React.FC = () => {
           const tfMs = getTimeframeDuration(initialTf);
           const { data: cleanRawData, stats: sanitizationReport } = sanitizeData(rawData, tfMs);
           
+          // TELEMETRY: Report Sanitization & File Stats via FileSystem Hook (Mandate)
+          if (reportFileLoad) {
+              reportFileLoad(fileName, sanitizationReport);
+          }
+          
           debugLog('Data', `Sanitization Report for ${displayTitle}`, sanitizationReport);
 
           const displayData = resampleData(cleanRawData, initialTf);
@@ -721,7 +730,7 @@ const App: React.FC = () => {
       } finally {
           setLoading(false);
       }
-  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab]);
+  }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab, reportFileLoad]);
 
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
@@ -833,7 +842,7 @@ const App: React.FC = () => {
             replayGlobalTime: targetTab.replayGlobalTime || (targetTab.data.length > 0 ? targetTab.data[targetTab.replayIndex].time : null)
         };
 
-        const electron = (window as any).electronAPI;
+        const electron = window.electronAPI;
         let searchList = explorerFiles;
         
         if (electron && electron.getInternalLibrary) {
@@ -1183,7 +1192,7 @@ const App: React.FC = () => {
     if (sourceId) {
         try {
             // Mandate 12.3: Nuclear Clear Backend Call
-            const electron = (window as any).electronAPI;
+            const electron = window.electronAPI;
             
             // Prefer dedicated clear command if available
             if (electron && electron.deleteAllDrawings) {
@@ -1220,7 +1229,7 @@ const App: React.FC = () => {
           ...order
       };
       
-      const electron = (window as any).electronAPI;
+      const electron = window.electronAPI;
       if (electron) {
           try {
             await electron.saveTrade(newTrade);

@@ -6,7 +6,7 @@ import { debugLog } from '../utils/logger';
 export const useTradePersistence = (sourceId?: string) => {
     const [trades, setTrades] = useState<Trade[]>([]);
     const [loading, setLoading] = useState(false);
-    const electron = (window as any).electronAPI;
+    const electron = window.electronAPI;
 
     const fetchTrades = useCallback(async () => {
         if (!sourceId || !electron) return;

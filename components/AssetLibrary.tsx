@@ -68,7 +68,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
   // Independent State for Bridge Mode
   const [internalFiles, setInternalFiles] = useState<any[]>([]);
   
-  const electron = (window as any).electronAPI;
+  const electron = window.electronAPI;
   const isBridgeMode = !!electron;
 
   // Local favorites persistence
@@ -80,17 +80,17 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
 
   const handleManualRefresh = async () => {
       setIsRefreshing(true);
-      if (isBridgeMode && electron.getInternalFolders) {
+      if (isBridgeMode) {
           try {
-              // Force re-scan via new channel
-              const data = await electron.getInternalFolders();
+              // Enforce Mandate 0.2.1.2: Strictly scan Assets/ folder via Main Process
+              const data = await electron.getInternalLibrary();
               setInternalFiles(data || []);
-              debugLog('Data', `AssetLibrary: Manual refresh found ${data?.length || 0} files.`);
+              debugLog('Data', `AssetLibrary: Bridge scan complete. Found ${data?.length || 0} files.`);
           } catch (e) {
               console.error("Manual refresh failed", e);
           }
       } else {
-          // Web Mode fallback
+          // Web Mode fallback intentionally left minimal
       }
       setTimeout(() => setIsRefreshing(false), 500); 
   };
@@ -309,7 +309,7 @@ export const AssetLibrary: React.FC<AssetLibraryProps> = ({
               <Database size={64} className="mb-4" />
               <p className="text-lg font-medium">Database Empty</p>
               {isBridgeMode && (
-                  <p className="text-sm mt-2">Add folders to /src/database/ to populate this library.</p>
+                  <p className="text-sm mt-2">Add folders to Assets/ to populate this library.</p>
               )}
             </div>
           ) : (

@@ -1,3 +1,4 @@
+
 import { OHLCV, Timeframe, DrawingPoint, SanitizationStats } from '../types';
 
 // --- DATA COMMANDS ---
@@ -38,7 +39,7 @@ export const getLocalChartData = async (fileSource: File | string, chunkSize: nu
     // Determine size based on environment
     if (typeof fileSource === 'string') {
         // Electron Bridge Mode
-        const electron = (window as any).electronAPI;
+        const electron = window.electronAPI;
         if (electron) {
             const stats = await electron.getFileDetails(fileSource);
             fileSize = stats.size;
@@ -76,7 +77,7 @@ export const getLocalChartData = async (fileSource: File | string, chunkSize: nu
 // Utility to read a specific chunk of a local file
 // Supports both File object (Web) and Path string (Electron)
 export const readChunk = async (fileSource: File | string, start: number, end: number): Promise<string> => {
-    const electron = (window as any).electronAPI;
+    const electron = window.electronAPI;
 
     // Electron Bridge Path
     if (electron && typeof fileSource === 'string') {
@@ -344,28 +345,12 @@ export const detectTimeframe = (data: OHLCV[]): Timeframe => {
     if (minutes === 3) return Timeframe.M3;
     if (minutes === 5) return Timeframe.M5;
     if (minutes === 15) return Timeframe.M15;
-    if (minutes === 30) return Timeframe.M30;
-    if (minutes === 60) return Timeframe.H1;
-    if (minutes === 120) return Timeframe.H2;
-    if (minutes === 240) return Timeframe.H4;
-    if (minutes === 720) return Timeframe.H12;
-    if (minutes === 1440) return Timeframe.D1;
-    if (minutes === 10080) return Timeframe.W1; // 7 * 1440
-    
-    // Approximate monthly (30 days = 43200 mins)
-    if (minutes >= 40000 && minutes <= 45000) return Timeframe.MN1; 
-    if (minutes >= 500000) return Timeframe.MN12;
-
-    // Fallbacks for nearest bucket
-    if (minutes < 3) return Timeframe.M1;
-    if (minutes < 5) return Timeframe.M3;
-    if (minutes < 15) return Timeframe.M5;
-    if (minutes < 30) return Timeframe.M15;
-    if (minutes < 60) return Timeframe.M30;
-    if (minutes < 120) return Timeframe.H1;
-    if (minutes < 240) return Timeframe.H2;
-    if (minutes < 720) return Timeframe.H4;
-    if (minutes < 1440) return Timeframe.H12;
+    if (minutes === 30) return Timeframe.M15;
+    if (minutes === 60) return Timeframe.M30;
+    if (minutes === 120) return Timeframe.H1;
+    if (minutes === 240) return Timeframe.H2;
+    if (minutes === 720) return Timeframe.H4;
+    if (minutes === 1440) return Timeframe.H12;
     
     return Timeframe.D1;
 };
@@ -802,6 +787,8 @@ export async function scanRecursive(dirHandle: any): Promise<any[]> {
         try {
             // @ts-ignore
             for await (const entry of handle.values()) {
+                if (entry.name === 'Database') continue; // Explicitly ignore Database folder in web mode too
+
                 try {
                     if (entry.kind === 'file') {
                         if (entry.name.toLowerCase().endsWith('.csv') || entry.name.toLowerCase().endsWith('.json')) {

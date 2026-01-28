@@ -1,6 +1,8 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
+import { reportSelf } from '../hooks/useTelemetry';
 
 interface Props {
   children?: ReactNode;
@@ -14,15 +16,11 @@ interface State {
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
-    this.handleRetry = this.handleRetry.bind(this);
-  }
+export class GlobalErrorBoundary extends React.Component<Props, State> {
+  public state: State = {
+    hasError: false,
+    error: null,
+  };
 
   static getDerivedStateFromError(error: Error): State {
     // Update state so the next render will show the fallback UI.
@@ -36,6 +34,14 @@ export class GlobalErrorBoundary extends Component<Props, State> {
         stack: errorInfo.componentStack 
     });
     
+    // Telemetry: Report Critical Error
+    reportSelf('CriticalError', {
+        type: error.name,
+        message: error.message,
+        stack: errorInfo.componentStack,
+        timestamp: Date.now()
+    });
+
     // Notify parent if listener exists (for Debug Panel)
     if (this.props.onErrorCaptured) {
         this.props.onErrorCaptured(error.message);
@@ -44,8 +50,9 @@ export class GlobalErrorBoundary extends Component<Props, State> {
     console.error("Uncaught error in component:", error, errorInfo);
   }
 
-  handleRetry() {
+  handleRetry = () => {
     debugLog('UI', 'User attempted Error Boundary retry');
+    // Clear telemetry error state if needed, or leave it as history
     this.setState({ hasError: false, error: null });
   }
 

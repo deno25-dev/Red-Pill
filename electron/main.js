@@ -1,25 +1,64 @@
 
-
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const v8 = require('v8');
+
+// [TELEMETRY] Initialize Session Start Time
+const sessionStartTime = Date.now();
+const systemLogBuffer = [];
+const MAX_SYSTEM_LOGS = 200;
+
+const logSystemEvent = (eventName) => {
+    const entry = { event: eventName, timestamp: Date.now() };
+    systemLogBuffer.unshift(entry);
+    if (systemLogBuffer.length > MAX_SYSTEM_LOGS) systemLogBuffer.pop();
+    console.log(`[SYS_EVENT] ${eventName}`);
+};
 
 let mainWindow;
 let watcher = null;
+
+// --- CONFIGURATION ---
+const IGNORED_DIRECTORIES = ['Database', '.git', 'node_modules', 'dist', 'build', 'release', 'src', 'src-tauri', 'public'];
 
 // --- INTERNAL LIBRARY STORAGE (BOOT CACHE) ---
 let internalLibraryStorage = [];
 
 const createWindow = () => {
-  // --- DIAGNOSTIC PATH CHECK ---
-  // Using __dirname assumes preload.js is in the same directory as main.js
-  const preloadPath = path.join(__dirname, 'preload.js');
+  // TASK 1: HARDEN PRELOAD PATH RESOLUTION
+  let preloadPath;
   
-  console.log('\n\n=================================================');
-  console.log('DIAGNOSTIC: PRELOAD SCRIPT LOCATION CHECK');
-  console.log('Calculated Path:', preloadPath);
-  console.log('File Exists on Disk:', fs.existsSync(preloadPath));
-  console.log('=================================================\n\n');
+  // Resolve path based on environment
+  if (app.isPackaged) {
+      // Production: Path is usually inside the resources/app.asar
+      preloadPath = path.join(__dirname, 'preload.js');
+  } else {
+      // Development: Path relative to this file
+      preloadPath = path.resolve(__dirname, 'preload.js');
+  }
+
+  console.log('================================================');
+  console.log('[Bridge-Debug] Configuring Window...');
+  console.log(`[Bridge-Debug] Environment: ${app.isPackaged ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+  console.log(`[Bridge-Debug] Main Script Path: ${__dirname}`);
+  console.log(`[Bridge-Debug] Target Preload Path: ${preloadPath}`);
+  
+  // Robustness Check
+  if (fs.existsSync(preloadPath)) {
+      console.log('[Bridge-Debug] ✅ Preload script found on disk.');
+  } else {
+      console.error('[Bridge-Critical] ❌ Preload script NOT FOUND on disk!');
+      // Fallback attempt for some monorepo structures
+      const fallback = path.join(app.getAppPath(), 'electron', 'preload.js');
+      if (fs.existsSync(fallback)) {
+          console.log(`[Bridge-Debug] ⚠️ Using fallback preload path: ${fallback}`);
+          preloadPath = fallback;
+      }
+  }
+  console.log('================================================');
+
+  logSystemEvent('WINDOW_CREATING');
 
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -35,11 +74,11 @@ const createWindow = () => {
         height: 30
     },
     webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: false,
-      webSecurity: false,
-      preload: preloadPath 
+      nodeIntegration: false, // SECURITY: Must be false for contextBridge
+      contextIsolation: true, // SECURITY: Must be true for contextBridge
+      sandbox: false,         // Disable sandbox to allow file system access in Main via IPC
+      webSecurity: false,     // Allow local file loading (file://)
+      preload: preloadPath    // Explicitly resolved path
     },
     autoHideMenuBar: true
   });
@@ -51,6 +90,10 @@ const createWindow = () => {
   } else {
     mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
   }
+  
+  mainWindow.once('ready-to-show', () => {
+      logSystemEvent('WINDOW_READY');
+  });
 };
 
 // --- VALIDATION ---
@@ -59,127 +102,144 @@ const validatePath = (filePath) => {
   return true;
 };
 
-// --- PATH RESOLVER & FOLDER DISCOVERY ---
-const resolveDatabasePath = () => {
-    let assetsPath;
+// --- PATH RESOLVERS ---
 
+// 1. Assets (Market Data)
+const resolveAssetsPath = () => {
+    let assetsPath;
     if (app.isPackaged) {
-        // For packaged app, 'Assets' folder is next to the executable
         assetsPath = path.join(path.dirname(process.execPath), 'Assets');
     } else {
-        // In development, use the project root's 'Assets' folder
         assetsPath = path.join(__dirname, '..', 'Assets');
     }
-    
-    // Create the directory if it doesn't exist
     if (!fs.existsSync(assetsPath)) {
-        try {
-            fs.mkdirSync(assetsPath, { recursive: true });
-        } catch (e) {
-            console.error("Could not create Assets folder:", e);
-        }
+        try { fs.mkdirSync(assetsPath, { recursive: true }); } catch (e) {}
     }
     return assetsPath;
 };
 
-// --- BOOT SCAN FUNCTION ---
+// 2. Database (Metadata Firewall - System Data)
+const resolveDatabasePath = () => {
+    const dbPath = path.join(app.getPath('userData'), 'Database');
+    if (!fs.existsSync(dbPath)) {
+        try { 
+            fs.mkdirSync(dbPath, { recursive: true }); 
+            // Subdirectories for organization
+            fs.mkdirSync(path.join(dbPath, 'Layouts'), { recursive: true });
+            fs.mkdirSync(path.join(dbPath, 'StickyNotes'), { recursive: true });
+            fs.mkdirSync(path.join(dbPath, 'Trades'), { recursive: true });
+        } catch (e) {
+            console.error("Could not create Database folder structure:", e);
+        }
+    }
+    return dbPath;
+};
+
+// --- BOOT SCAN FUNCTION (Assets Only) ---
 const runBootScan = () => {
-    const dbPath = resolveDatabasePath();
+    const assetsPath = resolveAssetsPath();
     const results = [];
-    console.log(`[DIAGNOSTIC] Starting scan in root: ${dbPath}`);
+    logSystemEvent('BOOT_SCAN_START');
 
     const scanDir = (dir) => {
         try {
             const list = fs.readdirSync(dir);
-            console.log(`[DIAGNOSTIC] Scanning directory: ${dir}`);
             list.forEach((file) => {
+                if (IGNORED_DIRECTORIES.includes(file)) return; // Firewall check
+
                 const fullPath = path.join(dir, file);
                 try {
                     const stat = fs.statSync(fullPath);
                     if (stat && stat.isDirectory()) {
-                        console.log(`[DIAGNOSTIC] -> Found directory, recursing into: ${file}`);
                         scanDir(fullPath);
                     } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.json')) {
-                        console.log(`[DIAGNOSTIC] -> Found file: ${file}`);
-                        let folderName = path.relative(dbPath, dir);
-                        console.log(`[DIAGNOSTIC]    - Relative path for grouping: '${folderName}'`);
-
-                        const resultObj = {
+                        let folderName = path.relative(assetsPath, dir);
+                        results.push({
                             name: file,
                             path: fullPath,
                             kind: 'file',
                             folder: folderName || '.'
-                        };
-
-                        results.push(resultObj);
-                        console.log(`[DIAGNOSTIC]    - Pushed to results:`, resultObj);
+                        });
                     }
-                } catch (e) { 
-                    console.error(`[DIAGNOSTIC] Error processing path: ${fullPath}`, e);
-                }
+                } catch (e) {}
             });
-        } catch (e) { 
-            console.error(`[DIAGNOSTIC] Error reading directory: ${dir}`, e);
-        }
+        } catch (e) {}
     };
 
-    if (fs.existsSync(dbPath)) {
-        scanDir(dbPath);
+    if (fs.existsSync(assetsPath)) {
+        scanDir(assetsPath);
     }
     
-    console.log(`[DIAGNOSTIC] Scan complete. Found ${results.length} files.`);
+    logSystemEvent('BOOT_SCAN_COMPLETE');
     internalLibraryStorage = results;
     return internalLibraryStorage;
 };
 
 // --- IPC HANDLERS ---
 
-// --- Existing Handlers ---
-
-ipcMain.handle('get-user-data-path', async () => {
-    return app.getPath('userData');
+ipcMain.handle('dialog:select-folder', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    if (canceled) return null;
+    return { path: filePaths[0], name: path.basename(filePaths[0]) };
 });
 
-ipcMain.handle('get-internal-folders', async () => {
+ipcMain.handle('get-default-database-path', () => {
+    // This refers to the Assets library path for the UI display
+    return resolveAssetsPath();
+});
+
+ipcMain.handle('get-internal-library', async () => {
     return runBootScan();
-});
-
-ipcMain.handle('get-folders', async () => {
-    const dbPath = resolveDatabasePath();
-    try {
-        const items = fs.readdirSync(dbPath);
-        return items.filter(item => {
-            try {
-                return fs.statSync(path.join(dbPath, item)).isDirectory();
-            } catch { return false; }
-        });
-    } catch (e) {
-        return [];
-    }
 });
 
 ipcMain.handle('file:watch-folder', async (event, folderPath) => {
   if (watcher) { watcher.close(); watcher = null; }
+  logSystemEvent('WATCH_FOLDER_START');
+  
   try {
     const getFilesRecursive = (dir) => {
       let res = [];
-      const list = fs.readdirSync(dir);
-      list.forEach((file) => {
-        const fullPath = path.join(dir, file);
-        const stat = fs.statSync(fullPath);
-        if (stat && stat.isDirectory()) res = res.concat(getFilesRecursive(fullPath));
-        else if (file.endsWith('.csv') || file.endsWith('.json')) res.push({ name: file, path: fullPath, kind: 'file' });
-      });
+      try {
+          const list = fs.readdirSync(dir);
+          list.forEach((file) => {
+            if (IGNORED_DIRECTORIES.includes(file)) return; // Firewall check
+
+            const fullPath = path.join(dir, file);
+            try {
+                const stat = fs.statSync(fullPath);
+                if (stat && stat.isDirectory()) res = res.concat(getFilesRecursive(fullPath));
+                else if (file.endsWith('.csv') || file.endsWith('.json')) res.push({ name: file, path: fullPath, kind: 'file' });
+            } catch(e) {}
+          });
+      } catch(e) {}
       return res;
     };
+
     const initialFiles = getFilesRecursive(folderPath);
+    
     watcher = fs.watch(folderPath, { recursive: true }, (eventType, filename) => {
-      if (filename && (filename.endsWith('.csv') || filename.endsWith('.json'))) {
-        if (mainWindow) mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
+      if (filename) {
+          // Check ignore list on changed file/folder
+          const parts = filename.split(path.sep);
+          if (parts.some(p => IGNORED_DIRECTORIES.includes(p))) return;
+
+          if (filename.endsWith('.csv') || filename.endsWith('.json')) {
+            if (mainWindow) mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
+          }
       }
     });
     return initialFiles;
   } catch (e) { throw e; }
+});
+
+ipcMain.handle('file:unwatch-folder', () => {
+    if (watcher) {
+        watcher.close();
+        watcher = null;
+        logSystemEvent('WATCH_FOLDER_STOP');
+    }
 });
 
 ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
@@ -196,71 +256,6 @@ ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
   });
 });
 
-ipcMain.handle('drawings:get-state', async () => {
-    try {
-        const statePath = path.join(resolveDatabasePath(), 'drawings_state.json');
-        if (fs.existsSync(statePath)) return JSON.parse(fs.readFileSync(statePath, 'utf8'));
-        return {};
-    } catch (e) { return {}; }
-});
-
-ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
-    try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-            if (data[sourceId]) {
-                // Clear drawings array for this source
-                data[sourceId].drawings = [];
-                // Clear folders as well since they contain drawing references
-                data[sourceId].folders = [];
-                data[sourceId].timestamp = Date.now();
-                fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-            }
-        }
-        return { success: true };
-    } catch (e) {
-        console.error("Failed to delete all drawings:", e);
-        return { success: false, error: e.message };
-    }
-});
-
-const updateDrawingsState = (key, value) => {
-    try {
-        const statePath = path.join(resolveDatabasePath(), 'drawings_state.json');
-        let state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : {};
-        state[key] = value;
-        state.lastUpdated = Date.now();
-        fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
-    } catch (e) {}
-};
-
-ipcMain.on('drawings:hide', (event, arg) => updateDrawingsState('areHidden', arg));
-ipcMain.on('drawings:lock', (event, arg) => updateDrawingsState('areLocked', arg));
-ipcMain.on('drawings:delete', (event, arg) => updateDrawingsState('lastDeleteAction', Date.now()));
-
-
-// --- NEWLY IMPLEMENTED HANDLERS ---
-
-ipcMain.handle('dialog:select-folder', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-        properties: ['openDirectory']
-    });
-    if (canceled) return null;
-    return { path: filePaths[0], name: path.basename(filePaths[0]) };
-});
-
-ipcMain.handle('get-default-database-path', () => {
-    return resolveDatabasePath();
-});
-
-ipcMain.handle('file:unwatch-folder', () => {
-    if (watcher) {
-        watcher.close();
-        watcher = null;
-    }
-});
-
 ipcMain.handle('file:get-details', async (event, filePath) => {
     try {
         validatePath(filePath);
@@ -271,8 +266,10 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- Master Drawing Store Persistence ---
-const getMasterDrawingsPath = () => path.join(app.getPath('userData'), 'drawings_master.json');
+// --- PERSISTENCE (SYSTEM METADATA FIREWALL) ---
+
+// Drawings
+const getMasterDrawingsPath = () => path.join(resolveDatabasePath(), 'drawings_master.json');
 
 ipcMain.handle('master-drawings:load', async () => {
     try {
@@ -281,9 +278,8 @@ ipcMain.handle('master-drawings:load', async () => {
             const data = fs.readFileSync(dbPath, 'utf8');
             return { success: true, data: JSON.parse(data) };
         }
-        return { success: true, data: null }; // No file is not an error
+        return { success: true, data: {} };
     } catch (e) {
-        console.error("Failed to load master drawings:", e);
         return { success: false, error: e.message };
     }
 });
@@ -294,14 +290,64 @@ ipcMain.handle('master-drawings:save', async (event, data) => {
         fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {
-        console.error("Failed to save master drawings:", e);
         return { success: false, error: e.message };
     }
 });
 
+ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
+    try {
+        const dbPath = getMasterDrawingsPath();
+        if (fs.existsSync(dbPath)) {
+            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+            if (data[sourceId]) {
+                delete data[sourceId]; // Nuclear delete
+                fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+            }
+        }
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
 
-// --- Trade Persistence ---
-const getTradesDbPath = () => path.join(app.getPath('userData'), 'trades_db.json');
+// Layouts
+ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
+    try {
+        const layoutsDir = path.join(resolveDatabasePath(), 'Layouts');
+        const filePath = path.join(layoutsDir, `${layoutName}.json`);
+        fs.writeFileSync(filePath, JSON.stringify(layoutData, null, 2));
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('layouts:load', async (event, layoutName) => {
+    try {
+        const filePath = path.join(resolveDatabasePath(), 'Layouts', `${layoutName}.json`);
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            return { success: true, data: JSON.parse(data) };
+        }
+        return { success: false, error: 'Layout not found' };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('layouts:list', async () => {
+    try {
+        const layoutsDir = path.join(resolveDatabasePath(), 'Layouts');
+        if (!fs.existsSync(layoutsDir)) return [];
+        const files = fs.readdirSync(layoutsDir);
+        return files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', ''));
+    } catch (e) {
+        return [];
+    }
+});
+
+// Trades
+const getTradesDbPath = () => path.join(resolveDatabasePath(), 'Trades', 'trades_ledger.json');
 
 const readTradesDb = () => {
     const dbPath = getTradesDbPath();
@@ -328,15 +374,48 @@ ipcMain.handle('trades:save', async (event, trade) => {
         if (!db[trade.sourceId]) db[trade.sourceId] = [];
         db[trade.sourceId].push(trade);
         writeTradesDb(db);
+        logSystemEvent('TRADE_SAVED');
         return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
+// --- TELEMETRY ---
+ipcMain.handle('get-system-telemetry', async () => {
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const heapStats = v8.getHeapStatistics();
+    const dbPath = resolveDatabasePath();
+    
+    return {
+        processInfo: {
+            version: process.versions.electron,
+            uptime: Math.floor(process.uptime()),
+            pid: process.pid
+        },
+        resources: {
+            memory: {
+                rss: (mem.rss / 1024 / 1024).toFixed(2) + ' MB',
+                heapUsed: (mem.heapUsed / 1024 / 1024).toFixed(2) + ' MB'
+            },
+            cpu: cpu,
+            v8Heap: {
+                used: (heapStats.used_heap_size / 1024 / 1024).toFixed(2) + ' MB'
+            }
+        },
+        ioStatus: {
+            connectionState: fs.existsSync(dbPath) ? 'Online' : 'Initializing',
+            dbPath: dbPath
+        },
+        logBuffer: systemLogBuffer
+    };
+});
+
 // --- APP LIFECYCLE ---
 
 app.whenReady().then(() => {
+  logSystemEvent('APP_READY');
   runBootScan();
   createWindow();
 });

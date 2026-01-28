@@ -25,7 +25,7 @@ export const useSymbolPersistence = ({
   const onStateLoadedRef = useRef(onStateLoaded);
   onStateLoadedRef.current = onStateLoaded;
 
-  const electron = (window as any).electronAPI;
+  const electron = window.electronAPI;
 
   const loadState = useCallback(async () => {
     if (!symbol) {

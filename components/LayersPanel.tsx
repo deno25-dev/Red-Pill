@@ -223,7 +223,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
     if (drawingsRef.current.length === 0) return;
     if (!window.confirm('Delete ALL drawings on this chart? This cannot be undone.')) return;
 
-    const electron = (window as any).electronAPI;
+    const electron = window.electronAPI;
     if (electron && sourceId) {
         try {
             await electron.deleteAllDrawings(sourceId);
