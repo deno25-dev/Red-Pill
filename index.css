@@ -100,17 +100,3 @@ body {
 .app-no-drag {
   -webkit-app-region: no-drag;
 }
-
-/* Force Global Chart Cursor (Mandate 1.1.1) */
-.trading-chart-container, .trading-chart-container * {
-    cursor: crosshair !important;
-}
-/* Exception: keep arrows for buttons and menus */
-.trading-chart-container button, 
-.trading-chart-container select,
-.trading-chart-container input {
-    cursor: pointer !important;
-}
-.trading-chart-container textarea {
-    cursor: text !important;
-}
