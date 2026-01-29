@@ -36,8 +36,7 @@ import {
   Star,
   FolderOpen,
   Grid,
-  Crosshair,
-  StickyNote
+  Crosshair
 } from 'lucide-react';
 import { Timeframe } from '../types';
 
@@ -79,7 +78,6 @@ interface ToolbarProps {
   onToggleGridlines?: () => void;
   showCrosshair?: boolean;
   onToggleCrosshair?: () => void;
-  onAddStickyNote?: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -119,8 +117,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   showGridlines,
   onToggleGridlines,
   showCrosshair,
-  onToggleCrosshair,
-  onAddStickyNote
+  onToggleCrosshair
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -343,16 +340,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         </button>
                     </div>
                 </div>
-                
-                <div className="h-px bg-[#334155] my-1 mx-2"></div>
-                
-                <button
-                    onClick={() => { onAddStickyNote?.(); setIsToolsOpen(false); }}
-                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:text-white hover:bg-[#334155] flex items-center gap-3 transition-colors"
-                >
-                    <StickyNote size={16} className="text-amber-400" />
-                    <span>Sticky Note</span>
-                </button>
             </div>
           )}
         </div>

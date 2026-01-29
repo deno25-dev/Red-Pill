@@ -1,5 +1,5 @@
 
-import React, { useMemo, useEffect, useState, useRef, useCallback } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { FinancialChart } from './Chart';
 import { ReplayControls } from './ReplayControls';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -9,11 +9,9 @@ import { RecentMarketDataPanel } from './MarketStats';
 import { TabSession, Timeframe, DrawingProperties, Drawing, Folder } from '../types';
 import { calculateSMA } from '../utils/dataUtils';
 import { ALL_TOOLS_LIST, COLORS } from '../constants';
-import { Settings, Check, Folder as FolderIcon, ArrowUpDown } from 'lucide-react';
+import { Settings, Check, Folder as FolderIcon } from 'lucide-react';
 import { GlobalErrorBoundary } from './GlobalErrorBoundary';
 import { useTradePersistence } from '../hooks/useTradePersistence';
-import { useStickyNotes } from '../hooks/useStickyNotes';
-import { StickyNote } from './StickyNote';
 
 interface ChartWorkspaceProps {
   tab: TabSession;
@@ -74,15 +72,11 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   onUpdateDrawings,
   isHydrating,
 }) => {
-  // Trade Persistence Hook
+  // Trade Persistence Hook - Remains local to the workspace context, keyed by file/source ID
   const tradeSourceId = tab.filePath || `${tab.title}_${tab.timeframe}`;
   const { trades } = useTradePersistence(tradeSourceId);
 
-  // Sticky Notes Hook
-  // Keyed by sourceId (symbol) to allow notes to persist across timeframes for the same asset
-  const { notes, saveNote, deleteNote } = useStickyNotes(tab.sourceId);
-
-  // Sync loaded trades to Tab state
+  // Sync loaded trades to Tab state so BottomPanel can see them
   useEffect(() => {
       if (trades && trades.length > 0) {
           if (trades.length !== (tab.trades || []).length) {
@@ -94,7 +88,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(false);
-  
+  // Removed local showRecentData state, now using tab.isMarketOverviewOpen
   const settingsRef = useRef<HTMLDivElement>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [defaultDrawingProperties, setDefaultDrawingProperties] = useState<DrawingProperties>({
@@ -109,55 +103,75 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   });
   const workspaceRef = useRef<HTMLDivElement>(null);
 
-  // Handle Hotkeys
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape') {
-            if (activeToolId && activeToolId !== 'cross') onSelectTool?.('cross');
-            else if (selectedDrawingId) setSelectedDrawingId(null);
-        }
-        // Invert Scale Hotkey (Alt + I)
-        if (e.altKey && (e.key === 'i' || e.key === 'I')) {
-            e.preventDefault();
-            updateTab({ config: { ...tab.config, invertScale: !tab.config.invertScale } });
-        }
+    const handleLockAll = () => {
+        onSaveHistory?.();
+        const areAllCurrentlyLocked = drawings.length > 0 && drawings.every(d => d.properties.locked);
+        onUpdateDrawings(drawings.map(d => ({ ...d, properties: { ...d.properties, locked: !areAllCurrentlyLocked } })));
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeToolId, selectedDrawingId, onSelectTool, tab.config, updateTab]);
-  
-  const handleAddNote = useCallback(() => {
-      saveNote({
-          id: crypto.randomUUID(),
-          sourceId: tab.sourceId,
-          content: '',
-          x: 100,
-          y: 100,
-          width: 200,
-          height: 150,
-          color: '#fef3c7',
-          visible: true,
-          timestamp: Date.now()
-      });
-  }, [tab.sourceId, saveNote]);
-
-  // Event Listener for Sticky Note Trigger
-  useEffect(() => {
-    const handleAddNoteEvent = (e: CustomEvent) => {
-        if (e.detail && e.detail.tabId === tab.id) {
-            handleAddNote();
-        }
+    const handleHideAll = () => {
+        onSaveHistory?.();
+        const areAllCurrentlyHidden = drawings.length > 0 && drawings.every(d => !(d.properties.visible ?? true));
+        onUpdateDrawings(drawings.map(d => ({ ...d, properties: { ...d.properties, visible: areAllCurrentlyHidden } })));
     };
-    window.addEventListener('redpill-add-sticky-note', handleAddNoteEvent as EventListener);
-    return () => window.removeEventListener('redpill-add-sticky-note', handleAddNoteEvent as EventListener);
-  }, [tab.id, handleAddNote]);
+    window.addEventListener('redpill-lock-all', handleLockAll);
+    window.addEventListener('redpill-hide-all', handleHideAll);
+    return () => {
+        window.removeEventListener('redpill-lock-all', handleLockAll);
+        window.removeEventListener('redpill-hide-all', handleHideAll);
+    };
+  }, [drawings, onUpdateDrawings, onSaveHistory]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentDate(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // ... (Keep existing layout logic for header dragging, etc.)
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+            setIsChartSettingsOpen(false);
+        }
+    };
+    if (isChartSettingsOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isChartSettingsOpen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            if (activeToolId && activeToolId !== 'cross') onSelectTool?.('cross');
+            else if (selectedDrawingId) setSelectedDrawingId(null);
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeToolId, selectedDrawingId, onSelectTool]);
+  
+  const displayedData = useMemo(() => {
+    if (tab.isReplaySelecting) return tab.data;
+    if (tab.isReplayMode || tab.isAdvancedReplayMode) {
+        const safeIndex = Math.max(0, tab.replayIndex);
+        return tab.data.slice(0, safeIndex + 1);
+    }
+    return tab.data;
+  }, [tab.data, tab.isReplayMode, tab.isAdvancedReplayMode, tab.replayIndex, tab.isReplaySelecting]);
+
+  const smaData = useMemo(() => {
+    if (!tab.config.showSMA) return [];
+    return calculateSMA(displayedData, tab.config.smaPeriod);
+  }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
+
+  const currentPrice = useMemo(() => {
+      if (displayedData.length === 0) return 0;
+      return displayedData[displayedData.length - 1].close;
+  }, [displayedData]);
+
+  const prevPrice = displayedData.length > 1 ? displayedData[displayedData.length - 2].close : currentPrice;
+  const priceChange = currentPrice - prevPrice;
+  const percentChange = prevPrice !== 0 ? (priceChange / prevPrice) * 100 : 0;
+  const isUp = priceChange >= 0;
+
   const [headerPos, setHeaderPos] = useState({ x: 16, y: 16 });
   const isDraggingHeader = useRef(false);
   const headerDragStart = useRef({ x: 0, y: 0 });
@@ -185,39 +199,18 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     win.addEventListener('mouseup', handleMouseUp);
   };
 
-  const displayedData = useMemo(() => {
-    if (tab.isReplaySelecting) return tab.data;
-    if (tab.isReplayMode || tab.isAdvancedReplayMode) {
-        const safeIndex = Math.max(0, tab.replayIndex);
-        return tab.data.slice(0, safeIndex + 1);
-    }
-    return tab.data;
-  }, [tab.data, tab.isReplayMode, tab.isAdvancedReplayMode, tab.replayIndex, tab.isReplaySelecting]);
-
-  const smaData = useMemo(() => {
-    if (!tab.config.showSMA) return [];
-    return calculateSMA(displayedData, tab.config.smaPeriod);
-  }, [displayedData, tab.config.showSMA, tab.config.smaPeriod]);
-
-  const currentPrice = useMemo(() => {
-      if (displayedData.length === 0) return 0;
-      return displayedData[displayedData.length - 1].close;
-  }, [displayedData]);
-
-  const prevPrice = displayedData.length > 1 ? displayedData[displayedData.length - 2].close : currentPrice;
-  const priceChange = currentPrice - prevPrice;
-  const percentChange = prevPrice !== 0 ? (priceChange / prevPrice) * 100 : 0;
-  const isUp = priceChange >= 0;
-
-  // ... (FavBar, ReplayPos, ToolbarPos logic - Keeping it minimal here for XML size, assuming existing code structure)
-  // Re-implementing necessary state for full functionality
-  
   const [favBarPos, setFavBarPos] = useState({ x: 0, y: 0 });
   const favBarRef = useRef<HTMLDivElement>(null);
   const isDraggingFav = useRef(false);
   const favDragStart = useRef({ x: 0, y: 0 });
   const favStartPos = useRef({ x: 0, y: 0 });
   
+  useEffect(() => {
+    if (favBarRef.current && favBarPos.x === 0 && favBarPos.y === 0) {
+        setFavBarPos({ x: window.innerWidth / 2 - favBarRef.current.clientWidth / 2, y: window.innerHeight - 150 });
+    }
+  }, [favoriteTools, favBarPos.x, favBarPos.y]);
+
   const handleFavMouseDown = (e: React.MouseEvent) => {
     isDraggingFav.current = true;
     favDragStart.current = { x: e.clientX, y: e.clientY };
@@ -243,20 +236,97 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     win.addEventListener('mouseup', handleMouseUp);
   };
 
-  useEffect(() => {
-    if (favBarRef.current && favBarPos.x === 0 && favBarPos.y === 0) {
-        setFavBarPos({ x: window.innerWidth / 2 - favBarRef.current.clientWidth / 2, y: window.innerHeight - 150 });
-    }
-  }, [favoriteTools, favBarPos.x, favBarPos.y]);
-
-  // Toolbar & Replay Pos Logic omitted for brevity, assuming standard implementation or copied from previous file if overwriting.
-  // I will include the critical parts for rendering.
-
   const [replayPos, setReplayPos] = useState({ x: 0, y: 0 });
+  const isDraggingReplay = useRef(false);
+  const replayDragStart = useRef({ x: 0, y: 0 });
+  const replayStartPos = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if ((tab.isReplayMode || tab.isAdvancedReplayMode) && replayPos.x === 0 && replayPos.y === 0) {
+        setReplayPos({ x: window.innerWidth / 2 - 160, y: window.innerHeight - 200 });
+    }
+  }, [tab.isReplayMode, tab.isAdvancedReplayMode, replayPos.x, replayPos.y]);
+
+  const handleReplayMouseDown = (e: React.MouseEvent) => {
+    isDraggingReplay.current = true;
+    replayDragStart.current = { x: e.clientX, y: e.clientY };
+    replayStartPos.current = { ...replayPos };
+    e.preventDefault();
+    const win = (e.view as unknown as Window) || window;
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingReplay.current) return;
+      setReplayPos({ x: replayStartPos.current.x + (ev.clientX - replayDragStart.current.x), y: replayStartPos.current.y + (ev.clientY - replayDragStart.current.y) });
+    };
+    const handleMouseUp = () => {
+      isDraggingReplay.current = false;
+      win.removeEventListener('mousemove', handleMouseMove);
+      win.removeEventListener('mouseup', handleMouseUp);
+    };
+    win.addEventListener('mousemove', handleMouseMove);
+    win.addEventListener('mouseup', handleMouseUp);
+  };
+
   const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 0 });
+  const isDraggingToolbar = useRef(false);
+  const toolbarDragStart = useRef({ x: 0, y: 0 });
+  const toolbarStartPos = useRef({ x: 0, y: 0 });
+  const isToolbarVisible = !!(selectedDrawingId !== null || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'));
+
+  useEffect(() => {
+    if (isToolbarVisible && toolbarPos.x === 0 && toolbarPos.y === 0) {
+        setToolbarPos({ x: window.innerWidth / 2 - 100, y: window.innerHeight - 120 });
+    }
+  }, [isToolbarVisible, toolbarPos.x, toolbarPos.y]);
+
+  const handleToolbarMouseDown = (e: React.MouseEvent) => {
+    isDraggingToolbar.current = true;
+    toolbarDragStart.current = { x: e.clientX, y: e.clientY };
+    toolbarStartPos.current = { ...toolbarPos };
+    e.preventDefault();
+    e.stopPropagation();
+    const win = (e.view as unknown as Window) || window;
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingToolbar.current) return;
+      setToolbarPos({ x: toolbarStartPos.current.x + (ev.clientX - toolbarDragStart.current.x), y: toolbarStartPos.current.y + (ev.clientY - toolbarDragStart.current.y) });
+    };
+    const handleMouseUp = () => {
+      isDraggingToolbar.current = false;
+      win.removeEventListener('mousemove', handleMouseMove);
+      win.removeEventListener('mouseup', handleMouseUp);
+    };
+    win.addEventListener('mousemove', handleMouseMove);
+    win.addEventListener('mouseup', handleMouseUp);
+  };
+
   const [layersPanelPos, setLayersPanelPos] = useState({ x: 0, y: 0 });
-  
-  // Handlers for these are standard drag logic.
+  const isDraggingLayers = useRef(false);
+  const layersDragStart = useRef({ x: 0, y: 0 });
+  const layersStartPos = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (isLayersPanelOpen && layersPanelPos.x === 0 && layersPanelPos.y === 0) {
+       setLayersPanelPos({ x: window.innerWidth - 320, y: 100 });
+    }
+  }, [isLayersPanelOpen, layersPanelPos.x, layersPanelPos.y]);
+
+  const handleLayersMouseDown = (e: React.MouseEvent) => {
+    isDraggingLayers.current = true;
+    layersDragStart.current = { x: e.clientX, y: e.clientY };
+    layersStartPos.current = { ...layersPanelPos };
+    e.preventDefault();
+    const win = (e.view as unknown as Window) || window;
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingLayers.current) return;
+      setLayersPanelPos({ x: layersStartPos.current.x + (ev.clientX - layersDragStart.current.x), y: layersStartPos.current.y + (ev.clientY - layersDragStart.current.y) });
+    };
+    const handleMouseUp = () => {
+      isDraggingLayers.current = false;
+      win.removeEventListener('mousemove', handleMouseMove);
+      win.removeEventListener('mouseup', handleMouseUp);
+    };
+    win.addEventListener('mousemove', handleMouseMove);
+    win.addEventListener('mouseup', handleMouseUp);
+  };
 
   const handleDrawingPropertyChange = (updates: Partial<DrawingProperties>) => {
     if (selectedDrawingId) {
@@ -278,6 +348,29 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     }
   };
 
+  const handleReplayPointSelect = (timeInMs: number) => {
+      if (!tab.isReplaySelecting) return;
+      let idx = tab.data.findIndex((d: any) => d.time >= timeInMs);
+      if (idx === -1) idx = tab.data.length - 1;
+      updateTab({
+          isReplaySelecting: false,
+          isReplayMode: tab.isAdvancedReplayMode ? false : true, 
+          isAdvancedReplayMode: tab.isAdvancedReplayMode,
+          replayIndex: idx,
+          replayGlobalTime: tab.data[idx].time,
+          simulatedPrice: tab.data[idx].open,
+          isReplayPlaying: false
+      });
+  };
+  
+  const handleReplaySync = (index: number, time: number, price: number) => {
+      updateTab({
+          replayIndex: index,
+          replayGlobalTime: time,
+          simulatedPrice: price
+      });
+  };
+
   const handleToolComplete = () => {
       if (!isStayInDrawingMode) onSelectTool?.('cross');
   };
@@ -286,7 +379,23 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     setSelectedDrawingId(id);
     if (id && e && workspaceRef.current) {
         const workspaceRect = workspaceRef.current.getBoundingClientRect();
-        setToolbarPos({ x: e.clientX - workspaceRect.left - 100, y: e.clientY - workspaceRect.top + 20 });
+        const relativeClickY = e.clientY - workspaceRect.top;
+        
+        let yPos = relativeClickY + 20; // Default below cursor
+        if (e.clientY > window.innerHeight - 150) {
+            yPos = relativeClickY - 80; // Shift toolbar and menu above cursor
+        }
+
+        const relativeClickX = e.clientX - workspaceRect.left;
+        let xPos = relativeClickX - 150; // Roughly center the toolbar
+        // clamp x to be within viewport
+        if (xPos < 10) xPos = 10;
+        const toolbarWidth = 300; // estimate
+        if (xPos > workspaceRect.width - toolbarWidth) xPos = workspaceRect.width - toolbarWidth;
+
+        setToolbarPos({ x: xPos, y: yPos });
+    } else if (!id) {
+        setSelectedDrawingId(null);
     }
   };
 
@@ -297,27 +406,27 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
     }
     return defaultDrawingProperties;
   }, [selectedDrawingId, drawings, defaultDrawingProperties]);
-
+  
   const selectedDrawingType = useMemo(() => {
       if (selectedDrawingId) return drawings.find(d => d.id === selectedDrawingId)?.type;
       return activeToolId; 
   }, [selectedDrawingId, drawings, activeToolId]);
 
+  const chartComponentKey = useMemo(() => {
+      return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`;
+  }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
+
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">
-        
-        {/* Header Overlay */}
         <div onMouseDown={handleHeaderMouseDown} style={{ left: headerPos.x, top: headerPos.y }} className="absolute z-20 bg-[#1e293b]/90 backdrop-blur-sm px-4 py-2 rounded border border-slate-700 shadow-lg flex items-center gap-4 cursor-move select-none transition-shadow hover:shadow-xl hover:ring-1 hover:ring-slate-600/50">
           
-          <div className="flex items-center gap-1.5 mr-3 px-2 py-0.5 bg-[#0f172a]/50 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)] group/lock cursor-help transition-all hover:bg-emerald-900/20" title="Source Protected: Read-Only Mode.">
+          <div className="flex items-center gap-1.5 mr-3 px-2 py-0.5 bg-[#0f172a]/50 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)] group/lock cursor-help transition-all hover:bg-emerald-900/20" title="Source Protected: Read-Only Mode. The original file on disk is never modified.">
               <Settings size={10} className="text-emerald-500" />
               <span className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest opacity-70 group-hover/lock:opacity-100 transition-opacity hidden sm:block">Secure</span>
           </div>
 
           <h1 className="text-sm font-bold text-white tracking-wide truncate max-w-[150px]">{tab.title}</h1>
           <div className="h-4 w-px bg-slate-600"></div>
-          
-          {/* Timeframes */}
           <div className="flex items-center gap-0.5">
               {Object.values(Timeframe)
                 .filter(tf => !favoriteTimeframes || (favoriteTimeframes as any).includes(tf))
@@ -327,58 +436,41 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
               </button>
               ))}
           </div>
-          
           <div className="h-4 w-px bg-slate-600"></div>
-          
-          {/* Ticker Stats */}
           <div className="flex items-baseline gap-3">
               <span className={`text-sm font-mono font-bold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>{currentPrice.toFixed(2)}</span>
               <span className={`text-xs font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>{priceChange > 0 ? '+' : ''}{priceChange.toFixed(2)} ({percentChange.toFixed(2)}%)</span>
           </div>
-          
           <div className="h-4 w-px bg-slate-600"></div>
-          
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-              <div className="relative" ref={settingsRef}>
-                <button onClick={(e) => { e.stopPropagation(); setIsChartSettingsOpen(!isChartSettingsOpen); }} className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-white transition-colors" title="Chart Settings" onMouseDown={(e) => e.stopPropagation()}><Settings size={14} /></button>
-                {isChartSettingsOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-48 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100" onMouseDown={(e) => e.stopPropagation()}>
-                    <div className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-[#0f172a]/50 border-b border-[#334155]">Price Scale</div>
-                    <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'linear' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Linear</span>{(tab.config.priceScaleMode === 'linear' || !tab.config.priceScaleMode) && <Check size={12} className="text-blue-400" />}</button>
-                    <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'logarithmic' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Logarithmic</span>{tab.config.priceScaleMode === 'logarithmic' && <Check size={12} className="text-blue-400" />}</button>
-                    <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'percentage' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Percentage</span>{tab.config.priceScaleMode === 'percentage' && <Check size={12} className="text-blue-400" />}</button>
-                    <div className="h-px bg-[#334155] my-1 mx-2"></div>
-                    <button onClick={() => updateTab({ config: { ...tab.config, autoScale: !tab.config.autoScale } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Auto Scale</span>{(tab.config.autoScale !== false) && <Check size={12} className="text-emerald-400" />}</button>
-                    <button onClick={() => updateTab({ config: { ...tab.config, invertScale: !tab.config.invertScale } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Invert Scale (Alt+I)</span>{(tab.config.invertScale) && <Check size={12} className="text-emerald-400" />}</button>
-                    </div>
-                )}
-              </div>
-              
-              {onBackToLibrary && (
-                  <button 
-                      onClick={onBackToLibrary}
-                      className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-red-400 transition-colors"
-                      title="Back to Library (Closes Chart)"
-                      onMouseDown={(e) => e.stopPropagation()}
-                  >
-                      <FolderIcon size={14} />
-                  </button>
-              )}
+          <div className="text-[10px] text-slate-400">Vol: <span className="text-slate-300 font-mono">{displayedData.length > 0 ? displayedData[displayedData.length - 1].volume.toFixed(0) : 0}</span></div>
+          <div className="h-4 w-px bg-slate-600"></div>
+          <div className="relative" ref={settingsRef}>
+             <button onClick={(e) => { e.stopPropagation(); setIsChartSettingsOpen(!isChartSettingsOpen); }} className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-white transition-colors" title="Chart Settings" onMouseDown={(e) => e.stopPropagation()}><Settings size={14} /></button>
+             {isChartSettingsOpen && (
+                <div className="absolute top-full right-0 mt-2 w-48 bg-[#1e293b] border border-[#334155] rounded-md shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 duration-100" onMouseDown={(e) => e.stopPropagation()}>
+                   <div className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-[#0f172a]/50 border-b border-[#334155]">Price Scale</div>
+                   <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'linear' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Linear</span>{(tab.config.priceScaleMode === 'linear' || !tab.config.priceScaleMode) && <Check size={12} className="text-blue-400" />}</button>
+                   <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'logarithmic' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Logarithmic</span>{tab.config.priceScaleMode === 'logarithmic' && <Check size={12} className="text-blue-400" />}</button>
+                   <button onClick={() => updateTab({ config: { ...tab.config, priceScaleMode: 'percentage' } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Percentage</span>{tab.config.priceScaleMode === 'percentage' && <Check size={12} className="text-blue-400" />}</button>
+                   <div className="h-px bg-[#334155] my-1 mx-2"></div>
+                   <button onClick={() => updateTab({ config: { ...tab.config, autoScale: !tab.config.autoScale } })} className="w-full text-left px-4 py-2 text-xs text-slate-400 hover:text-white hover:bg-[#334155] flex items-center justify-between"><span>Auto Scale</span>{(tab.config.autoScale !== false) && <Check size={12} className="text-emerald-400" />}</button>
+                </div>
+             )}
           </div>
+          {onBackToLibrary && (
+              <>
+                <div className="h-4 w-px bg-slate-600"></div>
+                <button 
+                    onClick={onBackToLibrary}
+                    className="p-1 hover:bg-[#334155] rounded text-slate-400 hover:text-red-400 transition-colors"
+                    title="Back to Library (Closes Chart)"
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <FolderIcon size={14} />
+                </button>
+              </>
+          )}
         </div>
-
-        {/* Sticky Notes Layer */}
-        {notes.map(note => (
-            <StickyNote 
-                key={note.id} 
-                note={note} 
-                onUpdate={saveNote} 
-                onDelete={deleteNote} 
-                containerRef={workspaceRef as any}
-            />
-        ))}
-
         {isFavoritesBarVisible && favoriteTools.length > 0 && (
             <div ref={favBarRef} onMouseDown={handleFavMouseDown} style={{ left: favBarPos.x, top: favBarPos.y }} className="absolute z-30 bg-[#1e293b] border border-[#334155] rounded-full shadow-xl shadow-black/50 backdrop-blur-md flex items-center p-1 gap-1 cursor-move animate-in fade-in zoom-in-95 duration-200">
                 <div className="pl-2 pr-1 text-slate-500 cursor-move hover:text-slate-300 transition-colors"><Settings size={14} /></div>
@@ -392,9 +484,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 })}
             </div>
         )}
-
-        <DrawingToolbar isVisible={!!(selectedDrawingId || (activeToolId && activeToolId !== 'cross' && activeToolId !== 'cursor'))} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== 0 ? toolbarPos : undefined} drawingType={selectedDrawingType} />
-        
+        <DrawingToolbar isVisible={isToolbarVisible} properties={activeProperties} onChange={handleDrawingPropertyChange} onDelete={deleteSelectedDrawing} isSelection={selectedDrawingId !== null} position={toolbarPos.x !== 0 ? toolbarPos : undefined} onDragStart={handleToolbarMouseDown} drawingType={selectedDrawingType} />
         {isLayersPanelOpen && (
             <LayersPanel 
                 drawings={drawings} 
@@ -403,6 +493,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 onSelectDrawing={handleSelectDrawing} 
                 onClose={onToggleLayers || (() => {})} 
                 position={layersPanelPos.x !== 0 ? layersPanelPos : undefined} 
+                onHeaderMouseDown={handleLayersMouseDown} 
                 isDrawingSyncEnabled={isDrawingSyncEnabled}
                 onToggleDrawingSync={onToggleDrawingSync}
                 folders={tab.folders}
@@ -410,61 +501,79 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                 sourceId={tab.sourceId}
             />
         )}
-
         {(tab.isReplayMode || tab.isAdvancedReplayMode) && (
             <ReplayControls 
               isPlaying={tab.isReplayPlaying} 
               onPlayPause={() => updateTab({ isReplayPlaying: !tab.isReplayPlaying })} 
-              onStepForward={() => { /* ... step logic ... */ }} 
-              onReset={() => { /* ... reset logic ... */ }} 
+              onStepForward={() => {
+                if (tab.isReplayMode) {
+                   const nextIndex = Math.min(tab.data.length - 1, tab.replayIndex + 1);
+                   updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].close });
+                } else {
+                    const nextTime = (tab.replayGlobalTime || tab.data[tab.replayIndex].time) + 60000; // Using 60000 as approximate duration
+                    let nextIndex = tab.data.findIndex((d: any) => d.time >= nextTime);
+                    if (nextIndex === -1) nextIndex = tab.data.length - 1;
+                    updateTab({ replayIndex: nextIndex, replayGlobalTime: tab.data[nextIndex].time, simulatedPrice: tab.data[nextIndex].open });
+                }
+              }} 
+              onReset={() => {
+                const newIdx = Math.max(0, tab.data.length - 100);
+                updateTab({ replayIndex: newIdx, replayGlobalTime: tab.data[newIdx].time, simulatedPrice: tab.data[newIdx].open })
+              }} 
               onClose={() => updateTab({ isReplayMode: false, isAdvancedReplayMode: false, isReplayPlaying: false, simulatedPrice: null, replayGlobalTime: null })} 
               speed={tab.replaySpeed} 
               onSpeedChange={(speed: any) => updateTab({ replaySpeed: speed })} 
               progress={tab.data.length > 0 ? (tab.replayIndex / (tab.data.length - 1)) * 100 : 0} 
               position={replayPos.x !== 0 ? replayPos : undefined} 
+              onHeaderMouseDown={handleReplayMouseDown} 
             />
         )}
-
         {tab.isReplaySelecting && <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-blue-600 text-white px-4 py-2 rounded shadow-lg text-sm font-bold animate-pulse pointer-events-none">Click on the chart to start {tab.isAdvancedReplayMode ? 'advanced' : ''} replay</div>}
-        
         <div className="flex-1 w-full relative overflow-hidden">
-            {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">{isHydrating ? 'Loading Layout...' : 'Processing Data...'}</div></div></div>}
-            <FinancialChart 
-                key={`${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`} 
-                id={tab.id} 
-                data={displayedData} 
-                smaData={smaData} 
-                config={tab.config} 
-                timeframe={tab.timeframe} 
-                onConfigChange={(newConfig: any) => updateTab({ config: newConfig })} 
-                drawings={drawings} 
-                onUpdateDrawings={onUpdateDrawings} 
-                activeToolId={activeToolId || 'cross'} 
-                onToolComplete={handleToolComplete} 
-                currentDefaultProperties={defaultDrawingProperties} 
-                selectedDrawingId={selectedDrawingId} 
-                onSelectDrawing={handleSelectDrawing} 
-                onActionStart={onSaveHistory} 
-                isReplaySelecting={tab.isReplaySelecting} 
-                onRequestMoreData={onRequestHistory} 
-                areDrawingsLocked={areDrawingsLocked} 
-                isMagnetMode={isMagnetMode} 
-                isSyncing={isSyncing}
-                visibleRange={tab.visibleRange}
-                onVisibleRangeChange={onVisibleRangeChange}
-                fullData={tab.data}
-                replayIndex={tab.replayIndex}
-                isPlaying={tab.isReplayPlaying}
-                replaySpeed={tab.replaySpeed}
-                isAdvancedReplay={tab.isAdvancedReplayMode}
-                trades={trades}
-                isDrawingSyncEnabled={isDrawingSyncEnabled}
-            />
+        {(loading || isHydrating) && <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm"><div className="flex flex-col items-center gap-2"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div><div className="text-blue-400 font-medium">{isHydrating ? 'Loading Layout...' : 'Processing Data...'}</div></div></div>}
+        <FinancialChart 
+          key={chartComponentKey} 
+          id={tab.id} 
+          data={displayedData} 
+          smaData={smaData} 
+          config={tab.config} 
+          timeframe={tab.timeframe} 
+          onConfigChange={(newConfig: any) => updateTab({ config: newConfig })} 
+          drawings={drawings} 
+          onUpdateDrawings={onUpdateDrawings} 
+          activeToolId={activeToolId || 'cross'} 
+          onToolComplete={handleToolComplete} 
+          currentDefaultProperties={defaultDrawingProperties} 
+          selectedDrawingId={selectedDrawingId} 
+          onSelectDrawing={handleSelectDrawing} 
+          onActionStart={onSaveHistory} 
+          isReplaySelecting={tab.isReplaySelecting} 
+          onReplayPointSelect={handleReplayPointSelect} 
+          onRequestMoreData={onRequestHistory} 
+          areDrawingsLocked={areDrawingsLocked} 
+          isMagnetMode={isMagnetMode} 
+          isSyncing={isSyncing}
+          visibleRange={tab.visibleRange}
+          onVisibleRangeChange={onVisibleRangeChange}
+          fullData={tab.data}
+          replayIndex={tab.replayIndex}
+          isPlaying={tab.isReplayPlaying}
+          replaySpeed={tab.replaySpeed}
+          onReplaySync={handleReplaySync}
+          onReplayComplete={() => updateTab({ isReplayPlaying: false })}
+          isAdvancedReplay={tab.isAdvancedReplayMode}
+          trades={trades}
+          isDrawingSyncEnabled={isDrawingSyncEnabled}
+        />
         </div>
         
         <GlobalErrorBoundary 
             errorMessage="Market Data Unavailable"
-            fallback={<div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-4"><span>Market data could not be loaded.</span></div>}
+            fallback={
+                <div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-4">
+                    <span>Market data could not be loaded.</span>
+                </div>
+            }
         >
             <RecentMarketDataPanel 
                 currentSymbol={tab.title}
@@ -476,10 +585,10 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         <BottomPanel isOpen={isBottomPanelOpen} onToggle={() => setIsBottomPanelOpen(!isBottomPanelOpen)} trades={trades} />
         <div className="h-6 bg-[#1e293b] border-t border-[#334155] flex items-center px-4 text-[10px] text-slate-500 justify-between shrink-0 select-none">
             <div className="flex gap-4">
-                <span>O: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].open.toFixed(2) : '-'}</span></span>
-                <span>H: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].high.toFixed(2) : '-'}</span></span>
-                <span>L: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].low.toFixed(2) : '-'}</span></span>
-                <span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span>
+            <span>O: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].open.toFixed(2) : '-'}</span></span>
+            <span>H: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].high.toFixed(2) : '-'}</span></span>
+            <span>L: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].low.toFixed(2) : '-'}</span></span>
+            <span>C: <span className="text-slate-300">{displayedData.length > 0 ? displayedData[displayedData.length-1].close.toFixed(2) : '-'}</span></span>
             </div>
             <div className="flex items-center gap-4">
                <span className="hidden md:inline text-slate-600">Red Pill Charting v1.0.0 • {tab.isReplayMode ? 'Replay Mode' : tab.isAdvancedReplayMode ? 'Real-Time Replay' : 'Offline'}</span>
@@ -487,6 +596,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
                <span className="font-mono text-slate-400 flex items-center gap-2">
                    <span>{currentDate.getFullYear()}-{String(currentDate.getMonth() + 1).padStart(2, '0')}-{String(currentDate.getDate()).padStart(2, '0')}</span>
                    <span>{currentDate.toLocaleTimeString('en-GB', { hour12: false })}</span>
+                   <span className="text-slate-500 text-[9px] uppercase border border-slate-700 px-1 rounded">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
                </span>
             </div>
         </div>

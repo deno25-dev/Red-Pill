@@ -74,15 +74,6 @@ const initializeTables = () => {
         `);
 
         db.run(`
-            CREATE TABLE IF NOT EXISTS sticky_notes (
-                id TEXT PRIMARY KEY,
-                sourceId TEXT,
-                data TEXT,
-                timestamp INTEGER
-            )
-        `);
-
-        db.run(`
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -428,11 +419,13 @@ ipcMain.handle('master-drawings:load', async () => {
 ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
     return new Promise((resolve) => {
         db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
+            // Defensively ensure an array is returned even on error/no rows
             if (err) {
                 console.error('trades:get-ledger error:', err);
                 resolve([]);
             } else {
                 try {
+                    // Safety check: rows might be null depending on driver impl, though usually []
                     const trades = (rows || []).map(r => JSON.parse(r.data));
                     resolve(trades);
                 } catch (e) {
@@ -479,56 +472,7 @@ ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
     });
 });
 
-// 3. Sticky Notes
-ipcMain.handle('sticky-notes:get', async (event, sourceId) => {
-    return new Promise((resolve) => {
-        db.all('SELECT data FROM sticky_notes WHERE sourceId = ?', [sourceId], (err, rows) => {
-            if (err) {
-                console.error('sticky-notes:get error:', err);
-                resolve([]);
-            } else {
-                try {
-                    const notes = (rows || []).map(r => JSON.parse(r.data));
-                    resolve(notes);
-                } catch (e) {
-                    resolve([]);
-                }
-            }
-        });
-    });
-});
-
-ipcMain.handle('sticky-notes:save', async (event, note) => {
-    return new Promise((resolve) => {
-        db.run(
-            'INSERT OR REPLACE INTO sticky_notes (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)',
-            [note.id, note.sourceId, JSON.stringify(note), note.timestamp],
-            (err) => {
-                if (err) {
-                    console.error('sticky-notes:save error:', err);
-                    resolve({ success: false, error: err.message });
-                } else {
-                    resolve({ success: true });
-                }
-            }
-        );
-    });
-});
-
-ipcMain.handle('sticky-notes:delete', async (event, id) => {
-    return new Promise((resolve) => {
-        db.run('DELETE FROM sticky_notes WHERE id = ?', [id], (err) => {
-            if (err) {
-                console.error('sticky-notes:delete error:', err);
-                resolve({ success: false, error: err.message });
-            } else {
-                resolve({ success: true });
-            }
-        });
-    });
-});
-
-// 4. Layouts
+// 3. Layouts (Still JSON file based as per original spec)
 ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
     try {
         const layoutsDir = path.join(app.getPath('userData'), 'Database', 'Layouts');

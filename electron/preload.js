@@ -27,11 +27,6 @@ try {
         saveDrawingState: (symbol, data) => ipcRenderer.invoke('drawings:save-state', symbol, data),
         deleteAllDrawings: (sourceId) => ipcRenderer.invoke('drawings:delete-all', sourceId),
 
-        // --- Sticky Notes ---
-        getStickyNotes: (sourceId) => ipcRenderer.invoke('sticky-notes:get', sourceId),
-        saveStickyNote: (note) => ipcRenderer.invoke('sticky-notes:save', note),
-        deleteStickyNote: (id) => ipcRenderer.invoke('sticky-notes:delete', id),
-
         // --- Persistence (Layouts) ---
         saveLayout: (name, data) => ipcRenderer.invoke('layouts:save', name, data),
         loadLayout: (name) => ipcRenderer.invoke('layouts:load', name),

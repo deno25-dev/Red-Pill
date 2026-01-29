@@ -17,7 +17,7 @@ interface State {
 }
 
 export class GlobalErrorBoundary extends Component<Props, State> {
-  state: State = {
+  public state: State = {
     hasError: false,
     error: null,
   };
