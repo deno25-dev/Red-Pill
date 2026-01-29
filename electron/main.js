@@ -86,20 +86,20 @@ const createWindow = () => {
 
   const isDev = !app.isPackaged;
 
-  // Retry logic to handle race conditions where Vite isn't ready yet
-  mainWindow.webContents.on('did-fail-load', () => {
-      if (isDev) {
-          console.log('Server not ready, retrying load in 1s...');
-          setTimeout(() => {
-              if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.loadURL('http://localhost:5173');
-              }
-          }, 1000);
-      }
-  });
-
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    const startUrl = 'http://localhost:5173';
+    const loadWithRetry = () => {
+      console.log('[Electron] Attempting to connect to Vite server...');
+      mainWindow.loadURL(startUrl).catch((e) => {
+        console.log(`[Electron] Vite server not ready (${e.code || e.message}), retrying in 1s...`);
+        setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                loadWithRetry();
+            }
+        }, 1000);
+      });
+    };
+    loadWithRetry();
   } else {
     mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
   }
