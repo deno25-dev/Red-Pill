@@ -27,34 +27,22 @@ let internalLibraryStorage = [];
 
 const createWindow = () => {
   // TASK 1: HARDEN PRELOAD PATH RESOLUTION
-  let preloadPath;
-  
-  // Resolve path based on environment
-  if (app.isPackaged) {
-      // Production: Path is usually inside the resources/app.asar
-      preloadPath = path.join(__dirname, 'preload.js');
-  } else {
-      // Development: Path relative to this file
-      preloadPath = path.resolve(__dirname, 'preload.js');
-  }
+  // Explicitly resolve relative to this file
+  const preloadPath = path.resolve(__dirname, 'preload.js');
 
+  // --- TASK 2: DIAGNOSTIC PATH VERIFICATION ---
   console.log('================================================');
   console.log('[Bridge-Debug] Configuring Window...');
   console.log(`[Bridge-Debug] Environment: ${app.isPackaged ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-  console.log(`[Bridge-Debug] Main Script Path: ${__dirname}`);
+  console.log(`[Bridge-Debug] App Path: ${app.getAppPath()}`);
+  console.log(`[Bridge-Debug] __dirname: ${__dirname}`);
   console.log(`[Bridge-Debug] Target Preload Path: ${preloadPath}`);
+  console.log(`[Bridge-Debug] Preload Exists on Disk: ${fs.existsSync(preloadPath)}`);
   
-  // Robustness Check
-  if (fs.existsSync(preloadPath)) {
-      console.log('[Bridge-Debug] ✅ Preload script found on disk.');
+  if (!fs.existsSync(preloadPath)) {
+      console.error('[Bridge-Critical] ❌ Preload script NOT FOUND at target!');
   } else {
-      console.error('[Bridge-Critical] ❌ Preload script NOT FOUND on disk!');
-      // Fallback attempt for some monorepo structures
-      const fallback = path.join(app.getAppPath(), 'electron', 'preload.js');
-      if (fs.existsSync(fallback)) {
-          console.log(`[Bridge-Debug] ⚠️ Using fallback preload path: ${fallback}`);
-          preloadPath = fallback;
-      }
+      console.log('[Bridge-Debug] ✅ Preload script found.');
   }
   console.log('================================================');
 

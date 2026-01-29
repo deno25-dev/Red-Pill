@@ -20,6 +20,7 @@ import { debugLog } from './utils/logger';
 import { useFileSystem } from './hooks/useFileSystem';
 import { useTradePersistence } from './hooks/useTradePersistence';
 import { useSymbolPersistence } from './hooks/useSymbolPersistence';
+import { reportSelf } from './hooks/useTelemetry';
 
 // Chunk size for file streaming: 2MB
 const CHUNK_SIZE = 2 * 1024 * 1024; 
@@ -110,6 +111,22 @@ const App: React.FC = () => {
     };
     window.addEventListener('chart-render-perf', handlePerf);
     return () => window.removeEventListener('chart-render-perf', handlePerf);
+  }, []);
+
+  // Task 3: Preload Handshake Logging
+  useEffect(() => {
+      const isPreloadExecuted = (window as any).PRELOAD_EXECUTED;
+      const bridgeStatus = (window as any).electronAPI ? 'Present' : 'Missing';
+      
+      console.log(`%c[DIAGNOSTIC] Preload Handshake: ${isPreloadExecuted ? 'SUCCESS' : 'FAILED'}`, 
+          isPreloadExecuted ? 'color: #10b981; font-weight: bold; font-size: 14px;' : 'color: #ef4444; font-weight: bold; font-size: 14px;');
+      console.log(`%c[DIAGNOSTIC] Bridge Object: ${bridgeStatus}`, 
+          bridgeStatus === 'Present' ? 'color: #10b981;' : 'color: #ef4444;');
+      
+      reportSelf('SystemBoot', {
+          preloadExecuted: !!isPreloadExecuted,
+          bridgeStatus
+      });
   }, []);
 
   const toggleFavorite = (id: string) => {

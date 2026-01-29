@@ -10,77 +10,6 @@ export interface FileSystemFile {
   handle?: any; // Legacy placeholder
 }
 
-// --- MOCK BRIDGE FOR WEB MODE ---
-const getMockBridge = (): IElectronAPI => ({
-    selectFolder: async () => {
-        console.warn("Web Mode: Native directory selection requires browser API or Electron.");
-        return null;
-    },
-    watchFolder: async () => [],
-    unwatchFolder: async () => {},
-    readChunk: async () => "", 
-    getFileDetails: async () => ({ exists: false, size: 0 }),
-    getDefaultDatabasePath: async () => "Browser LocalStorage",
-    getInternalLibrary: async () => [], // Empty library in web mode
-    getInternalFolders: async () => [],
-    
-    // Persistence -> LocalStorage
-    loadMasterDrawings: async () => {
-        try {
-            const data = localStorage.getItem('redpill_mock_drawings');
-            return { success: true, data: data ? JSON.parse(data) : {} };
-        } catch { return { success: false, data: {} }; }
-    },
-    saveMasterDrawings: async (data) => {
-        try {
-            localStorage.setItem('redpill_mock_drawings', JSON.stringify(data));
-            return { success: true };
-        } catch (e: any) { return { success: false, error: e.message }; }
-    },
-    getDrawingsState: async () => ({}),
-    deleteAllDrawings: async (sourceId) => {
-        try {
-            const raw = localStorage.getItem('redpill_mock_drawings');
-            if (raw) {
-                const data = JSON.parse(raw);
-                delete data[sourceId];
-                localStorage.setItem('redpill_mock_drawings', JSON.stringify(data));
-            }
-            return { success: true };
-        } catch (e: any) { return { success: false, error: e.message }; }
-    },
-    
-    saveLayout: async (name, data) => {
-        localStorage.setItem(`redpill_layout_${name}`, JSON.stringify(data));
-        return { success: true };
-    },
-    loadLayout: async (name) => {
-        const data = localStorage.getItem(`redpill_layout_${name}`);
-        return { success: !!data, data: data ? JSON.parse(data) : null };
-    },
-    listLayouts: async () => [],
-    
-    getTradesBySource: async (sourceId) => {
-        const raw = localStorage.getItem(`redpill_trades_${sourceId}`);
-        return raw ? JSON.parse(raw) : [];
-    },
-    saveTrade: async (trade) => {
-        const key = `redpill_trades_${trade.sourceId}`;
-        const existing = JSON.parse(localStorage.getItem(key) || '[]');
-        existing.push(trade);
-        localStorage.setItem(key, JSON.stringify(existing));
-        return { success: true };
-    },
-    
-    getSystemTelemetry: async () => ({
-        processInfo: { version: 'Web-Mock', uptime: performance.now()/1000, pid: 0 },
-        resources: { memory: { rss: '0', heapUsed: '0' }, cpu: {}, v8Heap: { used: '0' } },
-        ioStatus: { connectionState: 'Simulated', dbPath: 'LocalStorage' },
-        logBuffer: []
-    }),
-    onFolderChange: () => () => {}
-});
-
 export const useFileSystem = () => {
   const [files, setFiles] = useState<FileSystemFile[]>([]);
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -94,9 +23,13 @@ export const useFileSystem = () => {
 
   // 3. Telemetry Update
   const sendReport = useCallback((extraData: any = {}) => {
+      const api = window.electronAPI as any;
+      const bridgeType = api ? (api.__isMock ? 'MOCK' : 'NATIVE') : 'NONE';
+
       reportSelf('FileSystem', {
         status: status,
         bridgeDetected: !!window.electronAPI,
+        bridgeType: bridgeType,
         currentPath: currentPath || 'None',
         fileCount: files.length,
         ready: isReady,
@@ -110,11 +43,11 @@ export const useFileSystem = () => {
     sendReport();
   }, [sendReport]);
 
-  // 2. Initialization Effect with Polling & Fallback
+  // 2. Initialization Effect with Polling (NO FALLBACK)
   useEffect(() => {
     let mounted = true;
     let attempts = 0;
-    const MAX_ATTEMPTS = 20; // 2 seconds total
+    const MAX_ATTEMPTS = 50; // 5 seconds total (50 * 100ms)
     const POLLING_INTERVAL = 100;
 
     const checkBridge = () => {
@@ -124,11 +57,15 @@ export const useFileSystem = () => {
         if (api) {
             electronRef.current = api;
             setStatus('ELECTRON_SOVEREIGN');
-            debugLog('Data', 'FileSystem: Bridge Connected (Sovereign Mode)');
+            
+            // Check for leftovers of mock, though it should be gone
+            const isMock = (api as any).__isMock;
+            debugLog('Data', `FileSystem: Bridge Connected (${isMock ? 'Mock' : 'Native'})`);
 
             reportSelf('FileSystem', {
                 status: 'ELECTRON_SOVEREIGN',
                 bridgeDetected: true,
+                bridgeType: isMock ? 'MOCK' : 'NATIVE',
                 currentPath: 'None',
                 fileCount: 0,
                 ready: false,
@@ -153,14 +90,17 @@ export const useFileSystem = () => {
             // Keep polling
             setTimeout(checkBridge, POLLING_INTERVAL);
         } else {
-            // FALLBACK TO MOCK INSTEAD OF CRITICAL FAILURE
-            console.warn("Electron Bridge not detected. Injecting Web Mock.");
+            // LOUD FAILURE - DO NOT FALLBACK
+            console.error("CRITICAL: Electron Bridge Handshake Failed after 5s.");
+            setStatus('INITIALIZATION_FAILED');
+            debugLog('Auth', 'Bridge initialization failed. App halted.');
             
-            // Inject Mock
-            window.electronAPI = getMockBridge();
-            
-            // Retry one last time to pick up the mock and init
-            setTimeout(checkBridge, 50);
+            reportSelf('FileSystem', {
+                status: 'INITIALIZATION_FAILED',
+                bridgeDetected: false,
+                bridgeType: 'NONE',
+                note: 'Handshake Timeout (5s)'
+            });
         }
     };
 

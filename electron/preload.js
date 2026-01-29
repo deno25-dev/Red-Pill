@@ -1,4 +1,7 @@
 
+// Task 3: Preload Handshake
+window.PRELOAD_EXECUTED = true;
+
 try {
     const { contextBridge, ipcRenderer } = require('electron');
 

@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { debugLog } from '../utils/logger';
 
@@ -52,6 +53,9 @@ export function useSmartFetch<T>(
   };
 
   const executeFetch = useCallback(async () => {
+    // GUARD: If we are in a compromised bridge state (or legacy mock), do not attempt fetches
+    if ((window as any).electronAPI?.__isMock) return;
+
     clearTimer();
     setIsLoading(true);
     // Note: isSettling is assumed false once we enter execution
