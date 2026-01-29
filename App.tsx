@@ -148,12 +148,8 @@ const App: React.FC = () => {
       if (electron) {
           const initBridge = async () => {
               try {
-                  // Load Drawing States
-                  if (electron.getDrawingsState) {
-                      await electron.getDrawingsState();
-                      // The global lock state is now derived from active tab's drawings.
-                      // This avoids stale state from a JSON file.
-                  }
+                  // No global hydration needed; tabs hydrate individually via useSymbolPersistence.
+                  // Connection check is implicit.
               } catch (e: any) {
                   console.warn("Bridge initialization warning:", e.message);
                   debugLog('Auth', 'Bridge Init Failed', e.message);

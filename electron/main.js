@@ -3,7 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const v8 = require('v8');
-const Database = require('better-sqlite3');
+const sqlite3 = require('sqlite3').verbose();
 
 // [TELEMETRY] Initialize Session Start Time
 const sessionStartTime = Date.now();
@@ -29,50 +29,62 @@ let internalLibraryStorage = [];
 
 // --- DATABASE SETUP ---
 const setupDatabase = () => {
-    try {
-        const userDataPath = app.getPath('userData');
-        const dbFolder = path.join(userDataPath, 'RedPill');
-        const dbPath = path.join(dbFolder, 'master.db');
+    const userDataPath = app.getPath('userData');
+    const dbFolder = path.join(userDataPath, 'RedPill');
+    const dbPath = path.join(dbFolder, 'master.db');
 
-        if (!fs.existsSync(dbFolder)) {
+    if (!fs.existsSync(dbFolder)) {
+        try {
             fs.mkdirSync(dbFolder, { recursive: true });
+        } catch (e) {
+            console.error('Failed to create database directory:', e);
+            logSystemEvent('DB_DIR_CREATE_FAILED');
+            return;
         }
+    }
 
-        db = new Database(dbPath, { verbose: null }); // Set verbose: console.log for debugging queries
-        db.pragma('journal_mode = WAL');
+    // Initialize Database Asynchronously
+    db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+            console.error('Database initialization failed:', err);
+            logSystemEvent('DB_INIT_FAILED');
+        } else {
+            logSystemEvent('DB_CONNECTED');
+            initializeTables();
+        }
+    });
+};
 
-        // Initialize Tables
-        db.prepare(`
+const initializeTables = () => {
+    db.serialize(() => {
+        db.run(`
             CREATE TABLE IF NOT EXISTS drawings (
                 symbol TEXT PRIMARY KEY,
                 data TEXT
             )
-        `).run();
+        `);
 
-        db.prepare(`
+        db.run(`
             CREATE TABLE IF NOT EXISTS trades (
                 id TEXT PRIMARY KEY,
                 sourceId TEXT,
                 data TEXT,
                 timestamp INTEGER
             )
-        `).run();
+        `);
 
-        db.prepare(`
+        db.run(`
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        `).run();
-
-        logSystemEvent('DB_INITIALIZED');
-        
-        runMigration();
-
-    } catch (error) {
-        console.error('Database initialization failed:', error);
-        logSystemEvent('DB_INIT_FAILED');
-    }
+        `, (err) => {
+            if (!err) {
+                logSystemEvent('DB_TABLES_READY');
+                runMigration();
+            }
+        });
+    });
 };
 
 const runMigration = () => {
@@ -85,21 +97,33 @@ const runMigration = () => {
             const raw = fs.readFileSync(oldDrawingsPath, 'utf8');
             const data = JSON.parse(raw);
             
-            const insert = db.prepare('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)');
-            const insertMany = db.transaction((drawings) => {
-                for (const [symbol, content] of Object.entries(drawings)) {
-                    insert.run(symbol, JSON.stringify(content));
+            db.serialize(() => {
+                db.run("BEGIN TRANSACTION");
+                const stmt = db.prepare('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)');
+                
+                for (const [symbol, content] of Object.entries(data)) {
+                    stmt.run(symbol, JSON.stringify(content));
                 }
+                
+                stmt.finalize();
+                db.run("COMMIT", (err) => {
+                    if (err) {
+                        console.error('Migration commit failed:', err);
+                        logSystemEvent('MIGRATION_FAILED');
+                    } else {
+                        // Rename old file to avoid re-migration
+                        try {
+                            fs.renameSync(oldDrawingsPath, oldDrawingsPath + '.bak');
+                            logSystemEvent('MIGRATION_COMPLETE');
+                        } catch (e) {
+                            console.error('Failed to rename migration file:', e);
+                        }
+                    }
+                });
             });
-            
-            insertMany(data);
-            
-            // Rename old file to avoid re-migration
-            fs.renameSync(oldDrawingsPath, oldDrawingsPath + '.bak');
-            logSystemEvent('MIGRATION_COMPLETE');
         }
     } catch (error) {
-        console.error('Migration failed:', error);
+        console.error('Migration logic error:', error);
         logSystemEvent('MIGRATION_FAILED');
     }
 };
@@ -316,98 +340,136 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- PERSISTENCE (SQLite) ---
+// --- PERSISTENCE (SQLite3 Asynchronous) ---
 
 // 1. Drawings
 ipcMain.handle('drawings:get-state', async (event, symbol) => {
-    try {
-        const row = db.prepare('SELECT data FROM drawings WHERE symbol = ?').get(symbol);
-        if (row) {
-            return JSON.parse(row.data);
-        }
-        return null;
-    } catch (e) {
-        console.error('drawings:get-state error:', e);
-        return null;
-    }
+    return new Promise((resolve) => {
+        db.get('SELECT data FROM drawings WHERE symbol = ?', [symbol], (err, row) => {
+            if (err) {
+                console.error('drawings:get-state error:', err);
+                resolve(null);
+            } else {
+                if (row) {
+                    try {
+                        resolve(JSON.parse(row.data));
+                    } catch (e) {
+                        resolve(null);
+                    }
+                } else {
+                    resolve(null);
+                }
+            }
+        });
+    });
 });
 
 ipcMain.handle('drawings:save-state', async (event, symbol, data) => {
-    try {
-        const stmt = db.prepare('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)');
-        stmt.run(symbol, JSON.stringify(data));
-        return { success: true };
-    } catch (e) {
-        console.error('drawings:save-state error:', e);
-        return { success: false, error: e.message };
-    }
+    return new Promise((resolve) => {
+        db.run('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)', [symbol, JSON.stringify(data)], (err) => {
+            if (err) {
+                console.error('drawings:save-state error:', err);
+                resolve({ success: false, error: err.message });
+            } else {
+                resolve({ success: true });
+            }
+        });
+    });
 });
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
-    try {
-        db.prepare('DELETE FROM drawings WHERE symbol = ?').run(sourceId);
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+    return new Promise((resolve) => {
+        db.run('DELETE FROM drawings WHERE symbol = ?', [sourceId], (err) => {
+            if (err) {
+                resolve({ success: false, error: err.message });
+            } else {
+                resolve({ success: true });
+            }
+        });
+    });
 });
 
 // Legacy handler for compatibility during transition (Deprecated)
 ipcMain.handle('master-drawings:load', async () => {
-    try {
-        // Return all drawings as a map to satisfy old frontend expectation if called
-        const rows = db.prepare('SELECT symbol, data FROM drawings').all();
-        const map = {};
-        for (const row of rows) {
-            map[row.symbol] = JSON.parse(row.data);
-        }
-        return { success: true, data: map };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+    return new Promise((resolve) => {
+        db.all('SELECT symbol, data FROM drawings', [], (err, rows) => {
+            if (err) {
+                resolve({ success: false, error: err.message });
+            } else {
+                const map = {};
+                try {
+                    rows.forEach(row => {
+                        map[row.symbol] = JSON.parse(row.data);
+                    });
+                    resolve({ success: true, data: map });
+                } catch (e) {
+                    resolve({ success: false, error: 'Failed to parse legacy drawings' });
+                }
+            }
+        });
+    });
 });
 
 // 2. Trades
 ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
-    try {
-        const rows = db.prepare('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC').all(sourceId);
-        return rows.map(r => JSON.parse(r.data));
-    } catch (e) {
-        console.error('trades:get-ledger error:', e);
-        return [];
-    }
+    return new Promise((resolve) => {
+        db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
+            if (err) {
+                console.error('trades:get-ledger error:', err);
+                resolve([]);
+            } else {
+                try {
+                    resolve(rows.map(r => JSON.parse(r.data)));
+                } catch (e) {
+                    resolve([]);
+                }
+            }
+        });
+    });
 });
 
 ipcMain.handle('trades:save', async (event, trade) => {
-    try {
-        const stmt = db.prepare('INSERT INTO trades (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)');
-        stmt.run(trade.id, trade.sourceId, JSON.stringify(trade), trade.timestamp);
-        logSystemEvent('TRADE_SAVED');
-        return { success: true };
-    } catch (e) {
-        console.error('trades:save error:', e);
-        return { success: false, error: e.message };
-    }
+    return new Promise((resolve) => {
+        db.run(
+            'INSERT INTO trades (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)',
+            [trade.id, trade.sourceId, JSON.stringify(trade), trade.timestamp],
+            (err) => {
+                if (err) {
+                    console.error('trades:save error:', err);
+                    resolve({ success: false, error: err.message });
+                } else {
+                    logSystemEvent('TRADE_SAVED');
+                    resolve({ success: true });
+                }
+            }
+        );
+    });
 });
 
 // Legacy trade handler alias
 ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
-    try {
-        const rows = db.prepare('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC').all(sourceId);
-        return rows.map(r => JSON.parse(r.data));
-    } catch (e) {
-        return [];
-    }
+    return new Promise((resolve) => {
+        db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
+            if (err) {
+                resolve([]);
+            } else {
+                try {
+                    resolve(rows.map(r => JSON.parse(r.data)));
+                } catch (e) {
+                    resolve([]);
+                }
+            }
+        });
+    });
 });
 
-// 3. Layouts (Still JSON file based as per original spec, or can move to settings table)
-// For now keeping file based to minimize scope creep unless requested, 
-// but prompt implies using 'settings' table. Let's stick to existing logic for layouts 
-// to ensure stability unless explicitly asked to migrate layouts too.
+// 3. Layouts (Still JSON file based as per original spec)
 ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
     try {
-        const dbPath = path.dirname(db.name); // RedPill folder
-        const layoutsDir = path.join(dbPath, '..', 'Database', 'Layouts'); // Keeping compat with old path
+        // RedPill/master.db -> RedPill is folder. We want to go up one level? 
+        // No, typically RedPill folder is inside userData. 
+        // We probably want app.getPath('userData')/Database/Layouts to match logic.
+        const layoutsDir = path.join(app.getPath('userData'), 'Database', 'Layouts');
         if (!fs.existsSync(layoutsDir)) fs.mkdirSync(layoutsDir, { recursive: true });
         
         const filePath = path.join(layoutsDir, `${layoutName}.json`);
@@ -420,8 +482,7 @@ ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
 
 ipcMain.handle('layouts:load', async (event, layoutName) => {
     try {
-        const dbPath = path.dirname(db.name);
-        const filePath = path.join(dbPath, '..', 'Database', 'Layouts', `${layoutName}.json`);
+        const filePath = path.join(app.getPath('userData'), 'Database', 'Layouts', `${layoutName}.json`);
         if (fs.existsSync(filePath)) {
             const data = fs.readFileSync(filePath, 'utf8');
             return { success: true, data: JSON.parse(data) };
@@ -434,8 +495,7 @@ ipcMain.handle('layouts:load', async (event, layoutName) => {
 
 ipcMain.handle('layouts:list', async () => {
     try {
-        const dbPath = path.dirname(db.name);
-        const layoutsDir = path.join(dbPath, '..', 'Database', 'Layouts');
+        const layoutsDir = path.join(app.getPath('userData'), 'Database', 'Layouts');
         if (!fs.existsSync(layoutsDir)) return [];
         const files = fs.readdirSync(layoutsDir);
         return files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', ''));
@@ -450,6 +510,9 @@ ipcMain.handle('get-system-telemetry', async () => {
     const cpu = process.cpuUsage();
     const heapStats = v8.getHeapStatistics();
     
+    // For sqlite3, we just check if the object exists since there isn't a direct .open property
+    const isDbConnected = db ? 'Online (SQLite3)' : 'Disconnected';
+
     return {
         processInfo: {
             version: process.versions.electron,
@@ -467,8 +530,8 @@ ipcMain.handle('get-system-telemetry', async () => {
             }
         },
         ioStatus: {
-            connectionState: db && db.open ? 'Online (SQLite)' : 'Disconnected',
-            dbPath: db ? db.name : 'None'
+            connectionState: isDbConnected,
+            dbPath: db ? 'master.db' : 'None'
         },
         logBuffer: systemLogBuffer
     };
