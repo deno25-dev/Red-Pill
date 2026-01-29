@@ -1023,6 +1023,12 @@ const App: React.FC = () => {
     alert("Advanced Replay: Select a starting point. This mode plays back in real-time speed.");
   };
 
+  const handleAddStickyNote = useCallback(() => {
+    if (!activeTabId) return;
+    // Dispatch a custom event that the active ChartWorkspace will listen for
+    window.dispatchEvent(new CustomEvent('redpill-add-sticky-note', { detail: { tabId: activeTabId } }));
+  }, [activeTabId]);
+
   const handleLayoutAction = async (action: string) => {
     if (!activeTab) return;
     
@@ -1509,6 +1515,7 @@ const App: React.FC = () => {
                         onToggleGridlines={toggleGridlines}
                         showCrosshair={activeTab.config.showCrosshair ?? true}
                         onToggleCrosshair={() => updateActiveTab({ config: { ...activeTab.config, showCrosshair: !(activeTab.config.showCrosshair ?? true) } })}
+                        onAddStickyNote={handleAddStickyNote}
                     />
 
                     <div className="flex flex-1 overflow-hidden relative">

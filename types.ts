@@ -5,7 +5,6 @@ export interface OHLCV {
   time: number; // Unix timestamp in seconds or milliseconds
   open: number;
   high: number;
-
   low: number;
   close: number;
   volume: number;
@@ -20,6 +19,7 @@ export interface ChartConfig {
   theme: 'dark' | 'light';
   volumeTopMargin?: number; // 0.0 to 1.0, defines where volume section starts
   priceScaleMode?: 'linear' | 'logarithmic' | 'percentage';
+  invertScale?: boolean; // Mandate 4.5
   autoScale?: boolean;
   showGridlines?: boolean;
   showCrosshair?: boolean;
@@ -90,6 +90,19 @@ export interface Drawing {
   properties: DrawingProperties;
   creationTimeframe?: Timeframe;
   folderId?: string | null;
+}
+
+export interface StickyNote {
+  id: string;
+  sourceId: string;
+  content: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string; // Background color class or hex
+  visible: boolean;
+  timestamp: number;
 }
 
 export interface Folder {
@@ -206,6 +219,11 @@ export interface IElectronAPI {
   saveDrawingState: (symbol: string, data: any) => Promise<{ success: boolean; error?: string }>;
   deleteAllDrawings: (sourceId: string) => Promise<{ success: boolean; error?: string }>;
   
+  // Sticky Notes
+  getStickyNotes: (sourceId: string) => Promise<StickyNote[]>;
+  saveStickyNote: (note: StickyNote) => Promise<{ success: boolean; error?: string }>;
+  deleteStickyNote: (id: string) => Promise<{ success: boolean; error?: string }>;
+
   // Layouts
   saveLayout: (name: string, data: any) => Promise<{ success: boolean; error?: string }>;
   loadLayout: (name: string) => Promise<{ success: boolean; data?: any; error?: string }>;
