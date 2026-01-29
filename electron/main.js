@@ -414,12 +414,15 @@ ipcMain.handle('master-drawings:load', async () => {
 ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
     return new Promise((resolve) => {
         db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
+            // Defensively ensure an array is returned even on error/no rows
             if (err) {
                 console.error('trades:get-ledger error:', err);
                 resolve([]);
             } else {
                 try {
-                    resolve(rows.map(r => JSON.parse(r.data)));
+                    // Safety check: rows might be null depending on driver impl, though usually []
+                    const trades = (rows || []).map(r => JSON.parse(r.data));
+                    resolve(trades);
                 } catch (e) {
                     resolve([]);
                 }
@@ -454,7 +457,8 @@ ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
                 resolve([]);
             } else {
                 try {
-                    resolve(rows.map(r => JSON.parse(r.data)));
+                    const trades = (rows || []).map(r => JSON.parse(r.data));
+                    resolve(trades);
                 } catch (e) {
                     resolve([]);
                 }
@@ -466,9 +470,6 @@ ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
 // 3. Layouts (Still JSON file based as per original spec)
 ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
     try {
-        // RedPill/master.db -> RedPill is folder. We want to go up one level? 
-        // No, typically RedPill folder is inside userData. 
-        // We probably want app.getPath('userData')/Database/Layouts to match logic.
         const layoutsDir = path.join(app.getPath('userData'), 'Database', 'Layouts');
         if (!fs.existsSync(layoutsDir)) fs.mkdirSync(layoutsDir, { recursive: true });
         

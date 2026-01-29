@@ -47,8 +47,8 @@ export const useFileSystem = () => {
   useEffect(() => {
     let mounted = true;
     let attempts = 0;
-    const MAX_ATTEMPTS = 50; // 5 seconds total (50 * 100ms)
-    const POLLING_INTERVAL = 100;
+    const MAX_ATTEMPTS = 25; // 5 seconds (25 * 200ms) - Increased robustness
+    const POLLING_INTERVAL = 200; // Increased interval to allow preload to settle
 
     const checkBridge = () => {
         if (!mounted) return;
@@ -90,7 +90,7 @@ export const useFileSystem = () => {
             // Keep polling
             setTimeout(checkBridge, POLLING_INTERVAL);
         } else {
-            // LOUD FAILURE - DO NOT FALLBACK
+            // LOUD FAILURE - DO NOT FALLBACK until fully expired
             console.error("CRITICAL: Electron Bridge Handshake Failed after 5s.");
             setStatus('INITIALIZATION_FAILED');
             debugLog('Auth', 'Bridge initialization failed. App halted.');
@@ -104,7 +104,7 @@ export const useFileSystem = () => {
         }
     };
 
-    // Start polling
+    // Start polling immediately
     checkBridge();
 
     return () => {
