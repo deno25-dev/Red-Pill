@@ -505,6 +505,24 @@ ipcMain.handle('layouts:list', async () => {
     }
 });
 
+// --- NEW IPC: LOGS / DB STATUS ---
+ipcMain.handle('logs:get-db-status', async () => {
+    return new Promise((resolve) => {
+        if (!db) {
+            resolve({ connected: false, error: 'Database object is null' });
+            return;
+        }
+        // Run a lightweight query to verify connectivity and file lock status
+        db.get("SELECT 1", (err) => {
+            if (err) {
+                resolve({ connected: false, error: err.message });
+            } else {
+                resolve({ connected: true });
+            }
+        });
+    });
+});
+
 // --- TELEMETRY ---
 ipcMain.handle('get-system-telemetry', async () => {
     const mem = process.memoryUsage();

@@ -36,6 +36,9 @@ try {
         getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-ledger', sourceId),
         saveTrade: (trade) => ipcRenderer.invoke('trades:save', trade),
 
+        // --- Logs & Diagnostics ---
+        getDbStatus: () => ipcRenderer.invoke('logs:get-db-status'),
+
         // --- Telemetry ---
         getSystemTelemetry: () => ipcRenderer.invoke('get-system-telemetry'),
 

@@ -215,6 +215,9 @@ export interface IElectronAPI {
   getTradesBySource: (sourceId: string) => Promise<Trade[]>;
   saveTrade: (trade: Trade) => Promise<{ success: boolean; error?: string }>;
   
+  // Logs & Diagnostics
+  getDbStatus: () => Promise<{ connected: boolean; error?: string }>;
+
   // Telemetry & Events
   getSystemTelemetry: () => Promise<any>;
   onFolderChange: (callback: (files: any[]) => void) => () => void;
