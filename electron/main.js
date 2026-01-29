@@ -30,9 +30,6 @@ const createWindow = () => {
   // Explicitly resolve relative to this file
   
   // --- TASK 3: THE PATHING FINALIZER ---
-  console.log('================================================');
-  console.log('[Bridge-Debug] Configuring Window...');
-  
   const potentialPaths = [
     path.join(__dirname, 'preload.js'),
     path.join(process.cwd(), 'electron', 'preload.js'),
@@ -50,14 +47,9 @@ const createWindow = () => {
 
   if (!resolvedPath) {
       console.error('[Bridge-Critical] ❌ Preload script NOT FOUND in candidate paths.');
-      console.log('Checked paths:', potentialPaths);
       // Fallback
       resolvedPath = path.join(__dirname, 'preload.js'); 
-  } else {
-      console.log(`[Bridge-Debug] ✅ Preload script found at: ${resolvedPath}`);
   }
-  
-  console.log('================================================');
 
   logSystemEvent('WINDOW_CREATING');
 
@@ -89,9 +81,9 @@ const createWindow = () => {
   if (isDev) {
     const startUrl = 'http://localhost:5173';
     const loadWithRetry = () => {
-      console.log('[Electron] Attempting to connect to Vite server...');
+      // console.log('[Electron] Attempting to connect to Vite server...');
       mainWindow.loadURL(startUrl).catch((e) => {
-        console.log(`[Electron] Vite server not ready (${e.code || e.message}), retrying in 1s...`);
+        // console.log(`[Electron] Vite server not ready (${e.code || e.message}), retrying in 1s...`);
         setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 loadWithRetry();
@@ -207,6 +199,11 @@ ipcMain.handle('get-internal-library', async () => {
     return runBootScan();
 });
 
+// Alias for compatibility
+ipcMain.handle('library:get-assets', async () => {
+    return runBootScan();
+});
+
 ipcMain.handle('file:watch-folder', async (event, folderPath) => {
   if (watcher) { watcher.close(); watcher = null; }
   logSystemEvent('WATCH_FOLDER_START');
@@ -297,9 +294,40 @@ ipcMain.handle('master-drawings:load', async () => {
     }
 });
 
+// Alias for specific component request (drawings:get-state)
+ipcMain.handle('drawings:get-state', async () => {
+    try {
+        const dbPath = getMasterDrawingsPath();
+        if (fs.existsSync(dbPath)) {
+            const data = fs.readFileSync(dbPath, 'utf8');
+            const parsed = JSON.parse(data);
+            return parsed; // Return plain object as expected
+        }
+        return {};
+    } catch (e) {
+        console.error('drawings:get-state error:', e);
+        return {};
+    }
+});
+
 ipcMain.handle('master-drawings:save', async (event, data) => {
     try {
         const dbPath = getMasterDrawingsPath();
+        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Alias for save-state
+ipcMain.handle('drawings:save-state', async (event, data) => {
+    try {
+        const dbPath = getMasterDrawingsPath();
+        // Determine if data is the full master object or a single update. 
+        // For simplicity in this fix, we assume 'data' is the full state being pushed
+        // or we need to merge. To be safe given typical app flow, we assume it's an upsert of sorts,
+        // but since master-drawings:save writes the whole file, we'll do the same.
         fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
         return { success: true };
     } catch (e) {

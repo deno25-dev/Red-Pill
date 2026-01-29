@@ -144,16 +144,22 @@ const App: React.FC = () => {
   // Initial Boot Sequence
   useEffect(() => {
       const electron = window.electronAPI;
-      console.log('Window Object:', electron); // Verify Bridge Availability
       
       if (electron) {
-          // Load Drawing States
-          if (electron.getDrawingsState) {
-              electron.getDrawingsState().then(() => {
-                  // The global lock state is now derived from active tab's drawings.
-                  // This avoids stale state from a JSON file.
-              });
-          }
+          const initBridge = async () => {
+              try {
+                  // Load Drawing States
+                  if (electron.getDrawingsState) {
+                      await electron.getDrawingsState();
+                      // The global lock state is now derived from active tab's drawings.
+                      // This avoids stale state from a JSON file.
+                  }
+              } catch (e: any) {
+                  console.warn("Bridge initialization warning:", e.message);
+                  debugLog('Auth', 'Bridge Init Failed', e.message);
+              }
+          };
+          initBridge();
       }
   }, []); // Run once on mount
 
