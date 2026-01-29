@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, Server, Zap, ChevronDown, Check, Code, RotateCcw, HardDrive } from 'lucide-react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, Server, Zap, ChevronDown, Check, Code, RotateCcw, HardDrive, RefreshCw } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs } from '../utils/logger';
 import { useTelemetry } from '../hooks/useTelemetry';
@@ -9,6 +9,7 @@ interface DeveloperToolsProps {
   activeDataSource: string;
   lastError: string | null;
   chartRenderTime: number | null;
+  onRetryBridge?: () => void;
 }
 
 const MAX_HISTORY_DISPLAY = 200;
@@ -16,7 +17,8 @@ const MAX_HISTORY_DISPLAY = 200;
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
-  chartRenderTime
+  chartRenderTime,
+  onRetryBridge
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'logs' | 'telemetry'>('logs');
@@ -69,13 +71,13 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
   }, [isDropdownOpen]);
 
   // Log Polling (Robust Electron Support)
+  // Reads directly from window.__REDPIL_LOGS__ to ensure visibility even if React state lags
   useEffect(() => {
     if (!isOpen) return;
 
     const pollLogs = () => {
         if (window.__REDPIL_LOGS__) {
-            // We create a new array ref to force React render if content changed
-            // In a high-perf scenario we'd check length or a version counter, but for debug tools this is fine.
+            // Create a new array reference to force re-render
             setLogs([...window.__REDPIL_LOGS__]);
         }
     };
@@ -83,8 +85,8 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
     // Initial fetch
     pollLogs();
 
-    // Poll every 500ms
-    const interval = setInterval(pollLogs, 500);
+    // Poll frequently for live updates
+    const interval = setInterval(pollLogs, 250);
     return () => clearInterval(interval);
   }, [isOpen]);
 
@@ -266,29 +268,33 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
 
             {/* Log Feed */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-0.5 bg-black/60">
-                {logs.map((log) => (
-                <div key={log.id} className="flex gap-3 text-[11px] hover:bg-emerald-900/10 p-1.5 rounded group border-b border-emerald-900/10 last:border-0">
-                    <span className="text-emerald-800 shrink-0 font-mono">
-                    {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}.<span className="text-emerald-900">{new Date(log.timestamp).getMilliseconds().toString().padStart(3, '0')}</span>
-                    </span>
-                    <span className={`font-bold w-16 shrink-0 text-center uppercase tracking-tighter rounded px-1 py-0.5 text-[9px] h-fit ${
-                    log.category === 'UI' ? 'bg-purple-900/20 text-purple-400' :
-                    log.category === 'Network' ? 'bg-yellow-900/20 text-yellow-400' :
-                    log.category === 'Data' ? 'bg-blue-900/20 text-blue-400' :
-                    log.category === 'Auth' ? 'bg-red-900/20 text-red-400' :
-                    'bg-emerald-900/20 text-emerald-400'
-                    }`}>
-                    {log.category}
-                    </span>
-                    <span className="text-emerald-100/90 break-all leading-tight">{log.message}</span>
-                </div>
-                ))}
+                {logs.length === 0 ? (
+                    <div className="text-center text-emerald-900 py-10 italic">No logs available</div>
+                ) : (
+                    logs.map((log) => (
+                    <div key={log.id} className="flex gap-3 text-[11px] hover:bg-emerald-900/10 p-1.5 rounded group border-b border-emerald-900/10 last:border-0">
+                        <span className="text-emerald-800 shrink-0 font-mono">
+                        {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}.<span className="text-emerald-900">{new Date(log.timestamp).getMilliseconds().toString().padStart(3, '0')}</span>
+                        </span>
+                        <span className={`font-bold w-16 shrink-0 text-center uppercase tracking-tighter rounded px-1 py-0.5 text-[9px] h-fit ${
+                        log.category === 'UI' ? 'bg-purple-900/20 text-purple-400' :
+                        log.category === 'Network' ? 'bg-yellow-900/20 text-yellow-400' :
+                        log.category === 'Data' ? 'bg-blue-900/20 text-blue-400' :
+                        log.category === 'Auth' ? 'bg-red-900/20 text-red-400' :
+                        'bg-emerald-900/20 text-emerald-400'
+                        }`}>
+                        {log.category}
+                        </span>
+                        <span className="text-emerald-100/90 break-all leading-tight">{log.message}</span>
+                    </div>
+                    ))
+                )}
                 <div ref={logsEndRef} />
             </div>
           </>
       ) : (
           <div className="flex-1 flex flex-col h-full overflow-hidden bg-black/60">
-              {/* ... (Telemetry View Remains Unchanged) ... */}
+              {/* ... (Telemetry View) ... */}
               {isBridgeActive ? (
                   <div className="p-4 border-b border-emerald-900/50 bg-emerald-950/10 shrink-0">
                       <div className="flex items-center justify-between mb-3">
@@ -319,7 +325,17 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                           <Zap size={14} />
                           <span>BRIDGE DISCONNECTED</span>
                       </div>
-                      <span className="text-[10px] text-red-500/70">Web Mode Limits Active</span>
+                      <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-red-500/70">Web Mode Limits Active</span>
+                          {onRetryBridge && (
+                              <button 
+                                onClick={onRetryBridge}
+                                className="flex items-center gap-1 px-2 py-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-800/30 rounded text-[10px] uppercase font-bold transition-colors"
+                              >
+                                  <RefreshCw size={10} /> Retry
+                              </button>
+                          )}
+                      </div>
                   </div>
               )}
 
@@ -430,7 +446,6 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
   );
 };
 
-// ... (PulseMetric, formatUptime, RecursiveJSONTree components remain unchanged)
 const PulseMetric = ({ label, value }: { label: string, value: string }) => (
     <div className="bg-emerald-950/30 border border-emerald-900/30 p-2 rounded flex flex-col">
         <span className="text-[9px] text-emerald-700 uppercase font-bold tracking-wider">{label}</span>

@@ -253,6 +253,11 @@ const runBootScan = () => {
 
 // --- IPC HANDLERS ---
 
+ipcMain.on('log:send', (event, category, message, data) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [${category}] ${message}`, data ? JSON.stringify(data) : '');
+});
+
 ipcMain.handle('dialog:select-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
         properties: ['openDirectory']

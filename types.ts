@@ -217,6 +217,7 @@ export interface IElectronAPI {
   
   // Logs & Diagnostics
   getDbStatus: () => Promise<{ connected: boolean; error?: string }>;
+  sendLog: (category: string, message: string, data?: any) => void;
 
   // Telemetry & Events
   getSystemTelemetry: () => Promise<any>;

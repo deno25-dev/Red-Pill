@@ -17,6 +17,7 @@ export const useFileSystem = () => {
   
   // 1. Strict State: Only Initializing or Sovereign.
   const [status, setStatus] = useState<'Initializing' | 'ELECTRON_SOVEREIGN' | 'INITIALIZATION_FAILED'>('Initializing');
+  const [retryCount, setRetryCount] = useState(0);
 
   const accessHistory = useRef<{ name: string, time: number }[]>([]);
   const electronRef = useRef<any>(null);
@@ -45,6 +46,9 @@ export const useFileSystem = () => {
 
   // 2. Initialization Effect with Polling (NO FALLBACK)
   useEffect(() => {
+    // If we've already failed or succeeded, don't poll (unless retrying)
+    if (status === 'ELECTRON_SOVEREIGN') return;
+
     let mounted = true;
     let attempts = 0;
     const MAX_ATTEMPTS = 25; // 5 seconds (25 * 200ms) - Increased robustness
@@ -104,13 +108,15 @@ export const useFileSystem = () => {
         }
     };
 
-    // Start polling immediately
-    checkBridge();
+    // Start polling immediately when status is Initializing (reset by retry)
+    if (status === 'Initializing') {
+        checkBridge();
+    }
 
     return () => {
         mounted = false;
     };
-  }, []);
+  }, [status, retryCount]); // Depend on retryCount to re-trigger
 
   const reportFileLoad = useCallback((filename: string, stats?: SanitizationStats) => {
       const newEntry = { name: filename, time: Date.now() };
@@ -219,6 +225,12 @@ export const useFileSystem = () => {
       return stats.exists;
   }, []);
 
+  const retryConnection = useCallback(() => {
+      setStatus('Initializing');
+      setRetryCount(prev => prev + 1);
+      debugLog('Auth', 'Manual bridge handshake retry triggered');
+  }, []);
+
   return {
     files,
     currentPath,
@@ -229,6 +241,7 @@ export const useFileSystem = () => {
     disconnect,
     checkFileExists,
     reportFileLoad,
+    retryConnection,
     status // Export status for UI feedback
   };
 };

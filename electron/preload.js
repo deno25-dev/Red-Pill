@@ -38,6 +38,7 @@ try {
 
         // --- Logs & Diagnostics ---
         getDbStatus: () => ipcRenderer.invoke('logs:get-db-status'),
+        sendLog: (category, message, data) => ipcRenderer.send('log:send', category, message, data),
 
         // --- Telemetry ---
         getSystemTelemetry: () => ipcRenderer.invoke('get-system-telemetry'),

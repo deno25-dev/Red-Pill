@@ -102,7 +102,7 @@ const App: React.FC = () => {
 
   // Electron File System Hook
   // Now includes reportFileLoad for telemetry wiring
-  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad } = useFileSystem();
+  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad, retryConnection } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -1433,6 +1433,7 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
+                        onRetryBridge={retryConnection}
                     />
 
                     <CandleSettingsDialog 
