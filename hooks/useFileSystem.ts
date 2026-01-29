@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { debugLog } from '../utils/logger';
 import { reportSelf } from './useTelemetry';
-import { SanitizationStats, IElectronAPI } from '../types';
+import { SanitizationStats } from '../types';
 
 export interface FileSystemFile {
   name: string;
@@ -74,7 +74,7 @@ export const useFileSystem = () => {
             });
 
             try {
-                const cleanup = api.onFolderChange((updatedFiles: any[]) => {
+                api.onFolderChange((updatedFiles: any[]) => {
                     debugLog('Data', 'FileSystem: Folder content changed', { count: updatedFiles.length });
                     setFiles(updatedFiles);
                 });

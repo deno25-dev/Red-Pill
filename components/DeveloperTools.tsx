@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, Server, Zap, ChevronDown, Check, Code, Settings, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, Server, Zap, ChevronDown, Check, Code, RotateCcw } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { LogEntry, debugLog, clearLogs, getLogHistory } from '../utils/logger';
 import { useTelemetry } from '../hooks/useTelemetry';

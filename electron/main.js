@@ -28,22 +28,35 @@ let internalLibraryStorage = [];
 const createWindow = () => {
   // TASK 1: HARDEN PRELOAD PATH RESOLUTION
   // Explicitly resolve relative to this file
-  const preloadPath = path.resolve(__dirname, 'preload.js');
-
-  // --- TASK 2: DIAGNOSTIC PATH VERIFICATION ---
+  
+  // --- TASK 3: THE PATHING FINALIZER ---
   console.log('================================================');
   console.log('[Bridge-Debug] Configuring Window...');
-  console.log(`[Bridge-Debug] Environment: ${app.isPackaged ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-  console.log(`[Bridge-Debug] App Path: ${app.getAppPath()}`);
-  console.log(`[Bridge-Debug] __dirname: ${__dirname}`);
-  console.log(`[Bridge-Debug] Target Preload Path: ${preloadPath}`);
-  console.log(`[Bridge-Debug] Preload Exists on Disk: ${fs.existsSync(preloadPath)}`);
   
-  if (!fs.existsSync(preloadPath)) {
-      console.error('[Bridge-Critical] ❌ Preload script NOT FOUND at target!');
-  } else {
-      console.log('[Bridge-Debug] ✅ Preload script found.');
+  const potentialPaths = [
+    path.join(__dirname, 'preload.js'),
+    path.join(process.cwd(), 'electron', 'preload.js'),
+    path.join(app.getAppPath(), 'electron', 'preload.js'),
+    path.join(app.getAppPath(), 'dist-electron', 'preload.js')
+  ];
+
+  let resolvedPath = null;
+  for (const p of potentialPaths) {
+    if (fs.existsSync(p)) {
+      resolvedPath = p;
+      break;
+    }
   }
+
+  if (!resolvedPath) {
+      console.error('[Bridge-Critical] ❌ Preload script NOT FOUND in candidate paths.');
+      console.log('Checked paths:', potentialPaths);
+      // Fallback
+      resolvedPath = path.join(__dirname, 'preload.js'); 
+  } else {
+      console.log(`[Bridge-Debug] ✅ Preload script found at: ${resolvedPath}`);
+  }
+  
   console.log('================================================');
 
   logSystemEvent('WINDOW_CREATING');
@@ -66,7 +79,7 @@ const createWindow = () => {
       contextIsolation: true, // SECURITY: Must be true for contextBridge
       sandbox: false,         // Disable sandbox to allow file system access in Main via IPC
       webSecurity: false,     // Allow local file loading (file://)
-      preload: preloadPath    // Explicitly resolved path
+      preload: resolvedPath
     },
     autoHideMenuBar: true
   });
