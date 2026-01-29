@@ -202,7 +202,8 @@ export interface IElectronAPI {
   // Persistence (SQLite/JSON Store)
   loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;
   saveMasterDrawings: (data: any) => Promise<{ success: boolean; error?: string }>;
-  getDrawingsState: () => Promise<any>;
+  getDrawingsState: (symbol: string) => Promise<any>;
+  saveDrawingState: (symbol: string, data: any) => Promise<{ success: boolean; error?: string }>;
   deleteAllDrawings: (sourceId: string) => Promise<{ success: boolean; error?: string }>;
   
   // Layouts

@@ -18,10 +18,13 @@ try {
         getInternalLibrary: () => ipcRenderer.invoke('get-internal-library'),
         getInternalFolders: () => ipcRenderer.invoke('get-internal-library'), // Alias
         
-        // --- Persistence (Drawings) ---
+        // --- Persistence (Drawings - SQLite) ---
+        // Legacy Support
         loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
-        saveMasterDrawings: (data) => ipcRenderer.invoke('master-drawings:save', data),
-        getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),
+        
+        // New Optimized Methods
+        getDrawingsState: (symbol) => ipcRenderer.invoke('drawings:get-state', symbol),
+        saveDrawingState: (symbol, data) => ipcRenderer.invoke('drawings:save-state', symbol, data),
         deleteAllDrawings: (sourceId) => ipcRenderer.invoke('drawings:delete-all', sourceId),
 
         // --- Persistence (Layouts) ---
@@ -29,8 +32,8 @@ try {
         loadLayout: (name) => ipcRenderer.invoke('layouts:load', name),
         listLayouts: () => ipcRenderer.invoke('layouts:list'),
 
-        // --- Trade Persistence ---
-        getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-by-source', sourceId),
+        // --- Trade Persistence (SQLite) ---
+        getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-ledger', sourceId),
         saveTrade: (trade) => ipcRenderer.invoke('trades:save', trade),
 
         // --- Telemetry ---

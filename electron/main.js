@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const v8 = require('v8');
+const Database = require('better-sqlite3');
 
 // [TELEMETRY] Initialize Session Start Time
 const sessionStartTime = Date.now();
@@ -18,6 +19,7 @@ const logSystemEvent = (eventName) => {
 
 let mainWindow;
 let watcher = null;
+let db = null;
 
 // --- CONFIGURATION ---
 const IGNORED_DIRECTORIES = ['Database', '.git', 'node_modules', 'dist', 'build', 'release', 'src', 'src-tauri', 'public'];
@@ -25,11 +27,84 @@ const IGNORED_DIRECTORIES = ['Database', '.git', 'node_modules', 'dist', 'build'
 // --- INTERNAL LIBRARY STORAGE (BOOT CACHE) ---
 let internalLibraryStorage = [];
 
+// --- DATABASE SETUP ---
+const setupDatabase = () => {
+    try {
+        const userDataPath = app.getPath('userData');
+        const dbFolder = path.join(userDataPath, 'RedPill');
+        const dbPath = path.join(dbFolder, 'master.db');
+
+        if (!fs.existsSync(dbFolder)) {
+            fs.mkdirSync(dbFolder, { recursive: true });
+        }
+
+        db = new Database(dbPath, { verbose: null }); // Set verbose: console.log for debugging queries
+        db.pragma('journal_mode = WAL');
+
+        // Initialize Tables
+        db.prepare(`
+            CREATE TABLE IF NOT EXISTS drawings (
+                symbol TEXT PRIMARY KEY,
+                data TEXT
+            )
+        `).run();
+
+        db.prepare(`
+            CREATE TABLE IF NOT EXISTS trades (
+                id TEXT PRIMARY KEY,
+                sourceId TEXT,
+                data TEXT,
+                timestamp INTEGER
+            )
+        `).run();
+
+        db.prepare(`
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        `).run();
+
+        logSystemEvent('DB_INITIALIZED');
+        
+        runMigration();
+
+    } catch (error) {
+        console.error('Database initialization failed:', error);
+        logSystemEvent('DB_INIT_FAILED');
+    }
+};
+
+const runMigration = () => {
+    // Migration: Import old JSON flat-files if they exist
+    try {
+        const oldDrawingsPath = path.join(app.getPath('userData'), 'Database', 'drawings_master.json');
+        
+        if (fs.existsSync(oldDrawingsPath)) {
+            console.log('Migrating legacy drawings...');
+            const raw = fs.readFileSync(oldDrawingsPath, 'utf8');
+            const data = JSON.parse(raw);
+            
+            const insert = db.prepare('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)');
+            const insertMany = db.transaction((drawings) => {
+                for (const [symbol, content] of Object.entries(drawings)) {
+                    insert.run(symbol, JSON.stringify(content));
+                }
+            });
+            
+            insertMany(data);
+            
+            // Rename old file to avoid re-migration
+            fs.renameSync(oldDrawingsPath, oldDrawingsPath + '.bak');
+            logSystemEvent('MIGRATION_COMPLETE');
+        }
+    } catch (error) {
+        console.error('Migration failed:', error);
+        logSystemEvent('MIGRATION_FAILED');
+    }
+};
+
 const createWindow = () => {
-  // TASK 1: HARDEN PRELOAD PATH RESOLUTION
-  // Explicitly resolve relative to this file
-  
-  // --- TASK 3: THE PATHING FINALIZER ---
   const potentialPaths = [
     path.join(__dirname, 'preload.js'),
     path.join(process.cwd(), 'electron', 'preload.js'),
@@ -47,7 +122,6 @@ const createWindow = () => {
 
   if (!resolvedPath) {
       console.error('[Bridge-Critical] ❌ Preload script NOT FOUND in candidate paths.');
-      // Fallback
       resolvedPath = path.join(__dirname, 'preload.js'); 
   }
 
@@ -67,10 +141,10 @@ const createWindow = () => {
         height: 30
     },
     webPreferences: {
-      nodeIntegration: false, // SECURITY: Must be false for contextBridge
-      contextIsolation: true, // SECURITY: Must be true for contextBridge
-      sandbox: false,         // Disable sandbox to allow file system access in Main via IPC
-      webSecurity: false,     // Allow local file loading (file://)
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      webSecurity: false,
       preload: resolvedPath
     },
     autoHideMenuBar: true
@@ -81,9 +155,7 @@ const createWindow = () => {
   if (isDev) {
     const startUrl = 'http://localhost:5173';
     const loadWithRetry = () => {
-      // console.log('[Electron] Attempting to connect to Vite server...');
       mainWindow.loadURL(startUrl).catch((e) => {
-        // console.log(`[Electron] Vite server not ready (${e.code || e.message}), retrying in 1s...`);
         setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed()) {
                 loadWithRetry();
@@ -101,15 +173,7 @@ const createWindow = () => {
   });
 };
 
-// --- VALIDATION ---
-const validatePath = (filePath) => {
-  if (!filePath || typeof filePath !== 'string') throw new Error("Invalid path");
-  return true;
-};
-
 // --- PATH RESOLVERS ---
-
-// 1. Assets (Market Data)
 const resolveAssetsPath = () => {
     let assetsPath;
     if (app.isPackaged) {
@@ -123,23 +187,6 @@ const resolveAssetsPath = () => {
     return assetsPath;
 };
 
-// 2. Database (Metadata Firewall - System Data)
-const resolveDatabasePath = () => {
-    const dbPath = path.join(app.getPath('userData'), 'Database');
-    if (!fs.existsSync(dbPath)) {
-        try { 
-            fs.mkdirSync(dbPath, { recursive: true }); 
-            // Subdirectories for organization
-            fs.mkdirSync(path.join(dbPath, 'Layouts'), { recursive: true });
-            fs.mkdirSync(path.join(dbPath, 'StickyNotes'), { recursive: true });
-            fs.mkdirSync(path.join(dbPath, 'Trades'), { recursive: true });
-        } catch (e) {
-            console.error("Could not create Database folder structure:", e);
-        }
-    }
-    return dbPath;
-};
-
 // --- BOOT SCAN FUNCTION (Assets Only) ---
 const runBootScan = () => {
     const assetsPath = resolveAssetsPath();
@@ -150,7 +197,7 @@ const runBootScan = () => {
         try {
             const list = fs.readdirSync(dir);
             list.forEach((file) => {
-                if (IGNORED_DIRECTORIES.includes(file)) return; // Firewall check
+                if (IGNORED_DIRECTORIES.includes(file)) return;
 
                 const fullPath = path.join(dir, file);
                 try {
@@ -191,16 +238,10 @@ ipcMain.handle('dialog:select-folder', async () => {
 });
 
 ipcMain.handle('get-default-database-path', () => {
-    // This refers to the Assets library path for the UI display
     return resolveAssetsPath();
 });
 
 ipcMain.handle('get-internal-library', async () => {
-    return runBootScan();
-});
-
-// Alias for compatibility
-ipcMain.handle('library:get-assets', async () => {
     return runBootScan();
 });
 
@@ -214,7 +255,7 @@ ipcMain.handle('file:watch-folder', async (event, folderPath) => {
       try {
           const list = fs.readdirSync(dir);
           list.forEach((file) => {
-            if (IGNORED_DIRECTORIES.includes(file)) return; // Firewall check
+            if (IGNORED_DIRECTORIES.includes(file)) return;
 
             const fullPath = path.join(dir, file);
             try {
@@ -231,7 +272,6 @@ ipcMain.handle('file:watch-folder', async (event, folderPath) => {
     
     watcher = fs.watch(folderPath, { recursive: true }, (eventType, filename) => {
       if (filename) {
-          // Check ignore list on changed file/folder
           const parts = filename.split(path.sep);
           if (parts.some(p => IGNORED_DIRECTORIES.includes(p))) return;
 
@@ -268,7 +308,7 @@ ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
 
 ipcMain.handle('file:get-details', async (event, filePath) => {
     try {
-        validatePath(filePath);
+        if (!filePath || typeof filePath !== 'string') throw new Error("Invalid path");
         const stats = fs.statSync(filePath);
         return { exists: true, size: stats.size };
     } catch (e) {
@@ -276,85 +316,100 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- PERSISTENCE (SYSTEM METADATA FIREWALL) ---
+// --- PERSISTENCE (SQLite) ---
 
-// Drawings
-const getMasterDrawingsPath = () => path.join(resolveDatabasePath(), 'drawings_master.json');
-
-ipcMain.handle('master-drawings:load', async () => {
+// 1. Drawings
+ipcMain.handle('drawings:get-state', async (event, symbol) => {
     try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = fs.readFileSync(dbPath, 'utf8');
-            return { success: true, data: JSON.parse(data) };
+        const row = db.prepare('SELECT data FROM drawings WHERE symbol = ?').get(symbol);
+        if (row) {
+            return JSON.parse(row.data);
         }
-        return { success: true, data: {} };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// Alias for specific component request (drawings:get-state)
-ipcMain.handle('drawings:get-state', async () => {
-    try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = fs.readFileSync(dbPath, 'utf8');
-            const parsed = JSON.parse(data);
-            return parsed; // Return plain object as expected
-        }
-        return {};
+        return null;
     } catch (e) {
         console.error('drawings:get-state error:', e);
-        return {};
+        return null;
     }
 });
 
-ipcMain.handle('master-drawings:save', async (event, data) => {
+ipcMain.handle('drawings:save-state', async (event, symbol, data) => {
     try {
-        const dbPath = getMasterDrawingsPath();
-        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+        const stmt = db.prepare('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)');
+        stmt.run(symbol, JSON.stringify(data));
         return { success: true };
     } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// Alias for save-state
-ipcMain.handle('drawings:save-state', async (event, data) => {
-    try {
-        const dbPath = getMasterDrawingsPath();
-        // Determine if data is the full master object or a single update. 
-        // For simplicity in this fix, we assume 'data' is the full state being pushed
-        // or we need to merge. To be safe given typical app flow, we assume it's an upsert of sorts,
-        // but since master-drawings:save writes the whole file, we'll do the same.
-        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-        return { success: true };
-    } catch (e) {
+        console.error('drawings:save-state error:', e);
         return { success: false, error: e.message };
     }
 });
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
     try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-            if (data[sourceId]) {
-                delete data[sourceId]; // Nuclear delete
-                fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-            }
-        }
+        db.prepare('DELETE FROM drawings WHERE symbol = ?').run(sourceId);
         return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
-// Layouts
+// Legacy handler for compatibility during transition (Deprecated)
+ipcMain.handle('master-drawings:load', async () => {
+    try {
+        // Return all drawings as a map to satisfy old frontend expectation if called
+        const rows = db.prepare('SELECT symbol, data FROM drawings').all();
+        const map = {};
+        for (const row of rows) {
+            map[row.symbol] = JSON.parse(row.data);
+        }
+        return { success: true, data: map };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// 2. Trades
+ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
+    try {
+        const rows = db.prepare('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC').all(sourceId);
+        return rows.map(r => JSON.parse(r.data));
+    } catch (e) {
+        console.error('trades:get-ledger error:', e);
+        return [];
+    }
+});
+
+ipcMain.handle('trades:save', async (event, trade) => {
+    try {
+        const stmt = db.prepare('INSERT INTO trades (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)');
+        stmt.run(trade.id, trade.sourceId, JSON.stringify(trade), trade.timestamp);
+        logSystemEvent('TRADE_SAVED');
+        return { success: true };
+    } catch (e) {
+        console.error('trades:save error:', e);
+        return { success: false, error: e.message };
+    }
+});
+
+// Legacy trade handler alias
+ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
+    try {
+        const rows = db.prepare('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC').all(sourceId);
+        return rows.map(r => JSON.parse(r.data));
+    } catch (e) {
+        return [];
+    }
+});
+
+// 3. Layouts (Still JSON file based as per original spec, or can move to settings table)
+// For now keeping file based to minimize scope creep unless requested, 
+// but prompt implies using 'settings' table. Let's stick to existing logic for layouts 
+// to ensure stability unless explicitly asked to migrate layouts too.
 ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
     try {
-        const layoutsDir = path.join(resolveDatabasePath(), 'Layouts');
+        const dbPath = path.dirname(db.name); // RedPill folder
+        const layoutsDir = path.join(dbPath, '..', 'Database', 'Layouts'); // Keeping compat with old path
+        if (!fs.existsSync(layoutsDir)) fs.mkdirSync(layoutsDir, { recursive: true });
+        
         const filePath = path.join(layoutsDir, `${layoutName}.json`);
         fs.writeFileSync(filePath, JSON.stringify(layoutData, null, 2));
         return { success: true };
@@ -365,7 +420,8 @@ ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
 
 ipcMain.handle('layouts:load', async (event, layoutName) => {
     try {
-        const filePath = path.join(resolveDatabasePath(), 'Layouts', `${layoutName}.json`);
+        const dbPath = path.dirname(db.name);
+        const filePath = path.join(dbPath, '..', 'Database', 'Layouts', `${layoutName}.json`);
         if (fs.existsSync(filePath)) {
             const data = fs.readFileSync(filePath, 'utf8');
             return { success: true, data: JSON.parse(data) };
@@ -378,7 +434,8 @@ ipcMain.handle('layouts:load', async (event, layoutName) => {
 
 ipcMain.handle('layouts:list', async () => {
     try {
-        const layoutsDir = path.join(resolveDatabasePath(), 'Layouts');
+        const dbPath = path.dirname(db.name);
+        const layoutsDir = path.join(dbPath, '..', 'Database', 'Layouts');
         if (!fs.existsSync(layoutsDir)) return [];
         const files = fs.readdirSync(layoutsDir);
         return files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', ''));
@@ -387,47 +444,11 @@ ipcMain.handle('layouts:list', async () => {
     }
 });
 
-// Trades
-const getTradesDbPath = () => path.join(resolveDatabasePath(), 'Trades', 'trades_ledger.json');
-
-const readTradesDb = () => {
-    const dbPath = getTradesDbPath();
-    if (fs.existsSync(dbPath)) {
-        try { return JSON.parse(fs.readFileSync(dbPath, 'utf8')); } 
-        catch { return {}; }
-    }
-    return {};
-};
-
-const writeTradesDb = (data) => {
-    const dbPath = getTradesDbPath();
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-};
-
-ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
-    const db = readTradesDb();
-    return db[sourceId] || [];
-});
-
-ipcMain.handle('trades:save', async (event, trade) => {
-    try {
-        const db = readTradesDb();
-        if (!db[trade.sourceId]) db[trade.sourceId] = [];
-        db[trade.sourceId].push(trade);
-        writeTradesDb(db);
-        logSystemEvent('TRADE_SAVED');
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
 // --- TELEMETRY ---
 ipcMain.handle('get-system-telemetry', async () => {
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
     const heapStats = v8.getHeapStatistics();
-    const dbPath = resolveDatabasePath();
     
     return {
         processInfo: {
@@ -446,8 +467,8 @@ ipcMain.handle('get-system-telemetry', async () => {
             }
         },
         ioStatus: {
-            connectionState: fs.existsSync(dbPath) ? 'Online' : 'Initializing',
-            dbPath: dbPath
+            connectionState: db && db.open ? 'Online (SQLite)' : 'Disconnected',
+            dbPath: db ? db.name : 'None'
         },
         logBuffer: systemLogBuffer
     };
@@ -457,8 +478,12 @@ ipcMain.handle('get-system-telemetry', async () => {
 
 app.whenReady().then(() => {
   logSystemEvent('APP_READY');
+  setupDatabase();
   runBootScan();
   createWindow();
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { 
+    if (db) db.close();
+    if (process.platform !== 'darwin') app.quit(); 
+});
