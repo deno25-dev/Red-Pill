@@ -353,9 +353,9 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
 
                     if (!isNaN(timestamp) && timestamp > 0 && !isNaN(close)) {
                         // Batch Insert directly to DB - no memory array
-                        // Add error handler to prevent NAPI exceptions
+                        // Add error handler to prevent NAPI exceptions in callback
                         stmt.run(symbol, timeframe, timestamp, open, high, low, close, isNaN(volume) ? 0 : volume, (err) => {
-                            if (err) console.error("Insert Error:", err.message);
+                            if (err) console.error("Insert Error Row:", err.message);
                         });
                     }
                 } catch (e) {
@@ -484,74 +484,82 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
 // --- OPTIMIZATION TASK: CACHED DATA INGESTION ---
 // Now supports windowed pagination with 'Recent-First' querying logic
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
-    if (!db) return { error: "Database not initialized" };
-    if (!symbol || !timeframe) return { error: "Missing symbol or timeframe" };
+    // Task 3: Global Error Boundary for IPC
+    try {
+        if (!db) return { error: "Database not initialized" };
+        if (!symbol || !timeframe) return { error: "Missing symbol or timeframe" };
 
-    return new Promise((resolve) => {
-        // Step 1: Construct Query
-        // Fetch 'limit' bars from the end (DESC), optionally strictly before 'toTime'
-        const fetchQuery = `
-            SELECT time, open, high, low, close, volume 
-            FROM ohlc_cache 
-            WHERE symbol = ? AND timeframe = ? 
-            ${toTime ? 'AND time < ?' : ''}
-            ORDER BY time DESC 
-            LIMIT ?
-        `;
-        
-        const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
+        return new Promise((resolve) => {
+            // Step 1: Construct Query
+            // Fetch 'limit' bars from the end (DESC), optionally strictly before 'toTime'
+            const fetchQuery = `
+                SELECT time, open, high, low, close, volume 
+                FROM ohlc_cache 
+                WHERE symbol = ? AND timeframe = ? 
+                ${toTime ? 'AND time < ?' : ''}
+                ORDER BY time DESC 
+                LIMIT ?
+            `;
+            
+            const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
 
-        const executeFetch = () => {
-            db.all(fetchQuery, params, (err, rows) => {
-                if (err) {
-                    console.error('Market data query failed:', err);
-                    resolve({ error: err.message });
-                    return;
-                }
-                
-                // MANDATE TASK 1B: Reverse to Ascending for lightweight-charts
-                const reversed = (rows || []).reverse();
-                
-                logSystemEvent(`DATA_FETCH_${symbol}_${timeframe}_${reversed.length}`);
-                resolve({ data: reversed });
-            });
-        };
-
-        // Step 2: Check SQLite Cache Existence (Fast Check)
-        db.get(
-            `SELECT 1 FROM ohlc_cache WHERE symbol = ? AND timeframe = ? LIMIT 1`, 
-            [symbol, timeframe], 
-            async (err, row) => {
-                if (err) {
-                    resolve({ error: err.message });
-                    return;
-                }
-
-                if (!row && filePath) {
-                    // Cache Miss: Parse CSV & Bulk Insert First
-                    logSystemEvent(`DATA_INGEST_TRIGGER_${symbol}`);
-                    try {
-                        if (!fs.existsSync(filePath)) {
-                            resolve({ error: "File not found" });
-                            return;
-                        }
-                        
-                        // Parse & Insert into DB (returns void now)
-                        await parseAndInsertCSV(filePath, symbol, timeframe);
-                        
-                        // Now execute the fetch query
-                        executeFetch();
-                    } catch (parseErr) {
-                        console.error("CSV Parse/Insert failed:", parseErr);
-                        resolve({ error: parseErr.message });
+            const executeFetch = () => {
+                db.all(fetchQuery, params, (err, rows) => {
+                    if (err) {
+                        console.error('Market data query failed:', err);
+                        resolve({ error: err.message });
+                        return;
                     }
-                } else {
-                    // Cache Hit or No File: Just Query
-                    executeFetch();
+                    
+                    // Task 2: The Slice Fix
+                    // The query already applied LIMIT. We only reverse this small slice.
+                    const reversed = (rows || []).reverse();
+                    
+                    logSystemEvent(`DATA_FETCH_${symbol}_${timeframe}_${reversed.length}`);
+                    resolve({ data: reversed });
+                });
+            };
+
+            // Step 2: Check SQLite Cache Existence (Fast Check)
+            db.get(
+                `SELECT 1 FROM ohlc_cache WHERE symbol = ? AND timeframe = ? LIMIT 1`, 
+                [symbol, timeframe], 
+                async (err, row) => {
+                    if (err) {
+                        resolve({ error: err.message });
+                        return;
+                    }
+
+                    if (!row && filePath) {
+                        // Cache Miss: Parse CSV & Bulk Insert First
+                        logSystemEvent(`DATA_INGEST_TRIGGER_${symbol}`);
+                        try {
+                            if (!fs.existsSync(filePath)) {
+                                resolve({ error: "File not found" });
+                                return;
+                            }
+                            
+                            // Parse & Insert into DB (returns void now)
+                            await parseAndInsertCSV(filePath, symbol, timeframe);
+                            
+                            // Now execute the fetch query
+                            executeFetch();
+                        } catch (parseErr) {
+                            console.error("CSV Parse/Insert failed:", parseErr);
+                            // Return error object instead of crashing
+                            resolve({ error: `Ingestion failed: ${parseErr.message}` });
+                        }
+                    } else {
+                        // Cache Hit or No File: Just Query
+                        executeFetch();
+                    }
                 }
-            }
-        );
-    });
+            );
+        });
+    } catch (e) {
+        console.error("Market Data IPC Error:", e);
+        return { error: "Internal IPC Error" };
+    }
 });
 
 // --- PERSISTENCE (SQLite3 Asynchronous) ---
