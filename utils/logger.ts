@@ -1,5 +1,5 @@
 
-export type LogCategory = 'Data' | 'Network' | 'Auth' | 'UI' | 'Perf' | 'Main' | 'SQLite' | 'ChartEngine';
+export type LogCategory = 'MARKET DATA' | 'IPC BRIDGE' | 'SQLITE' | 'UI' | 'SYSTEM' | 'CHART ENGINE';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 
 export interface LogEntry {
@@ -8,12 +8,12 @@ export interface LogEntry {
   level: LogLevel;
   category: LogCategory;
   message: string;
-  source?: string; // Function name
-  codeSnippet?: string; // Function source code
+  source: string; // Function/Module name
+  codeSnippet?: string; // Optional source code for context
   data?: any; // Payload
 }
 
-const MAX_LOGS = 500;
+const MAX_LOGS = 1000;
 
 // Declare global log array
 declare global {
@@ -32,32 +32,64 @@ const logHistory: LogEntry[] = [];
 // Dispatch event for the UI to pick up
 const dispatchLogEvent = (entry: LogEntry) => {
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('redpill-debug-log', { detail: entry }));
+    window.dispatchEvent(new CustomEvent('redpill-log-stream', { detail: entry }));
   }
 };
 
-// Safe JSON serializer to prevent circular reference crashes
-const safeSerialize = (obj: any): any => {
+/**
+ * STRICT JSON SERIALIZER
+ * Removes circular references and converts Maps/Sets to Arrays to prevent Electron IPC crashes.
+ */
+export const safeSerialize = (obj: any, depth = 0, maxDepth = 4): any => {
+    if (depth > maxDepth) return '[Max Depth Reached]';
+    if (obj === null || typeof obj !== 'object') return obj;
+
+    // Handle React Synthetic Events (strip them down)
+    if (obj._reactName || (obj.nativeEvent && obj.target)) {
+        return `[React Event: ${obj.type}]`;
+    }
+
+    // Handle DOM Nodes
+    if (obj instanceof Element) {
+        return `[DOM Element: ${obj.tagName}]`;
+    }
+
     const seen = new WeakSet();
-    return JSON.parse(JSON.stringify(obj, (key, value) => {
-        if (typeof value === "object" && value !== null) {
+    
+    // Helper within closure to handle the specific object tree
+    const replacer = (key: string, value: any) => {
+        if (typeof value === 'object' && value !== null) {
             if (seen.has(value)) {
-                return "[Circular]";
+                return '[Circular]';
             }
             seen.add(value);
         }
         return value;
-    }));
+    };
+
+    try {
+        // First pass: standard JSON stringify to catch basic circulars
+        const str = JSON.stringify(obj, replacer);
+        return JSON.parse(str);
+    } catch (e) {
+        return `[Unserializable Object: ${e}]`;
+    }
 };
 
-export const debugLog = (
-    category: LogCategory, 
+/**
+ * rpLog: The Global Diagnostic Function
+ * Mandate: Call this for all critical system events.
+ */
+export const rpLog = (
+    source: string, 
     message: string, 
     data?: any, 
+    category: LogCategory = 'SYSTEM',
     level: LogLevel = 'INFO',
-    source?: string,
     codeSnippet?: string
 ) => {
+  const cleanData = data ? safeSerialize(data) : undefined;
+
   const entry: LogEntry = {
     id: crypto.randomUUID(),
     timestamp: Date.now(),
@@ -66,14 +98,14 @@ export const debugLog = (
     message,
     source,
     codeSnippet,
-    data: data ? safeSerialize(data) : undefined
+    data: cleanData
   };
 
   // 1. Console output with styling
   const color = getLevelColor(level);
-  console.log(`%c[${level}] [${category}]`, `color: ${color}; font-weight: bold;`, message);
+  console.log(`%c[${level}] [${category}] ${source}:`, `color: ${color}; font-weight: bold;`, message);
 
-  // 2. Global Window Persistence
+  // 2. Global Window Persistence (RAM)
   if (typeof window !== 'undefined') {
       if (!window.__REDPIL_LOGS__) window.__REDPIL_LOGS__ = [];
       window.__REDPIL_LOGS__.unshift(entry);
@@ -84,14 +116,32 @@ export const debugLog = (
   logHistory.unshift(entry);
   if (logHistory.length > MAX_LOGS) logHistory.pop();
 
-  // 4. Electron Bridge Transmission (Avoid infinite loops if logging FROM main)
-  if (category !== 'Main' && category !== 'SQLite' && typeof window !== 'undefined' && window.electronAPI && window.electronAPI.sendLog) {
-      // We send a simplified version to avoid massive IPC overhead on large payloads
-      window.electronAPI.sendLog(category, message, { level, source });
+  // 4. Electron Bridge Transmission (Safe IPC)
+  // We strictly send the CLEAN data to avoid Code 134 crashes
+  if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.sendLog) {
+      window.electronAPI.sendLog(category, message, { 
+          level, 
+          source,
+          // Only send data if it's small, otherwise just send a marker to keep IPC light
+          hasData: !!data 
+      });
   }
 
-  // 5. Dispatch Event
+  // 5. Dispatch Event for UI
   dispatchLogEvent(entry);
+};
+
+// Alias for backward compatibility, mapped to rpLog
+export const debugLog = (
+    category: string, 
+    message: string, 
+    data?: any, 
+    level: LogLevel = 'INFO',
+    source: string = 'Legacy',
+    codeSnippet?: string
+) => {
+    // Map old categories to new ones if needed, or cast
+    rpLog(source, message, data, category as LogCategory, level, codeSnippet);
 };
 
 export const getLogHistory = () => {
@@ -105,7 +155,7 @@ export const clearLogs = () => {
   logHistory.length = 0;
   if (typeof window !== 'undefined') {
       window.__REDPIL_LOGS__ = [];
-      window.dispatchEvent(new CustomEvent('redpill-debug-clear'));
+      window.dispatchEvent(new CustomEvent('redpill-log-clear'));
   }
 };
 
