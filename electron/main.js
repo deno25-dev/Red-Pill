@@ -280,6 +280,8 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
 
         // Stream the file (Non-blocking)
         const stream = fs.createReadStream(filePath);
+        stream.on('error', reject); // Catch file read errors
+
         const rl = readline.createInterface({
             input: stream,
             crlfDelay: Infinity
@@ -351,11 +353,21 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
 
                     if (!isNaN(timestamp) && timestamp > 0 && !isNaN(close)) {
                         // Batch Insert directly to DB - no memory array
-                        stmt.run(symbol, timeframe, timestamp, open, high, low, close, isNaN(volume) ? 0 : volume);
+                        // Add error handler to prevent NAPI exceptions
+                        stmt.run(symbol, timeframe, timestamp, open, high, low, close, isNaN(volume) ? 0 : volume, (err) => {
+                            if (err) console.error("Insert Error:", err.message);
+                        });
                     }
                 } catch (e) {
                     // Ignore malformed lines
                 }
+            });
+
+            rl.on('error', (err) => {
+                console.error('Readline error:', err);
+                stmt.finalize();
+                db.run("ROLLBACK");
+                reject(err);
             });
 
             rl.on('close', () => {
@@ -364,6 +376,7 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
                 db.run("COMMIT", (err) => {
                     if (err) {
                         console.error('Transaction commit failed', err);
+                        db.run("ROLLBACK"); // Attempt rollback
                         reject(err);
                     } else {
                         resolve();
@@ -471,6 +484,7 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
 // --- OPTIMIZATION TASK: CACHED DATA INGESTION ---
 // Now supports windowed pagination with 'Recent-First' querying logic
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
+    if (!db) return { error: "Database not initialized" };
     if (!symbol || !timeframe) return { error: "Missing symbol or timeframe" };
 
     return new Promise((resolve) => {
