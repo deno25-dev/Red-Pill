@@ -58,6 +58,7 @@ const setupDatabase = () => {
 
 const initializeTables = () => {
     db.serialize(() => {
+        // 1. Drawings Table
         db.run(`
             CREATE TABLE IF NOT EXISTS drawings (
                 symbol TEXT PRIMARY KEY,
@@ -65,6 +66,7 @@ const initializeTables = () => {
             )
         `);
 
+        // 2. Trades Table
         db.run(`
             CREATE TABLE IF NOT EXISTS trades (
                 id TEXT PRIMARY KEY,
@@ -74,6 +76,7 @@ const initializeTables = () => {
             )
         `);
 
+        // 3. Settings Table
         db.run(`
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -81,7 +84,8 @@ const initializeTables = () => {
             )
         `);
 
-        // Optimization Task 1: Market Data Table
+        // 4. Market Data Table (Parse-Once Cache)
+        // Task 1: Schema Definition
         db.run(`
             CREATE TABLE IF NOT EXISTS market_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +99,8 @@ const initializeTables = () => {
                 volume REAL
             )
         `);
-        // Index for faster queries
+        
+        // Task 1: Composite Index for O(1) Lookups
         db.run(`CREATE INDEX IF NOT EXISTS idx_market_data_lookup ON market_data (symbol, timeframe, time)`);
 
         logSystemEvent('DB_TABLES_READY');
@@ -267,27 +272,31 @@ const runBootScan = () => {
     return internalLibraryStorage;
 };
 
-// --- CSV PARSING HELPER ---
+// --- CSV PARSING & BULK INSERT HELPER (Task 3) ---
 const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
     return new Promise((resolve, reject) => {
         const results = [];
         let isHeader = true;
 
+        // Stream the file (Non-blocking)
         const stream = fs.createReadStream(filePath);
         const rl = readline.createInterface({
             input: stream,
             crlfDelay: Infinity
         });
 
+        // Use Database Serialization for ACID Compliance
         db.serialize(() => {
+            // Task 3: Optimization - Single Transaction
             db.run("BEGIN TRANSACTION");
+            
             const stmt = db.prepare(`INSERT INTO market_data (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
 
             rl.on('line', (line) => {
                 // Skip empty lines
                 if (!line || !line.trim()) return;
                 
-                // Skip header if it starts with letter
+                // Heuristic: Skip header if it starts with letter
                 if (isHeader && /^[a-zA-Z]/.test(line)) {
                     isHeader = false;
                     return;
@@ -306,7 +315,7 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
                     const p0 = parts[0].trim();
                     const p1 = parts[1].trim();
 
-                    // Detect Date/Time split
+                    // Detect Split Date/Time (e.g. 20240101 and 12:00:00)
                     if ((p0.length === 8 || p0.includes('-') || p0.includes('/')) && p1.includes(':')) {
                         let cleanDate = p0.replace(/[\.\-\/]/g, '');
                         if (cleanDate.length === 8) {
@@ -325,6 +334,7 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
                         timestamp = new Date(dateStr).getTime();
                         if (isNaN(timestamp)) {
                             timestamp = parseFloat(dateStr);
+                            // Heuristic: Auto-detect seconds vs ms
                             if (timestamp < 10000000000) timestamp *= 1000;
                         }
                         open = parseFloat(parts[1]);
@@ -337,21 +347,23 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
                     if (!isNaN(timestamp) && timestamp > 0 && !isNaN(close)) {
                         const row = { time: timestamp, open, high, low, close, volume: isNaN(volume) ? 0 : volume };
                         results.push(row);
+                        // Batch Insert
                         stmt.run(symbol, timeframe, row.time, row.open, row.high, row.low, row.close, row.volume);
                     }
                 } catch (e) {
-                    // Ignore malformed
+                    // Ignore malformed lines to prevent parse failure
                 }
             });
 
             rl.on('close', () => {
                 stmt.finalize();
+                // Commit Transaction to Disk
                 db.run("COMMIT", (err) => {
                     if (err) {
                         console.error('Transaction commit failed', err);
                         reject(err);
                     } else {
-                        // Sort results by time before returning
+                        // Sort results by time before returning to UI
                         results.sort((a, b) => a.time - b.time);
                         resolve(results);
                     }
@@ -455,12 +467,12 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- OPTIMIZATION TASK 1: Market Data Handler ---
+// --- OPTIMIZATION TASK 2: IPC HANDLER FOR OHLC DATA ---
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath) => {
     if (!symbol || !timeframe) return { error: "Missing symbol or timeframe" };
 
     return new Promise((resolve) => {
-        // 1. Check if data exists in SQLite
+        // Step 1: Check SQLite Cache (Parse Once, Query Forever)
         db.all(
             `SELECT time, open, high, low, close, volume FROM market_data WHERE symbol = ? AND timeframe = ? ORDER BY time ASC`, 
             [symbol, timeframe], 
@@ -472,11 +484,11 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath) => 
                 }
 
                 if (rows && rows.length > 0) {
-                    // Data found, return it
+                    // Cache Hit: Return data immediately
                     logSystemEvent(`DATA_CACHE_HIT_${symbol}_${timeframe}`);
                     resolve({ data: rows });
                 } else if (filePath) {
-                    // Data missing, parse CSV
+                    // Cache Miss: Parse CSV and Bulk Insert
                     logSystemEvent(`DATA_CACHE_MISS_${symbol}_${timeframe}`);
                     try {
                         if (!fs.existsSync(filePath)) {
@@ -484,6 +496,7 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath) => 
                             return;
                         }
                         
+                        // Parse & Insert into DB
                         const newData = await parseAndInsertCSV(filePath, symbol, timeframe);
                         resolve({ data: newData });
                     } catch (parseErr) {
@@ -547,7 +560,7 @@ ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
     });
 });
 
-// Legacy handler for compatibility during transition (Deprecated)
+// Legacy handler for compatibility
 ipcMain.handle('master-drawings:load', async () => {
     return new Promise((resolve) => {
         db.all('SELECT symbol, data FROM drawings', [], (err, rows) => {
@@ -572,13 +585,11 @@ ipcMain.handle('master-drawings:load', async () => {
 ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
     return new Promise((resolve) => {
         db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
-            // Defensively ensure an array is returned even on error/no rows
             if (err) {
                 console.error('trades:get-ledger error:', err);
                 resolve([]);
             } else {
                 try {
-                    // Safety check: rows might be null depending on driver impl, though usually []
                     const trades = (rows || []).map(r => JSON.parse(r.data));
                     resolve(trades);
                 } catch (e) {
@@ -607,7 +618,6 @@ ipcMain.handle('trades:save', async (event, trade) => {
     });
 });
 
-// Legacy trade handler alias
 ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
     return new Promise((resolve) => {
         db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
@@ -625,7 +635,7 @@ ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
     });
 });
 
-// 3. Layouts (Still JSON file based as per original spec)
+// 3. Layouts
 ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
     try {
         const layoutsDir = path.join(app.getPath('userData'), 'Database', 'Layouts');
@@ -670,7 +680,6 @@ ipcMain.handle('logs:get-db-status', async () => {
             resolve({ connected: false, error: 'Database object is null' });
             return;
         }
-        // Run a lightweight query to verify connectivity and file lock status
         db.get("SELECT 1", (err) => {
             if (err) {
                 resolve({ connected: false, error: err.message });
@@ -686,8 +695,6 @@ ipcMain.handle('get-system-telemetry', async () => {
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
     const heapStats = v8.getHeapStatistics();
-    
-    // For sqlite3, we just check if the object exists since there isn't a direct .open property
     const isDbConnected = db ? 'Online (SQLite3)' : 'Disconnected';
 
     return {
