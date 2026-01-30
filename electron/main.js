@@ -84,24 +84,24 @@ const initializeTables = () => {
             )
         `);
 
-        // 4. Market Data Table (Parse-Once Cache)
-        // Task 1: Schema Definition
+        // 4. Market Data Table (Persistent OHLC Cache)
+        // Mandate 0.1: Data Sovereignty
         db.run(`
-            CREATE TABLE IF NOT EXISTS market_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+            CREATE TABLE IF NOT EXISTS ohlc_cache (
                 symbol TEXT,
                 timeframe TEXT,
                 time INTEGER,
-                open REAL,
-                high REAL,
-                low REAL,
-                close REAL,
-                volume REAL
+                open REAL, 
+                high REAL, 
+                low REAL, 
+                close REAL, 
+                volume REAL,
+                UNIQUE(symbol, timeframe, time)
             )
         `);
         
-        // Task 1: Composite Index for O(1) Lookups
-        db.run(`CREATE INDEX IF NOT EXISTS idx_market_data_lookup ON market_data (symbol, timeframe, time)`);
+        // Composite Index for O(1) Lookups and Range Queries
+        db.run(`CREATE INDEX IF NOT EXISTS idx_ohlc_lookup ON ohlc_cache (symbol, timeframe, time)`);
 
         logSystemEvent('DB_TABLES_READY');
         runMigration();
@@ -272,7 +272,7 @@ const runBootScan = () => {
     return internalLibraryStorage;
 };
 
-// --- CSV PARSING & BULK INSERT HELPER (Task 3) ---
+// --- CSV PARSING & BULK INSERT HELPER (Persistent Cache) ---
 const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
     return new Promise((resolve, reject) => {
         const results = [];
@@ -287,10 +287,15 @@ const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
 
         // Use Database Serialization for ACID Compliance
         db.serialize(() => {
-            // Task 3: Optimization - Single Transaction
+            // Task: Single Transaction for Bulk Insert
             db.run("BEGIN TRANSACTION");
             
-            const stmt = db.prepare(`INSERT INTO market_data (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+            // Task: Use INSERT OR IGNORE to handle unique constraints (idempotency)
+            const stmt = db.prepare(`
+                INSERT OR IGNORE INTO ohlc_cache 
+                (symbol, timeframe, time, open, high, low, close, volume) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
 
             rl.on('line', (line) => {
                 // Skip empty lines
@@ -467,14 +472,14 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     }
 });
 
-// --- OPTIMIZATION TASK 2: IPC HANDLER FOR OHLC DATA ---
+// --- OPTIMIZATION TASK: CACHED DATA INGESTION ---
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath) => {
     if (!symbol || !timeframe) return { error: "Missing symbol or timeframe" };
 
     return new Promise((resolve) => {
-        // Step 1: Check SQLite Cache (Parse Once, Query Forever)
+        // Step 1: Check SQLite Cache (ohlc_cache)
         db.all(
-            `SELECT time, open, high, low, close, volume FROM market_data WHERE symbol = ? AND timeframe = ? ORDER BY time ASC`, 
+            `SELECT time, open, high, low, close, volume FROM ohlc_cache WHERE symbol = ? AND timeframe = ? ORDER BY time ASC`, 
             [symbol, timeframe], 
             async (err, rows) => {
                 if (err) {
@@ -484,11 +489,11 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath) => 
                 }
 
                 if (rows && rows.length > 0) {
-                    // Cache Hit: Return data immediately
+                    // Cache Hit: Return persistent data
                     logSystemEvent(`DATA_CACHE_HIT_${symbol}_${timeframe}`);
                     resolve({ data: rows });
                 } else if (filePath) {
-                    // Cache Miss: Parse CSV and Bulk Insert
+                    // Cache Miss: Parse CSV, Bulk Insert, then Return
                     logSystemEvent(`DATA_CACHE_MISS_${symbol}_${timeframe}`);
                     try {
                         if (!fs.existsSync(filePath)) {
