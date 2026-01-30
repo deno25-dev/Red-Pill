@@ -12,7 +12,8 @@ try {
         if (window.__REDPIL_LOGS__) {
             const entry = {
                 id: crypto.randomUUID(),
-                timestamp: Date.now(),
+                // Use original timestamp if available (from main process), otherwise current time
+                timestamp: logEntry.timestamp || Date.now(), 
                 category: logEntry.category || 'IPC BRIDGE',
                 level: logEntry.level || 'INFO',
                 message: logEntry.message,

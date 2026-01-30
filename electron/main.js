@@ -39,7 +39,8 @@ const logSystemEvent = (eventName, data = null, level = 'INFO') => {
             category: 'IPC BRIDGE',
             level,
             message: eventName,
-            data: safeIPC(data)
+            data: safeIPC(data),
+            timestamp: entry.timestamp // Pass timestamp to maintain accuracy across bridge
         });
     }
     console.log(`[SYS_EVENT] ${eventName}`);

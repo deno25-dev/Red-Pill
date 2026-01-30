@@ -184,6 +184,12 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
       }
   };
 
+  const formatLogTime = (ts: number) => {
+      const d = new Date(ts);
+      // HH:MM:SS.mmm
+      return `${d.toLocaleTimeString('en-GB', { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+  };
+
   return (
     <div className="fixed inset-y-0 right-0 w-[600px] bg-[#09090b] border-l border-emerald-900/50 shadow-2xl z-[9999] flex flex-col font-mono text-sm text-emerald-500 animate-in slide-in-from-right duration-200">
       
@@ -269,8 +275,8 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
                                     onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
                                   >
                                       <ChevronRight size={12} className={`transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`} />
-                                      <span className="text-[10px] opacity-60 font-mono w-16 shrink-0">
-                                          {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit', fractionDigits: 3 } as any).split(' ')[0]}
+                                      <span className="text-[10px] opacity-60 font-mono w-20 shrink-0 tabular-nums">
+                                          {formatLogTime(log.timestamp)}
                                       </span>
                                       <span className="text-[9px] font-bold px-1 rounded bg-black/30 border border-current opacity-70 w-24 text-center shrink-0 truncate">
                                           {log.category}
