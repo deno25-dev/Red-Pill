@@ -199,6 +199,9 @@ export interface IElectronAPI {
   getInternalFolders: () => Promise<any[]>;
   getInternalLibrary: () => Promise<any[]>;
   
+  // Data Ingestion (Optimization)
+  getMarketData: (symbol: string, timeframe: string, filePath?: string) => Promise<{ data?: OHLCV[]; error?: string }>;
+
   // Persistence (SQLite/JSON Store)
   loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;
   saveMasterDrawings: (data: any) => Promise<{ success: boolean; error?: string }>;

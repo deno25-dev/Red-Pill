@@ -22,6 +22,9 @@ const DEFAULT_SYMBOLS = [
 
 const STORAGE_KEY = 'redpill_market_symbols';
 
+// Optimization Task 2: Disable SmartFetch
+const DEV_DISABLE_SMARTFETCH = true;
+
 export const useMarketPrices = (userSymbol?: string) => {
   // Network Guard
   const isConnected = useOnlineStatus();
@@ -39,11 +42,13 @@ export const useMarketPrices = (userSymbol?: string) => {
   // Track the last successful update time separately from the fetch cycle
   const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
   
-  // Track previous prices for tick direction (optional, but good for future)
-  // const prevPrices = useRef<Record<string, number>>({});
-
   // 1. Define the atomic fetch operation
   const fetchMarketData = useCallback(async (): Promise<LiveTicker[]> => {
+    // Optimization: Early exit if disabled
+    if (DEV_DISABLE_SMARTFETCH) {
+        return [];
+    }
+
     // Construct symbol list
     const symbolsToFetch = new Set(watchedSymbols);
     
@@ -91,7 +96,7 @@ export const useMarketPrices = (userSymbol?: string) => {
     isLoading: isSyncing, 
     isSettling, 
     retry 
-  } = useSmartFetch<LiveTicker[]>(fetchMarketData, isConnected, {
+  } = useSmartFetch<LiveTicker[]>(fetchMarketData, isConnected && !DEV_DISABLE_SMARTFETCH, {
     baseInterval: 30000,    // 30s normal polling
     settlingDelay: 2000,    // 2s surge guard
     initialRetryDelay: 5000, // 5s wait on first error
@@ -127,8 +132,8 @@ export const useMarketPrices = (userSymbol?: string) => {
   }, []);
 
   return {
-    tickers,
-    isConnected,
+    tickers: tickers || [],
+    isConnected: isConnected && !DEV_DISABLE_SMARTFETCH,
     isSyncing,
     isSettling,
     lastUpdated,

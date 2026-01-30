@@ -369,7 +369,6 @@ class DrawingsPriceAxisPaneRenderer {
     }
 }
 
-// Removing strict implements check to avoid interface property mismatch errors in build
 class DrawingsPriceAxisPaneView {
     constructor(private _source: DrawingsPrimitive) {}
     renderer() { return new DrawingsPriceAxisPaneRenderer(this._source); }
@@ -419,7 +418,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     smaData, 
     config, 
     timeframe, 
-    onConfigChange: _onConfigChange, 
     drawings, 
     onUpdateDrawings, 
     activeToolId, 
@@ -432,7 +430,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onReplayPointSelect, 
     areDrawingsLocked = false, 
     visibleRange, 
-    // Replay Props
     fullData,
     replayIndex,
     isPlaying = false,
@@ -444,30 +441,93 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     isDrawingSyncEnabled = true,
   } = props;
 
-  const propsRef = useRef(props); useEffect(() => { propsRef.current = props; });
-  const chartContainerRef = useRef<HTMLDivElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null); 
-  const chartRef = useRef<IChartApi | null>(null); 
-  // IMPORTANT: We cast to specific series type for the hook, assuming Candle/Line/Area use same base
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null); const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const drawingsPrimitiveRef = useRef<DrawingsPrimitive | null>(null); const rangeChangeTimeout = useRef<any>(null);
-  const rafId = useRef<number | null>(null);
-  const replayMouseX = useRef<number | null>(null); const ignoreRangeChange = useRef(false);
+  const propsRef = useRef(props); 
+  useEffect(() => { propsRef.current = props; });
   
-  // Flag to ignore range changes that come from props update (Undo/Redo)
+  const chartContainerRef = useRef<HTMLDivElement>(null); 
+  const canvasRef = useRef<HTMLCanvasElement>(null); 
+  const chartRef = useRef<IChartApi | null>(null); 
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null); 
+  const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const drawingsPrimitiveRef = useRef<DrawingsPrimitive | null>(null); 
+  const rangeChangeTimeout = useRef<any>(null);
+  const rafId = useRef<number | null>(null);
+  const replayMouseX = useRef<number | null>(null); 
+  const ignoreRangeChange = useRef(false);
+  
   const isProgrammaticUpdate = useRef(false);
   const rangeDebounceTimeout = useRef<any>(null);
 
-  // New State for "Scroll to Recent" button
   const [showScrollButton, setShowScrollButton] = useState(false);
-  
-  // State for Text Input Overlay
   const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
-
-  // Re-init trigger for force clear
   const [reinitCount, setReinitCount] = useState(0);
 
-  // --- REGISTRY HOOK ---
+  // --- Optimization Task 3: Memoize Options ---
+  
+  const chartOptions = useMemo(() => {
+      // Determine background config
+      let background: any;
+      if (config.backgroundType === 'gradient') {
+          background = {
+              type: ColorType.VerticalGradient,
+              topColor: config.backgroundTopColor || (config.theme === 'light' ? '#F8FAFC' : '#0f172a'),
+              bottomColor: config.backgroundBottomColor || (config.theme === 'light' ? '#E2E8F0' : '#0f172a'),
+          };
+      } else if (config.backgroundColor) {
+           background = {
+              type: ColorType.Solid,
+              color: config.backgroundColor,
+          };
+      } else {
+          background = {
+              type: ColorType.Solid,
+              color: config.theme === 'light' ? '#F8FAFC' : '#0f172a'
+          };
+      }
+
+      const textColor = config.theme === 'light' ? '#1E293B' : COLORS.text;
+      let gridColor = 'transparent';
+      if (config.showGridlines !== false) {
+          gridColor = config.theme === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(148, 163, 184, 0.1)';
+      }
+      
+      const borderColor = config.theme === 'light' ? '#CBD5E1' : '#334155';
+      const priceScaleMode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal;
+
+      return {
+          layout: { background, textColor },
+          grid: {
+              vertLines: { color: gridColor },
+              horzLines: { color: gridColor }
+          },
+          timeScale: { borderColor, timeVisible: true, secondsVisible: false },
+          rightPriceScale: { borderColor, mode: priceScaleMode, autoScale: config.autoScale !== false },
+          crosshair: { mode: config.showCrosshair !== false ? CrosshairMode.Normal : CrosshairMode.Hidden },
+      };
+  }, [config.theme, config.backgroundType, config.backgroundColor, config.backgroundTopColor, config.backgroundBottomColor, config.showGridlines, config.priceScaleMode, config.autoScale, config.showCrosshair]);
+
+  const seriesOptions = useMemo(() => {
+      const upColor = config.upColor || COLORS.bullish;
+      const downColor = config.downColor || COLORS.bearish;
+      const wickUpColor = config.wickUpColor || COLORS.bullish;
+      const wickDownColor = config.wickDownColor || COLORS.bearish;
+      const borderUpColor = config.borderUpColor || upColor;
+      const borderDownColor = config.borderDownColor || downColor;
+
+      return {
+          upColor, 
+          downColor, 
+          borderVisible: true,
+          borderUpColor,
+          borderDownColor,
+          wickUpColor, 
+          wickDownColor 
+      };
+  }, [config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor]);
+
+  // ---
+
   const { register, forceClear } = useDrawingRegistry(chartRef, seriesRef);
 
   const visibleDrawings = useMemo(() => {
@@ -482,7 +542,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     visibleDrawingsRef.current = visibleDrawings;
   }, [visibleDrawings]);
 
-  // Telemetry: Report Readiness
+  // Telemetry
   useEffect(() => {
     if (chartRef.current) {
         reportSelf('ChartEngine', {
@@ -493,22 +553,16 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [config.chartType]);
 
-  // Listen for force clear event
   useEffect(() => {
     const handleForceClear = () => {
         debugLog('UI', 'Chart: Received Force Clear signal');
         forceClear();
-        // Trigger a re-initialization of the primitive
         setReinitCount(c => c + 1);
     };
     window.addEventListener('redpill-force-clear', handleForceClear);
     return () => window.removeEventListener('redpill-force-clear', handleForceClear);
   }, [forceClear]);
 
-  // --- REPLAY ENGINES ---
-  
-  // 1. Standard Bar Replay (Simulates time skips)
-  // Only active if NOT in Advanced Mode
   useChartReplay({
     seriesRef,
     fullData,
@@ -519,8 +573,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onComplete: onReplayComplete
   });
 
-  // 2. Advanced Real-Time Replay (Delta-Time Architecture)
-  // Only active if IN Advanced Mode
   useAdvancedReplay({
     seriesRef,
     fullData,
@@ -541,8 +593,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       creatingPoints: DrawingPoint[]; 
       creationStep: number; 
       activeToolId: string;
-      initialDrawingPoints: DrawingPoint[] | null; // For smooth dragging delta calc
-      draggedDrawingPoints: DrawingPoint[] | null; // Temporary points during drag
+      initialDrawingPoints: DrawingPoint[] | null; 
+      draggedDrawingPoints: DrawingPoint[] | null; 
   }>({ 
       isDragging: false, 
       isCreating: false, 
@@ -558,7 +610,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
   useEffect(() => { interactionState.current.activeToolId = activeToolId; }, [activeToolId]);
 
-  // NUCLEAR RESET LISTENER FOR INTERACTION
   useEffect(() => {
       const handleReset = () => {
           interactionState.current = { 
@@ -592,7 +643,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       return map;
   }, [data]);
   
-  const timeToIndexRef = useRef(timeToIndex); useEffect(() => { timeToIndexRef.current = timeToIndex; }, [timeToIndex]);
+  const timeToIndexRef = useRef(timeToIndex); 
+  useEffect(() => { timeToIndexRef.current = timeToIndex; }, [timeToIndex]);
 
   useEffect(() => { 
       if (drawingsPrimitiveRef.current) {
@@ -603,12 +655,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       }
   }, [visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, data]);
 
-  // Trade Markers Sync
   useEffect(() => {
       if (seriesRef.current && trades && Array.isArray(trades)) {
-          // Safety guard: ensure seriesRef.current exists AND has setMarkers
-          // This prevents race conditions where series is being swapped out
-          // Cast to any to avoid TS error
           const seriesApi = seriesRef.current as any;
           if (typeof seriesApi.setMarkers !== 'function') return;
 
@@ -622,19 +670,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           
           try {
             seriesApi.setMarkers(markers);
-          } catch (e) {
-            // Ignore marker errors if series is unstable
-          }
+          } catch (e) { }
       }
-  }, [trades, processedData]); // Trigger on trade updates
+  }, [trades, processedData]); 
 
   const requestDraw = () => { if (rafId.current) cancelAnimationFrame(rafId.current); rafId.current = requestAnimationFrame(renderOverlayAndSync); };
   const renderOverlayAndSync = () => { renderOverlay(); if (chartRef.current) { if ((chartRef.current as any)._renderer) (chartRef.current as any)._renderer._redrawVisible(); else chartRef.current.timeScale().applyOptions({}); } };
 
-  // Sync visibleRange from props (Undo/Redo action) to chart
   useEffect(() => {
     if (chartRef.current && visibleRange) {
-        // Check if current range is significantly different to avoid loops
         const current = chartRef.current.timeScale().getVisibleLogicalRange();
         if (current) {
             const diffFrom = Math.abs(current.from - visibleRange.from);
@@ -642,7 +686,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             if (diffFrom > 0.1 || diffTo > 0.1) {
                 isProgrammaticUpdate.current = true;
                 chartRef.current.timeScale().setVisibleLogicalRange(visibleRange as LogicalRange);
-                // Reset flag after a short delay to allow events to fire and be ignored
                 setTimeout(() => { isProgrammaticUpdate.current = false; }, 100);
             }
         } else {
@@ -653,40 +696,28 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [visibleRange]);
 
-  // Helper: Context-Aware Snapping logic
-  // Mandate 27: Smart Auto-Scroll
-  // Logic: Only snap if force=true OR if the latest candle is near/past the right edge of the screen.
   const handleSnapToRecent = useCallback((force: boolean = false) => {
       if (!chartRef.current) return;
       
       const isReplayActive = isPlaying || (fullData && fullData.length > 0 && data.length < fullData.length);
       const timeScale = chartRef.current.timeScale();
       
-      // If we have no data, do nothing
       if (data.length === 0) return;
 
       const currentHeadIndex = data.length - 1;
       const currentRange = timeScale.getVisibleLogicalRange();
 
-      // Case 0: Chart not ready or range invalid -> Force snap to end
       if (!currentRange) {
           if (data.length > 0) timeScale.scrollToRealTime();
           return;
       }
 
-      // Calculate distance from the right edge of the viewport to the last candle
       const distanceToRightEdge = currentRange.to - currentHeadIndex;
-      
-      // Smart Snap Logic:
-      // Snap if FORCED (User clicked button or initial load)
-      // Snap if NEAR EDGE (The latest candle is within 5 bars of the right edge, implying "Live" view)
-      // Do NOT snap if user is scrolled far back (distance > 5)
       const shouldSnap = force || distanceToRightEdge < 5;
 
       if (shouldSnap) {
           if (isReplayActive) {
               const currentZoomWidth = currentRange.to - currentRange.from;
-              // Maintain +2 buffer on the right
               const targetTo = currentHeadIndex + 2;
               const targetFrom = targetTo - currentZoomWidth;
               
@@ -703,34 +734,21 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
-    // Performance Tracking Start
     const startTime = performance.now();
     
+    // Optimization: Apply memoized options during creation
     const chart = createChart(chartContainerRef.current, {
-      layout: { 
-        background: { type: ColorType.Solid, color: 'var(--app-bg)' }, 
-        textColor: 'var(--text-secondary)', 
-      },
-      grid: { vertLines: { color: 'var(--border-color)' }, horzLines: { color: 'var(--border-color)' } },
-      width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight,
-      crosshair: { mode: CrosshairMode.Normal },
-      timeScale: { borderColor: 'var(--border-color)', timeVisible: true, secondsVisible: false },
-      rightPriceScale: { borderColor: 'var(--border-color)' },
-      // The 'watermark' option is passed to remove the library's branding.
-      // Previous attempts to remove it may have been blocked by incomplete TypeScript definitions.
-      // Casting to 'any' ensures the option is applied at runtime, resolving the persistent branding.
-      watermark: {
-        visible: false,
-      },
+      ...chartOptions,
+      width: chartContainerRef.current.clientWidth, 
+      height: chartContainerRef.current.clientHeight,
+      watermark: { visible: false },
     } as any);
+    
     chartRef.current = chart;
 
-    // Performance Tracking End
     const endTime = performance.now();
     const renderDuration = endTime - startTime;
-    // Dispatch to logger but debounce via custom event if needed to avoid spam, or just log
     debugLog('Perf', `Chart instance initialized in ${renderDuration.toFixed(2)}ms`, { duration: renderDuration });
-    // Also dispatch generic performance event for UI
     if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('chart-render-perf', { detail: { duration: renderDuration } }));
     }
@@ -767,7 +785,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     };
     chart.subscribeClick(handleChartClick);
 
-    // SYNC EVENT HANDLERS
     const onSyncRange = (e: any) => {
         if (ignoreRangeChange.current || !propsRef.current.isSyncing) return;
         const { range, sourceId } = e.detail;
@@ -803,22 +820,19 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
             rangeChangeTimeout.current = setTimeout(() => { if (range.from < 50) propsRef.current.onRequestMoreData?.(); }, 100);
         }
 
-        // Logic for "Scroll to Real-time" Button
         if (range) {
              const currentData = propsRef.current.data;
              const lastIndex = currentData.length - 1;
              const dist = lastIndex - range.to;
              setShowScrollButton(dist > 10);
 
-             // HISTORY SAVING LOGIC (Debounced)
              if (!isProgrammaticUpdate.current && propsRef.current.onVisibleRangeChange) {
                  if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
                  rangeDebounceTimeout.current = setTimeout(() => {
-                     // Only fire if not programmatic
                      if (!isProgrammaticUpdate.current) {
                         propsRef.current.onVisibleRangeChange?.({ from: range.from, to: range.to });
                      }
-                 }, 500); // 500ms debounce for history save
+                 }, 500); 
              }
         }
     });
@@ -839,92 +853,21 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       try { chart.unsubscribeClick(handleChartClick); } catch(e) {}
       chart.remove(); chartRef.current = null;
     };
-  }, []);
+  }, []); // Run once on mount
 
-  // Effect to toggle crosshair based on tool and global config
+  // --- Optimization Task 3: Apply Memoized Options ---
   useEffect(() => {
     if (!chartRef.current) return;
-
-    // DIRECT MANIPULATION: Apply Crosshair Mode immediately
-    const mode = config.showCrosshair !== false ? CrosshairMode.Normal : CrosshairMode.Hidden;
-    chartRef.current.applyOptions({
-        crosshair: { mode }
-    });
-
-    // Handle per-tool overrides only if global showCrosshair is true
-    if (config.showCrosshair !== false) {
-        chartRef.current.applyOptions({
-            crosshair: {
-                vertLine: { visible: true, labelVisible: true },
-                horzLine: { visible: true, labelVisible: true },
-            }
-        });
-    }
-  }, [activeToolId, config.showCrosshair]);
+    chartRef.current.applyOptions(chartOptions);
+  }, [chartOptions]);
 
   useEffect(() => {
     if (!chartRef.current) return;
-    
-    // Determine background config
-    let background: any;
-    
-    if (config.backgroundType === 'gradient') {
-        background = {
-            type: ColorType.VerticalGradient,
-            topColor: config.backgroundTopColor || (config.theme === 'light' ? '#F8FAFC' : '#0f172a'),
-            bottomColor: config.backgroundBottomColor || (config.theme === 'light' ? '#E2E8F0' : '#0f172a'),
-        };
-    } else if (config.backgroundColor) {
-         background = {
-            type: ColorType.Solid,
-            color: config.backgroundColor,
-        };
-    } else {
-        // Fallback to theme defaults
-        background = {
-            type: ColorType.Solid,
-            color: config.theme === 'light' ? '#F8FAFC' : '#0f172a'
-        };
-    }
-
-    const textColor = config.theme === 'light' ? '#1E293B' : COLORS.text;
-
-    let gridColor = 'transparent';
-    // Use `!== false` to default to true if undefined
-    if (config.showGridlines !== false) {
-        gridColor = config.theme === 'light' ? 'rgba(0, 0, 0, 0.05)' : 'rgba(148, 163, 184, 0.1)';
-    }
-    
-    const borderColor = config.theme === 'light' ? '#CBD5E1' : '#334155';
-
-    chartRef.current.applyOptions({ 
-        layout: { 
-            background, 
-            textColor,
-        },
-        grid: {
-            vertLines: { color: gridColor },
-            horzLines: { color: gridColor }
-        },
-        timeScale: { borderColor },
-        rightPriceScale: { borderColor },
-    });
-
-    const mode = config.priceScaleMode === 'logarithmic' ? PriceScaleMode.Logarithmic : config.priceScaleMode === 'percentage' ? PriceScaleMode.Percentage : PriceScaleMode.Normal;
-    chartRef.current.priceScale('right').applyOptions({ mode, autoScale: config.autoScale !== false });
-  }, [config.theme, config.showGridlines, config.priceScaleMode, config.autoScale, config.backgroundColor, config.backgroundType, config.backgroundTopColor, config.backgroundBottomColor]);
-
-  useEffect(() => {
-    if (!chartRef.current) return;
-    // Cast to any to handle type overlap issues, we know the series types
     if (seriesRef.current) { 
         if (chartRef.current) {
             try {
-                // Defensive removal to prevent "Value is undefined" crashes on splash screen
                 chartRef.current.removeSeries(seriesRef.current as any); 
-            } catch (e) {
-                // Ignore removal errors during hot-reload or race conditions
-            }
+            } catch (e) { }
             seriesRef.current = null; 
         }
     }
@@ -932,46 +875,27 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 });
     else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 });
     else {
-        // Apply custom colors from config or fallback to constants
-        const upColor = config.upColor || COLORS.bullish;
-        const downColor = config.downColor || COLORS.bearish;
-        const wickUpColor = config.wickUpColor || COLORS.bullish;
-        const wickDownColor = config.wickDownColor || COLORS.bearish;
-        const borderUpColor = config.borderUpColor || upColor;
-        const borderDownColor = config.borderDownColor || downColor;
-
-        newSeries = chartRef.current.addSeries(CandlestickSeries, { 
-            upColor, 
-            downColor, 
-            borderVisible: true,
-            borderUpColor,
-            borderDownColor,
-            wickUpColor, 
-            wickDownColor 
-        });
+        // Optimization: Use memoized series options
+        newSeries = chartRef.current.addSeries(CandlestickSeries, seriesOptions);
     }
     // @ts-ignore
     seriesRef.current = newSeries; newSeries.setData(processedData);
     
-    // UPDATED: Initial Load -> Force Snap
     handleSnapToRecent(true); 
 
     const primitive = new DrawingsPrimitive(chartRef.current, newSeries, interactionState, currentDefaultProperties, timeframe);
     const lastCandle = data.length > 0 ? data[data.length - 1] : null;
     primitive.update(visibleDrawings, timeToIndex, currentDefaultProperties, selectedDrawingId, timeframe, lastCandle ? lastCandle.time : null, data.length - 1, data);
     
-    // REGISTRY: Register the primitive so it can be cleared externally
     register('drawings-primitive', primitive);
     
     newSeries.attachPrimitive(primitive); drawingsPrimitiveRef.current = primitive; requestDraw();
-  }, [config.chartType, config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor, reinitCount, handleSnapToRecent]); 
+  }, [config.chartType, seriesOptions, reinitCount, handleSnapToRecent]); 
 
   useEffect(() => {
     if (!seriesRef.current) return;
     try { 
         seriesRef.current.setData(processedData); 
-        
-        // UPDATED: Data Update -> Smart Snap (No Force)
         handleSnapToRecent(false);
     } catch(e) {}
     if (volumeSeriesRef.current && config.showVolume) {
@@ -991,19 +915,20 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     }
   }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent]); 
 
+  // ... (Rest of useEffects and handlers remain largely same, just ensuring stable refs) ...
+
   useEffect(() => {
     if (!chartRef.current) return;
     if (config.showVolume) {
         if (!volumeSeriesRef.current) {
             volumeSeriesRef.current = chartRef.current.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-            // Use config.volumeTopMargin directly
             chartRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: config.volumeTopMargin || 0.8, bottom: 0 } });
         }
     } else if (volumeSeriesRef.current) { chartRef.current.removeSeries(volumeSeriesRef.current); volumeSeriesRef.current = null; }
     if (config.showSMA) {
         if (!smaSeriesRef.current) smaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: COLORS.sma, lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
     } else if (smaSeriesRef.current) { chartRef.current.removeSeries(smaSeriesRef.current); smaSeriesRef.current = null; }
-  }, [config.showVolume, config.showSMA, config.volumeTopMargin]); // Updated dependency to include volumeTopMargin
+  }, [config.showVolume, config.showSMA, config.volumeTopMargin]);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -1031,7 +956,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const pointToScreen = (p: DrawingPoint) => {
     if (!chartRef.current || !seriesRef.current) return { x: OFF_SCREEN, y: OFF_SCREEN };
     try {
-        // Guard: Check for invalid timestamps immediately
         if (!p.time || !Number.isFinite(p.time) || p.time <= 0) return { x: OFF_SCREEN, y: OFF_SCREEN };
 
         const timeScale = chartRef.current.timeScale(); const price = seriesRef.current.priceToCoordinate(p.price);
@@ -1075,21 +999,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         const timeSeconds = timeScale.coordinateToTime(x); 
         const price = seriesRef.current.coordinateToPrice(y);
         
-        // Robustness: Handle lightweight-charts edge cases where coordinateToTime returns null
-        // or unexpected values at the chart edges.
         if (timeSeconds === null || price === null || !Number.isFinite(timeSeconds as number) || !Number.isFinite(price)) {
             const logical = timeScale.coordinateToLogical(x);
-            // Verify data exists to prevent crashes on empty charts
             if (logical !== null && propsRef.current.data.length > 0) {
                  const currentData = propsRef.current.data;
                  const lastIdx = currentData.length - 1; 
                  const diff = logical - lastIdx; 
                  const tfMs = getTimeframeDuration(propsRef.current.timeframe as any);
                  
-                 // Calculate estimated timestamp based on timeframe projection
                  const estimatedTime = currentData[lastIdx].time + (diff * tfMs);
-                 
-                 // Guard against NaN resulting from bad math
                  if (!Number.isFinite(estimatedTime)) return null;
 
                  return { time: estimatedTime, price: price || 0 };
@@ -1106,13 +1024,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     const width = chartContainerRef.current?.clientWidth || 0, height = chartContainerRef.current?.clientHeight || 0;
     ctx.clearRect(0, 0, width, height);
     
-    // --- Replay Start Line ---
     if (propsRef.current.isReplaySelecting && replayMouseX.current !== null) {
         ctx.beginPath(); ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1; ctx.setLineDash([6, 4]); ctx.moveTo(replayMouseX.current, 0); ctx.lineTo(replayMouseX.current, height); ctx.stroke(); ctx.setLineDash([]);
         ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#ef4444'; ctx.fillText('Start Replay', replayMouseX.current + 5, 20);
     }
 
-    // --- Live Brush Drawing ---
     const { isCreating, activeToolId, creatingPoints } = interactionState.current;
     if (isCreating && activeToolId === 'brush' && creatingPoints.length > 1) {
         const screenPoints = creatingPoints.map(pointToScreen);
@@ -1187,7 +1103,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           const rect = chartContainerRef.current.getBoundingClientRect();
           const { hitHandle, hitDrawing } = getHitObject(e.clientX - rect.left, e.clientY - rect.top);
           
-          // Update Hover State
           if (drawingsPrimitiveRef.current) {
               const newHoverId = hitDrawing ? hitDrawing.id : null;
               if (drawingsPrimitiveRef.current._hoveredDrawingId !== newHoverId) {
@@ -1203,7 +1118,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           }
 
           if ((hitHandle || hitDrawing) && !areDrawingsLocked) { 
-              // Pointer for drawing, Grab for handle, Not-Allowed for locked
               document.body.style.cursor = hitDrawing?.properties.locked ? 'not-allowed' : hitHandle ? 'grab' : 'pointer'; 
               canvasRef.current.style.pointerEvents = 'auto'; 
           }
@@ -1215,7 +1129,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    // Only handle left clicks for starting actions
     if (e.button !== 0) return;
 
     const rect = canvasRef.current!.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
@@ -1263,7 +1176,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
                  if (Math.hypot(x - lastScreen.x, y - lastScreen.y) > 5 || lastScreen.x === OFF_SCREEN) { 
                      points.push(p); 
                      interactionState.current.creatingPoints = points; 
-                     // Performance Boost: Draw on temp overlay, skip full chart redraw.
                      requestAnimationFrame(renderOverlay);
                  }
              } else if (!SINGLE_POINT_TOOLS.includes(activeToolId)) { 
@@ -1278,14 +1190,12 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         if (d && !d.properties.locked) {
             const p = screenToPoint(x, y, interactionState.current.dragHandleIndex !== -1);
             if (p) {
-                // Handle Dragging via Handle (Still updates React state for immediate feedback on reshape)
                 if (interactionState.current.dragHandleIndex !== -1) {
                     const newPoints = [...d.points];
                     newPoints[interactionState.current.dragHandleIndex!] = p;
                     onUpdateDrawings(drawings.map(dr => dr.id === d.id ? { ...dr, points: newPoints } : dr)); 
                     redraw = true; 
                 } else if (interactionState.current.startPoint && interactionState.current.initialDrawingPoints) {
-                    // Dragging whole shape logic
                     const startScreen = interactionState.current.startPoint;
                     const dx = x - startScreen.x;
                     const dy = y - startScreen.y;
@@ -1425,7 +1335,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         onMouseUp={handleCanvasMouseUp}
       />
       
-      {/* "Snap to Recent" Button */}
       {showScrollButton && (
           <button
             onClick={() => {
@@ -1440,7 +1349,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
           </button>
       )}
 
-      {/* Text Input Overlay */}
       {textInputState && textInputState.visible && (
           <div 
             className="absolute z-50 bg-[#1e293b] p-2 rounded shadow-xl border border-[#334155] flex flex-col gap-2 min-w-[200px]"

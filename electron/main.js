@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const v8 = require('v8');
 const sqlite3 = require('sqlite3').verbose();
+const readline = require('readline');
 
 // [TELEMETRY] Initialize Session Start Time
 const sessionStartTime = Date.now();
@@ -78,12 +79,27 @@ const initializeTables = () => {
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        `, (err) => {
-            if (!err) {
-                logSystemEvent('DB_TABLES_READY');
-                runMigration();
-            }
-        });
+        `);
+
+        // Optimization Task 1: Market Data Table
+        db.run(`
+            CREATE TABLE IF NOT EXISTS market_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                timeframe TEXT,
+                time INTEGER,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                volume REAL
+            )
+        `);
+        // Index for faster queries
+        db.run(`CREATE INDEX IF NOT EXISTS idx_market_data_lookup ON market_data (symbol, timeframe, time)`);
+
+        logSystemEvent('DB_TABLES_READY');
+        runMigration();
     });
 };
 
@@ -251,6 +267,100 @@ const runBootScan = () => {
     return internalLibraryStorage;
 };
 
+// --- CSV PARSING HELPER ---
+const parseAndInsertCSV = async (filePath, symbol, timeframe) => {
+    return new Promise((resolve, reject) => {
+        const results = [];
+        let isHeader = true;
+
+        const stream = fs.createReadStream(filePath);
+        const rl = readline.createInterface({
+            input: stream,
+            crlfDelay: Infinity
+        });
+
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+            const stmt = db.prepare(`INSERT INTO market_data (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+
+            rl.on('line', (line) => {
+                // Skip empty lines
+                if (!line || !line.trim()) return;
+                
+                // Skip header if it starts with letter
+                if (isHeader && /^[a-zA-Z]/.test(line)) {
+                    isHeader = false;
+                    return;
+                }
+                isHeader = false;
+
+                const delimiter = line.indexOf(';') > -1 ? ';' : ',';
+                const parts = line.split(delimiter);
+                
+                if (parts.length < 5) return;
+
+                try {
+                    let timestamp = 0;
+                    let open=0, high=0, low=0, close=0, volume=0;
+
+                    const p0 = parts[0].trim();
+                    const p1 = parts[1].trim();
+
+                    // Detect Date/Time split
+                    if ((p0.length === 8 || p0.includes('-') || p0.includes('/')) && p1.includes(':')) {
+                        let cleanDate = p0.replace(/[\.\-\/]/g, '');
+                        if (cleanDate.length === 8) {
+                            cleanDate = `${cleanDate.substring(0,4)}-${cleanDate.substring(4,6)}-${cleanDate.substring(6,8)}`;
+                        }
+                        const dateStr = `${cleanDate}T${p1}`;
+                        timestamp = new Date(dateStr).getTime();
+                        open = parseFloat(parts[2]);
+                        high = parseFloat(parts[3]);
+                        low = parseFloat(parts[4]);
+                        close = parseFloat(parts[5]);
+                        if (parts.length > 6) volume = parseFloat(parts[6]);
+                    } else {
+                        // Standard timestamp/date in col 0
+                        const dateStr = p0;
+                        timestamp = new Date(dateStr).getTime();
+                        if (isNaN(timestamp)) {
+                            timestamp = parseFloat(dateStr);
+                            if (timestamp < 10000000000) timestamp *= 1000;
+                        }
+                        open = parseFloat(parts[1]);
+                        high = parseFloat(parts[2]);
+                        low = parseFloat(parts[3]);
+                        close = parseFloat(parts[4]);
+                        if (parts.length > 5) volume = parseFloat(parts[5]);
+                    }
+
+                    if (!isNaN(timestamp) && timestamp > 0 && !isNaN(close)) {
+                        const row = { time: timestamp, open, high, low, close, volume: isNaN(volume) ? 0 : volume };
+                        results.push(row);
+                        stmt.run(symbol, timeframe, row.time, row.open, row.high, row.low, row.close, row.volume);
+                    }
+                } catch (e) {
+                    // Ignore malformed
+                }
+            });
+
+            rl.on('close', () => {
+                stmt.finalize();
+                db.run("COMMIT", (err) => {
+                    if (err) {
+                        console.error('Transaction commit failed', err);
+                        reject(err);
+                    } else {
+                        // Sort results by time before returning
+                        results.sort((a, b) => a.time - b.time);
+                        resolve(results);
+                    }
+                });
+            });
+        });
+    });
+};
+
 // --- IPC HANDLERS ---
 
 ipcMain.on('log:send', (event, category, message, data) => {
@@ -343,6 +453,49 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     } catch (e) {
         return { exists: false, size: 0 };
     }
+});
+
+// --- OPTIMIZATION TASK 1: Market Data Handler ---
+ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath) => {
+    if (!symbol || !timeframe) return { error: "Missing symbol or timeframe" };
+
+    return new Promise((resolve) => {
+        // 1. Check if data exists in SQLite
+        db.all(
+            `SELECT time, open, high, low, close, volume FROM market_data WHERE symbol = ? AND timeframe = ? ORDER BY time ASC`, 
+            [symbol, timeframe], 
+            async (err, rows) => {
+                if (err) {
+                    console.error('Market data query failed:', err);
+                    resolve({ error: err.message });
+                    return;
+                }
+
+                if (rows && rows.length > 0) {
+                    // Data found, return it
+                    logSystemEvent(`DATA_CACHE_HIT_${symbol}_${timeframe}`);
+                    resolve({ data: rows });
+                } else if (filePath) {
+                    // Data missing, parse CSV
+                    logSystemEvent(`DATA_CACHE_MISS_${symbol}_${timeframe}`);
+                    try {
+                        if (!fs.existsSync(filePath)) {
+                            resolve({ error: "File not found" });
+                            return;
+                        }
+                        
+                        const newData = await parseAndInsertCSV(filePath, symbol, timeframe);
+                        resolve({ data: newData });
+                    } catch (parseErr) {
+                        console.error("CSV Parse/Insert failed:", parseErr);
+                        resolve({ error: parseErr.message });
+                    }
+                } else {
+                    resolve({ data: [] });
+                }
+            }
+        );
+    });
 });
 
 // --- PERSISTENCE (SQLite3 Asynchronous) ---

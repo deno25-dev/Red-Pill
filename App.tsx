@@ -582,10 +582,16 @@ const App: React.FC = () => {
     if (layoutMode === 'single') setLayoutTabIds([id]);
   };
 
+  // --- Optimized Data Loading ---
   const loadPreviousChunk = async (tab: TabSession, fileState: any) => {
+      // If we are in Optimized Electron Mode, we don't paginate CSVs like this anymore.
+      // The backend returns full datasets from SQLite.
+      // This function is kept for Web Mode fallback.
+      if (isBridgeAvailable) return null;
+
       if (!fileState.hasMore || fileState.isLoading) return null;
 
-      const fileSource = isBridgeAvailable ? tab.filePath : fileState.file;
+      const fileSource = fileState.file;
       if (!fileSource) return null;
 
       const cursor = fileState.cursor;
@@ -622,17 +628,77 @@ const App: React.FC = () => {
       setLoading(true);
       debugLog('Data', `Starting file stream for ${fileName}`);
       try {
+          // --- Optimization Task 1: Check for Optimized Bridge ---
+          if (isBridgeAvailable && window.electronAPI && window.electronAPI.getMarketData) {
+              const filePath = fileSource.path;
+              // Default to '1h' if detecting fails, logic below handles detection
+              let initialTf = forceTimeframe;
+              
+              // We need timeframe to query SQLite efficiently.
+              // If forceTimeframe is not provided, we guess from filename.
+              if (!initialTf) {
+                  // Basic detection from filename logic (duplicated from utils for immediate use)
+                  // For robust detection, we might need to read the first line, but lets rely on filename first
+                  if (fileName.includes('1m') || fileName.includes('1M')) initialTf = Timeframe.M1;
+                  else if (fileName.includes('5m')) initialTf = Timeframe.M5;
+                  else if (fileName.includes('15m')) initialTf = Timeframe.M15;
+                  else if (fileName.includes('1h')) initialTf = Timeframe.H1;
+                  else if (fileName.includes('4h')) initialTf = Timeframe.H4;
+                  else if (fileName.includes('1d') || fileName.includes('1D')) initialTf = Timeframe.D1;
+                  else initialTf = Timeframe.H1; // Fallback
+              }
+
+              const symbol = getBaseSymbolName(fileName);
+              
+              debugLog('Data', `Invoking optimized ingest for ${symbol} (${initialTf})`);
+              const response = await window.electronAPI.getMarketData(symbol, initialTf, filePath);
+              
+              if (response.error) {
+                  throw new Error(response.error);
+              }
+
+              const cleanRawData = response.data || [];
+              const sourceId = getSourceId(filePath || fileName, 'asset');
+              
+              // Apply Sanitization & Resampling on Frontend (Lightweight)
+              const tfMs = getTimeframeDuration(initialTf);
+              const displayData = resampleData(cleanRawData, initialTf); // Should match if db is correct
+
+              let replayIndex = displayData.length - 1;
+              if (preservedReplay?.replayGlobalTime) {
+                  const idx = displayData.findIndex(d => d.time >= preservedReplay.replayGlobalTime!);
+                  if (idx !== -1) replayIndex = idx;
+              }
+
+              // Update Tab State
+              updateTabState(
+                  targetTabId, 
+                  fileName, 
+                  symbol, 
+                  sourceId, 
+                  cleanRawData, 
+                  displayData, 
+                  initialTf, 
+                  filePath, 
+                  null, // No fileState needed for SQLite mode
+                  replayIndex, 
+                  preservedReplay
+              );
+              
+              setLoading(false);
+              return;
+          }
+
+          // --- Fallback: Web Mode Logic ---
           let actualSource = fileSource;
           let filePath = undefined;
           
-          if (isBridgeAvailable && fileSource.path) {
+          if (fileSource.path) {
               actualSource = fileSource.path;
               filePath = fileSource.path;
           }
 
-          // Use loadProtectedSession wrapper for read-only enforcement
           const result = await loadProtectedSession(actualSource, CHUNK_SIZE);
-          
           const { rawData, cursor, leftover, fileSize } = result;
           
           let displayTitle = getBaseSymbolName(fileName);
@@ -651,7 +717,6 @@ const App: React.FC = () => {
           const tfMs = getTimeframeDuration(initialTf);
           const { data: cleanRawData, stats: sanitizationReport } = sanitizeData(rawData, tfMs);
           
-          // TELEMETRY: Report Sanitization & File Stats via FileSystem Hook (Mandate)
           if (reportFileLoad) {
               reportFileLoad(fileName, sanitizationReport);
           }
@@ -666,19 +731,18 @@ const App: React.FC = () => {
               if (idx !== -1) replayIndex = idx;
           }
 
-          // Use the robust source ID generator which handles timeframe stripping
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
 
-          // Base update object with new data
-          const baseUpdates: Partial<TabSession> = {
-              title: displayTitle,
-              symbolId: getSymbolId(displayTitle),
-              sourceId: sourceId,
-              rawData: cleanRawData,
-              data: displayData,
-              timeframe: initialTf,
-              filePath: filePath,
-              fileState: {
+          updateTabState(
+              targetTabId, 
+              displayTitle, 
+              getSymbolId(displayTitle), 
+              sourceId, 
+              cleanRawData, 
+              displayData, 
+              initialTf, 
+              filePath, 
+              {
                   file: (actualSource instanceof File) ? actualSource : null,
                   path: (typeof actualSource === 'string') ? actualSource : undefined,
                   cursor: cursor,
@@ -687,58 +751,10 @@ const App: React.FC = () => {
                   hasMore: cursor > 0,
                   fileSize
               },
-              replayIndex: replayIndex,
-              isReplayPlaying: false,
-              isReplayMode: preservedReplay?.isReplayMode ?? false,
-              isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
-              replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              visibleRange: null // Reset view on new data load
-          };
+              replayIndex, 
+              preservedReplay
+          );
 
-          const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
-
-          setTabs(currentTabs => {
-              const targetTabExists = currentTabs.find(t => t.id === tabIdToUpdate);
-              
-              if (!targetTabExists) {
-                  // Create new tab
-                  const newTab = createNewTab(tabIdToUpdate);
-                  // New tabs start empty drawings
-                  const fullUpdates = { ...baseUpdates, drawings: [], folders: [] };
-                  // Update layout and active state as side effects outside this reducer? 
-                  // No, we need to do it here or after. 
-                  // Since we are inside setTabs updater, we can't side-effect easily.
-                  // We'll return the new array.
-                  return [...currentTabs, { ...newTab, ...fullUpdates }];
-              }
-
-              // Update existing tabs (Single or Sync)
-              return currentTabs.map(t => {
-                  const shouldUpdate = (t.id === tabIdToUpdate) || (isSymbolSync && layoutTabIds.includes(t.id));
-                  
-                  if (shouldUpdate) {
-                      // STATE LIFT: Check if we are staying on the same source (e.g. timeframe switch)
-                      // If sourceId matches, KEEP existing drawings/folders.
-                      // If sourceId changes, RESET them (to be rehydrated by persistence hook).
-                      const isSameSource = t.sourceId === sourceId;
-                      
-                      return {
-                          ...t,
-                          ...baseUpdates,
-                          drawings: isSameSource ? t.drawings : [],
-                          folders: isSameSource ? t.folders : []
-                      };
-                  }
-                  return t;
-              });
-          });
-
-          // Ensure active tab and layout if it was a new tab
-          if (!tabs.find(t => t.id === tabIdToUpdate)) {
-              setActiveTabId(tabIdToUpdate);
-              setLayoutTabIds([tabIdToUpdate]);
-          }
-          
           debugLog('Data', `File stream started successfully. Records: ${cleanRawData.length}`);
 
       } catch (e: any) {
@@ -751,9 +767,79 @@ const App: React.FC = () => {
       }
   }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab, reportFileLoad]);
 
+  // Helper to update tabs to avoid duplication in startFileStream
+  const updateTabState = (
+      targetTabId: string | undefined,
+      displayTitle: string,
+      symbolId: string,
+      sourceId: string,
+      rawData: OHLCV[],
+      data: OHLCV[],
+      timeframe: Timeframe,
+      filePath: string | undefined,
+      fileState: any,
+      replayIndex: number,
+      preservedReplay: any
+  ) => {
+      const baseUpdates: Partial<TabSession> = {
+          title: displayTitle,
+          symbolId: symbolId,
+          sourceId: sourceId,
+          rawData: rawData,
+          data: data,
+          timeframe: timeframe,
+          filePath: filePath,
+          fileState: fileState,
+          replayIndex: replayIndex,
+          isReplayPlaying: false,
+          isReplayMode: preservedReplay?.isReplayMode ?? false,
+          isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
+          replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
+          visibleRange: null // Reset view on new data load
+      };
+
+      const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
+
+      setTabs(currentTabs => {
+          const targetTabExists = currentTabs.find(t => t.id === tabIdToUpdate);
+          
+          if (!targetTabExists) {
+              const newTab = createNewTab(tabIdToUpdate);
+              const fullUpdates = { ...baseUpdates, drawings: [], folders: [] };
+              return [...currentTabs, { ...newTab, ...fullUpdates }];
+          }
+
+          return currentTabs.map(t => {
+              const shouldUpdate = (t.id === tabIdToUpdate) || (isSymbolSync && layoutTabIds.includes(t.id));
+              
+              if (shouldUpdate) {
+                  const isSameSource = t.sourceId === sourceId;
+                  return {
+                      ...t,
+                      ...baseUpdates,
+                      drawings: isSameSource ? t.drawings : [],
+                      folders: isSameSource ? t.folders : []
+                  };
+              }
+              return t;
+          });
+      });
+
+      if (!tabs.find(t => t.id === tabIdToUpdate)) {
+          setActiveTabId(tabIdToUpdate);
+          setLayoutTabIds([tabIdToUpdate]);
+      }
+  };
+
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
-      if (!tab || !tab.fileState || !tab.fileState.hasMore || tab.fileState.isLoading) return;
+      if (!tab) return;
+      
+      // In SQLite mode, all history is loaded at once via the bulk query. 
+      // Pagination is disabled for now as per Mandate (parse once, query all).
+      if (isBridgeAvailable) return;
+
+      if (!tab.fileState || !tab.fileState.hasMore || tab.fileState.isLoading) return;
 
       updateTab(tabId, { 
           fileState: { ...tab.fileState, isLoading: true } 
@@ -809,7 +895,7 @@ const App: React.FC = () => {
              fileState: { ...tab.fileState, isLoading: false } 
           });
       }
-  }, [tabs, updateTab]);
+  }, [tabs, updateTab, isBridgeAvailable]);
 
 
   const handleFileUpload = useCallback((file: File) => {
@@ -892,6 +978,7 @@ const App: React.FC = () => {
             return; 
         }
 
+        // Fallback: Resample if file not found (though optimization logic prefers native file)
         const resampled = resampleData(targetTab.rawData, tf);
         
         let newReplayIndex = resampled.length - 1;
