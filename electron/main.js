@@ -1,5 +1,9 @@
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+
+// 1. INCREASE HEAP TO 500MB (Phase 1: Memory Power-Up)
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=500');
+
 const path = require('path');
 const fs = require('fs');
 const v8 = require('v8');
@@ -73,6 +77,13 @@ const setupDatabase = () => {
             logSystemEvent('DB_INIT_FAILED', { error: err.message }, 'CRITICAL');
         } else {
             logSystemEvent('DB_CONNECTED');
+            
+            // 2. SQLITE OPTIMIZATION (Phase 1)
+            db.serialize(() => {
+                db.run("PRAGMA journal_mode = WAL;");   // Write-Ahead Logging
+                db.run("PRAGMA synchronous = NORMAL;"); // Reduce disk-sync overhead
+            });
+
             initializeTables();
         }
     });
@@ -187,9 +198,86 @@ const runBootScan = () => {
     return internalLibraryStorage;
 };
 
-// ... [Keep existing parseAndInsertCSV and other IPC handlers as is] ...
+// --- HELPER: CSV Parsing (Node.js) ---
+const parseCSVFileSync = (filePath) => {
+    try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const lines = content.split('\n');
+        const data = [];
+        
+        for (const line of lines) {
+            // Skip empty lines or header lines (assuming header doesn't start with digit)
+            if (!line || !line.trim() || !/^\d/.test(line.trim())) continue;
 
-// --- NEW DIAGNOSTIC HANDLERS ---
+            const delimiter = line.indexOf(';') > -1 ? ';' : ',';
+            const parts = line.split(delimiter);
+
+            // Require at least 5 columns
+            if (parts.length < 5) continue;
+
+            try {
+                let dateStr = '';
+                let timestamp = 0;
+                let open = 0, high = 0, low = 0, close = 0, volume = 0;
+
+                const p0 = parts[0].trim();
+                const p1 = parts[1].trim();
+
+                // Check for Date + Time split columns
+                const isDateColumn = /^\d{8}$/.test(p0) || /^\d{4}[\.\-\/]\d{2}[\.\-\/]\d{2}$/.test(p0);
+                const isTimeColumn = p1.includes(':');
+
+                if (isDateColumn && isTimeColumn) {
+                    let cleanDate = p0.replace(/[\.\-\/]/g, '');
+                    if (cleanDate.length === 8) {
+                        cleanDate = `${cleanDate.substring(0,4)}-${cleanDate.substring(4,6)}-${cleanDate.substring(6,8)}`;
+                    }
+                    dateStr = `${cleanDate}T${p1}`;
+                    
+                    open = parseFloat(parts[2]);
+                    high = parseFloat(parts[3]);
+                    low = parseFloat(parts[4]);
+                    close = parseFloat(parts[5]);
+                    if (parts.length > 6) {
+                        const v = parseFloat(parts[6]);
+                        volume = isNaN(v) ? 0 : v;
+                    }
+                } else {
+                     // Single Column Date/Timestamp
+                     dateStr = p0;
+                     open = parseFloat(parts[1]);
+                     high = parseFloat(parts[2]);
+                     low = parseFloat(parts[3]);
+                     close = parseFloat(parts[4]);
+                     if (parts.length > 5) {
+                         const v = parseFloat(parts[5]);
+                         volume = isNaN(v) ? 0 : v;
+                     }
+                }
+
+                if (isNaN(open) || isNaN(close)) continue;
+
+                timestamp = new Date(dateStr).getTime();
+                if (isNaN(timestamp)) {
+                    timestamp = parseFloat(dateStr);
+                    if (!isNaN(timestamp) && timestamp < 10000000000) timestamp *= 1000;
+                }
+
+                if (isNaN(timestamp) || timestamp <= 0) continue;
+
+                data.push({ time: timestamp, open, high, low, close, volume });
+            } catch (e) {
+                // skip malformed
+            }
+        }
+        
+        // Sort ascending
+        return data.sort((a, b) => a.time - b.time);
+    } catch(e) {
+        console.error("CSV Parse Error:", e);
+        return [];
+    }
+};
 
 ipcMain.handle('debug:get-global-state', async () => {
     // Collect state from main process memory
@@ -223,7 +311,6 @@ ipcMain.handle('debug:get-global-state', async () => {
     return safeIPC(state);
 });
 
-// [Rest of IPC Handlers from previous main.js...]
 ipcMain.on('log:send', (event, category, message, data) => {
     if (data && (data.level === 'ERROR' || data.level === 'CRITICAL')) {
         console.log(`[RENDERER-${category}] ${message}`, data);
@@ -292,20 +379,85 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     } catch (e) { return { exists: false, size: 0 }; }
 });
 
+// --- OPTIMIZED MARKET DATA HANDLER (Windowed + Atomic Ingest) ---
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
     try {
         if (!db) return { error: "Database not initialized" };
-        return new Promise((resolve) => {
+        
+        // A. CHECK CACHE FIRST
+        const fetchPromise = new Promise((resolve) => {
             const fetchQuery = `SELECT time, open, high, low, close, volume FROM ohlc_cache WHERE symbol = ? AND timeframe = ? ${toTime ? 'AND time < ?' : ''} ORDER BY time DESC LIMIT ?`;
             const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
             db.all(fetchQuery, params, (err, rows) => {
-                if (err) { resolve({ error: err.message }); return; }
-                const reversed = (rows || []).reverse();
-                logSystemEvent(`DATA_FETCH`, { symbol, timeframe, count: reversed.length });
-                resolve({ data: reversed });
+                if (err) resolve([]);
+                else resolve(rows);
             });
         });
-    } catch (e) { return { error: "Internal IPC Error" }; }
+
+        const cachedRows = await fetchPromise;
+
+        // If we found data, return it (reversed to ascending)
+        if (cachedRows && cachedRows.length > 0) {
+            // Note: If requesting history (toTime), any amount is success.
+            // If requesting initial (toTime=null), maybe check if we have enough?
+            // For now, prompt implies "Cache Miss" usually means "Not in DB".
+            // If we have some, we assume it's ingested.
+            
+            // NOTE: The query sorts DESC (newest first). UI needs ASC (oldest first).
+            const reversed = cachedRows.reverse();
+            logSystemEvent(`DATA_FETCH_CACHE`, { symbol, timeframe, count: reversed.length });
+            return { data: reversed };
+        }
+
+        // B. CACHE MISS: ATOMIC BATCH INGEST
+        // Only if a file path is provided (Initial Load)
+        if (filePath && fs.existsSync(filePath)) {
+            logSystemEvent('DATA_INGEST_START', { symbol, filePath });
+            
+            const rawData = parseCSVFileSync(filePath); // Parse full file
+            
+            if (rawData.length === 0) return { data: [] };
+
+            // Atomic Transaction
+            await new Promise((resolve, reject) => {
+                db.serialize(() => {
+                    db.run("BEGIN TRANSACTION");
+                    const stmt = db.prepare("INSERT OR IGNORE INTO ohlc_cache (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                    
+                    // Batch insert
+                    rawData.forEach(r => {
+                        stmt.run(symbol, timeframe, r.time, r.open, r.high, r.low, r.close, r.volume);
+                    });
+                    
+                    stmt.finalize();
+                    db.run("COMMIT", (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+                });
+            });
+            
+            logSystemEvent('DATA_INGEST_COMPLETE', { symbol, count: rawData.length });
+
+            // C. RETURN WINDOW (The last N bars)
+            let resultData = rawData;
+            // If specific time requested (unlikely on ingest path unless mixed usage), filter
+            if (toTime) {
+                resultData = rawData.filter(d => d.time < toTime);
+            }
+            
+            // Slice last 'limit' items (newest)
+            const sliced = resultData.slice(-limit);
+            
+            return { data: sliced };
+        }
+
+        return { data: [] }; // No data found and no file to ingest
+
+    } catch (e) {
+        logSystemEvent('DATA_FETCH_ERROR', { error: e.message }, 'ERROR');
+        return { error: e.message };
+    }
 });
 
 ipcMain.handle('drawings:get-state', async (event, symbol) => {
