@@ -324,7 +324,6 @@ const App: React.FC = () => {
     }
   }, [activeTabId, updateTab, tabs]);
   
-  // FIX: Destructure 'isHydrating' from the hook to make it available in the component scope.
   const { isHydrating } = useSymbolPersistence({
       symbol: activeSourceId,
       onStateLoaded: handleStateLoaded,
@@ -584,11 +583,7 @@ const App: React.FC = () => {
 
   // --- Optimized Data Loading ---
   const loadPreviousChunk = async (tab: TabSession, fileState: any) => {
-      // If we are in Optimized Electron Mode, we don't paginate CSVs like this anymore.
-      // The backend returns full datasets from SQLite.
-      // This function is kept for Web Mode fallback.
-      if (isBridgeAvailable) return null;
-
+      // In Web Mode, paginate file
       if (!fileState.hasMore || fileState.isLoading) return null;
 
       const fileSource = fileState.file;
@@ -631,27 +626,25 @@ const App: React.FC = () => {
           // --- Optimization Task 1: Check for Optimized Bridge ---
           if (isBridgeAvailable && window.electronAPI && window.electronAPI.getMarketData) {
               const filePath = fileSource.path;
-              // Default to '1h' if detecting fails, logic below handles detection
+              // Default to '1h' if detecting fails
               let initialTf = forceTimeframe;
-              
-              // We need timeframe to query SQLite efficiently.
-              // If forceTimeframe is not provided, we guess from filename.
               if (!initialTf) {
-                  // Basic detection from filename logic (duplicated from utils for immediate use)
-                  // For robust detection, we might need to read the first line, but lets rely on filename first
                   if (fileName.includes('1m') || fileName.includes('1M')) initialTf = Timeframe.M1;
                   else if (fileName.includes('5m')) initialTf = Timeframe.M5;
                   else if (fileName.includes('15m')) initialTf = Timeframe.M15;
                   else if (fileName.includes('1h')) initialTf = Timeframe.H1;
                   else if (fileName.includes('4h')) initialTf = Timeframe.H4;
                   else if (fileName.includes('1d') || fileName.includes('1D')) initialTf = Timeframe.D1;
-                  else initialTf = Timeframe.H1; // Fallback
+                  else initialTf = Timeframe.H1; 
               }
 
               const symbol = getBaseSymbolName(fileName);
               
-              debugLog('Data', `Invoking optimized ingest for ${symbol} (${initialTf})`);
-              const response = await window.electronAPI.getMarketData(symbol, initialTf, filePath);
+              // Load only latest 1000 bars (Windowed Mode)
+              debugLog('Data', `Invoking optimized ingest for ${symbol} (${initialTf}) - Windowed`);
+              
+              // Pass null for toTime to get latest
+              const response = await window.electronAPI.getMarketData(symbol, initialTf, filePath, null, 1000);
               
               if (response.error) {
                   throw new Error(response.error);
@@ -660,9 +653,8 @@ const App: React.FC = () => {
               const cleanRawData = response.data || [];
               const sourceId = getSourceId(filePath || fileName, 'asset');
               
-              // Apply Sanitization & Resampling on Frontend (Lightweight)
-              const tfMs = getTimeframeDuration(initialTf);
-              const displayData = resampleData(cleanRawData, initialTf); // Should match if db is correct
+              // Direct assignment - no resampling needed if DB is accurate
+              const displayData = cleanRawData; 
 
               let replayIndex = displayData.length - 1;
               if (preservedReplay?.replayGlobalTime) {
@@ -670,17 +662,18 @@ const App: React.FC = () => {
                   if (idx !== -1) replayIndex = idx;
               }
 
-              // Update Tab State
+              // Update Tab State with Windowed Data
+              // NOTE: rawData in electron mode is used just for reference or same as displayData to save memory
               updateTabState(
                   targetTabId, 
                   fileName, 
-                  symbol, 
+                  symbol, // Use symbol as ID for SQLite query consistency
                   sourceId, 
                   cleanRawData, 
                   displayData, 
                   initialTf, 
                   filePath, 
-                  null, // No fileState needed for SQLite mode
+                  { isLoading: false, hasMore: true }, // Fake file state to allow "load more" via history trigger
                   replayIndex, 
                   preservedReplay
               );
@@ -835,10 +828,47 @@ const App: React.FC = () => {
       const tab = tabs.find(t => t.id === tabId);
       if (!tab) return;
       
-      // In SQLite mode, all history is loaded at once via the bulk query. 
-      // Pagination is disabled for now as per Mandate (parse once, query all).
-      if (isBridgeAvailable) return;
+      // OPTIMIZATION TASK 2: Windowed Infinite Scroll (Electron)
+      if (isBridgeAvailable && window.electronAPI && window.electronAPI.getMarketData) {
+          if (tab.fileState?.isLoading) return; // Debounce concurrent requests
 
+          const oldestTime = tab.data.length > 0 ? tab.data[0].time : Date.now();
+          
+          updateTab(tabId, { fileState: { ...(tab.fileState || {}), isLoading: true } });
+
+          try {
+              // Fetch previous 1000 bars strictly before current oldestTime
+              const result = await window.electronAPI.getMarketData(tab.symbolId, tab.timeframe, undefined, oldestTime, 1000);
+              
+              if (result.data && result.data.length > 0) {
+                  const historyChunk = result.data; // Already reversed (ascending)
+                  
+                  // Prepend
+                  const mergedData = [...historyChunk, ...tab.data];
+                  
+                  updateTab(tabId, {
+                      data: mergedData,
+                      // We don't necessarily update rawData here to save memory, 
+                      // or we can if we want full session in RAM.
+                      // For now, let's keep them synced for consistency.
+                      rawData: mergedData, 
+                      replayIndex: tab.replayIndex + historyChunk.length,
+                      fileState: { ...(tab.fileState || {}), isLoading: false }
+                  });
+                  debugLog('Data', `Loaded history window: ${historyChunk.length} bars`);
+              } else {
+                  // End of history
+                  debugLog('Data', 'End of history reached');
+                  updateTab(tabId, { fileState: { ...(tab.fileState || {}), isLoading: false, hasMore: false } });
+              }
+          } catch (e: any) {
+              console.error("Error loading history window:", e);
+              updateTab(tabId, { fileState: { ...(tab.fileState || {}), isLoading: false } });
+          }
+          return;
+      }
+
+      // Legacy Web Mode Chunking
       if (!tab.fileState || !tab.fileState.hasMore || tab.fileState.isLoading) return;
 
       updateTab(tabId, { 

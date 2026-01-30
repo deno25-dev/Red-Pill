@@ -200,7 +200,7 @@ export interface IElectronAPI {
   getInternalLibrary: () => Promise<any[]>;
   
   // Data Ingestion (Optimization)
-  getMarketData: (symbol: string, timeframe: string, filePath?: string) => Promise<{ data?: OHLCV[]; error?: string }>;
+  getMarketData: (symbol: string, timeframe: string, filePath?: string, toTime?: number | null, limit?: number) => Promise<{ data?: OHLCV[]; error?: string }>;
 
   // Persistence (SQLite/JSON Store)
   loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;

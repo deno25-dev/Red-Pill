@@ -19,7 +19,8 @@ try {
         getInternalFolders: () => ipcRenderer.invoke('get-internal-library'), // Alias
         
         // --- Data Ingestion (Optimization Task 1) ---
-        getMarketData: (symbol, timeframe, filePath) => ipcRenderer.invoke('market:get-data', symbol, timeframe, filePath),
+        // getMarketData(symbol, timeframe, filePath, toTime, limit)
+        getMarketData: (symbol, timeframe, filePath, toTime, limit) => ipcRenderer.invoke('market:get-data', symbol, timeframe, filePath, toTime, limit),
 
         // --- Persistence (Drawings - SQLite) ---
         // Legacy Support
