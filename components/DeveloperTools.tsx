@@ -11,7 +11,9 @@ import {
   ChevronRight, 
   Code,
   Layers,
-  HardDrive
+  HardDrive,
+  Copy,
+  Check
 } from 'lucide-react';
 import { LogEntry, LogCategory, rpLog, clearLogs } from '../utils/logger';
 
@@ -73,6 +75,11 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [globalState, setGlobalState] = useState<any>(null);
   const [isLoadingState, setIsLoadingState] = useState(false);
+  
+  // Feedback States
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+  const [isStateCopied, setIsStateCopied] = useState(false);
+  const [isCopyingAll, setIsCopyingAll] = useState(false);
 
   // Keyboard toggle (Ctrl + D)
   useEffect(() => {
@@ -132,11 +139,50 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
       setIsLoadingState(false);
   };
 
+  const handleCopy = async (text: string, type: 'log' | 'state', id?: string) => {
+      const electron = window.electronAPI;
+      
+      try {
+          if (electron && electron.copyToClipboard) {
+              electron.copyToClipboard(text);
+          } else {
+              await navigator.clipboard.writeText(text);
+          }
+
+          if (type === 'log' && id) {
+              setCopiedLogId(id);
+              setTimeout(() => setCopiedLogId(null), 1000);
+          } else if (type === 'state') {
+              setIsStateCopied(true);
+              setTimeout(() => setIsStateCopied(false), 1000);
+          }
+      } catch (e) {
+          console.error("Failed to copy:", e);
+      }
+  };
+
   if (!isOpen) return null;
 
   const filteredLogs = filterCategory === 'ALL' 
     ? logs 
     : logs.filter(l => l.category === filterCategory);
+
+  const handleCopyAll = async () => {
+      const text = JSON.stringify(filteredLogs, null, 2);
+      const electron = window.electronAPI;
+      
+      try {
+          if (electron && electron.copyToClipboard) {
+              electron.copyToClipboard(text);
+          } else {
+              await navigator.clipboard.writeText(text);
+          }
+          setIsCopyingAll(true);
+          setTimeout(() => setIsCopyingAll(false), 1000);
+      } catch (e) {
+          console.error("Failed to copy all logs:", e);
+      }
+  };
 
   return (
     <div className="fixed inset-y-0 right-0 w-[600px] bg-[#09090b] border-l border-emerald-900/50 shadow-2xl z-[9999] flex flex-col font-mono text-sm text-emerald-500 animate-in slide-in-from-right duration-200">
@@ -190,7 +236,18 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
                           {cat}
                       </button>
                   ))}
-                  <button onClick={clearLogs} className="ml-auto px-2 py-1 text-[10px] text-red-400 hover:text-red-200"><Trash2 size={12} /></button>
+                  
+                  <div className="ml-auto flex items-center gap-1">
+                      <button 
+                        onClick={handleCopyAll}
+                        className={`px-2 py-1 text-[10px] rounded border transition-colors flex items-center gap-1 ${isCopyingAll ? 'bg-emerald-900/40 border-emerald-500 text-emerald-300' : 'border-emerald-900/30 text-emerald-600 hover:text-emerald-400 hover:border-emerald-700'}`}
+                        title="Copy All Visible Logs"
+                      >
+                          {isCopyingAll ? <Check size={10} /> : <Copy size={10} />}
+                          <span className="hidden sm:inline">COPY ALL</span>
+                      </button>
+                      <button onClick={clearLogs} className="px-2 py-1 text-[10px] text-red-400 hover:text-red-200 hover:bg-red-900/20 rounded" title="Clear Console"><Trash2 size={12} /></button>
+                  </div>
               </div>
 
               {/* Log Stream */}
@@ -206,18 +263,29 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
                             key={log.id} 
                             className={`border rounded ${levelColor} transition-all`}
                           >
-                              <div 
-                                className="flex items-center gap-2 p-1.5 cursor-pointer"
-                                onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                              >
-                                  <ChevronRight size={12} className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                                  <span className="text-[10px] opacity-60 font-mono w-16 shrink-0">
-                                      {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit', fractionDigits: 3 } as any).split(' ')[0]}
-                                  </span>
-                                  <span className="text-[9px] font-bold px-1 rounded bg-black/30 border border-current opacity-70 w-24 text-center shrink-0 truncate">
-                                      {log.category}
-                                  </span>
-                                  <span className="text-xs truncate flex-1 font-medium">{log.message}</span>
+                              <div className="flex items-center gap-2 p-1.5">
+                                  <div 
+                                    className="flex items-center gap-2 flex-1 cursor-pointer overflow-hidden"
+                                    onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                                  >
+                                      <ChevronRight size={12} className={`transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`} />
+                                      <span className="text-[10px] opacity-60 font-mono w-16 shrink-0">
+                                          {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit', fractionDigits: 3 } as any).split(' ')[0]}
+                                      </span>
+                                      <span className="text-[9px] font-bold px-1 rounded bg-black/30 border border-current opacity-70 w-24 text-center shrink-0 truncate">
+                                          {log.category}
+                                      </span>
+                                      <span className="text-xs truncate flex-1 font-medium">{log.message}</span>
+                                  </div>
+                                  
+                                  {/* Copy Button */}
+                                  <button
+                                    onClick={() => handleCopy(JSON.stringify(log, null, 2), 'log', log.id)}
+                                    className="p-1 hover:bg-black/30 rounded text-current opacity-50 hover:opacity-100 transition-opacity"
+                                    title="Copy Log JSON"
+                                  >
+                                      {copiedLogId === log.id ? <Check size={12} /> : <Copy size={12} />}
+                                  </button>
                               </div>
 
                               {isExpanded && (
@@ -259,13 +327,23 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ activeDataSource
                       <Activity size={14} />
                       <span>System Snapshot</span>
                   </div>
-                  <button 
-                    onClick={fetchGlobalState}
-                    className="p-1 hover:bg-emerald-900/40 rounded text-emerald-400"
-                    title="Refresh State"
-                  >
-                      <Search size={14} className={isLoadingState ? 'animate-spin' : ''} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => globalState && handleCopy(JSON.stringify(globalState, null, 2), 'state')}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${isStateCopied ? 'bg-emerald-900/40 border-emerald-500 text-emerald-300' : 'bg-black/30 border-emerald-900/30 text-emerald-600 hover:text-emerald-400 hover:border-emerald-700'}`}
+                        disabled={!globalState}
+                      >
+                          {isStateCopied ? <Check size={10} /> : <Copy size={10} />}
+                          {isStateCopied ? 'COPIED!' : 'COPY STATE'}
+                      </button>
+                      <button 
+                        onClick={fetchGlobalState}
+                        className="p-1 hover:bg-emerald-900/40 rounded text-emerald-400"
+                        title="Refresh State"
+                      >
+                          <Search size={14} className={isLoadingState ? 'animate-spin' : ''} />
+                      </button>
+                  </div>
               </div>
               
               <div className="flex-1 overflow-auto p-4 custom-scrollbar bg-[#050505]">

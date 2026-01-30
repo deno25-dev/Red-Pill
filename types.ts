@@ -224,7 +224,8 @@ export interface IElectronAPI {
 
   // Telemetry & Events
   getSystemTelemetry: () => Promise<any>;
-  getGlobalState: () => Promise<any>; // Added for DeveloperTools
+  getGlobalState: () => Promise<any>;
+  copyToClipboard: (text: string) => void; // Added
   onFolderChange: (callback: (files: any[]) => void) => () => void;
 }
 

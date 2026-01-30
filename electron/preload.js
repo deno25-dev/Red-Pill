@@ -3,7 +3,7 @@
 window.PRELOAD_EXECUTED = true;
 
 try {
-    const { contextBridge, ipcRenderer } = require('electron');
+    const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
     console.log('--- PRELOAD LOADED ---');
 
@@ -62,6 +62,9 @@ try {
         
         // --- NEW: Global State Explorer ---
         getGlobalState: () => ipcRenderer.invoke('debug:get-global-state'),
+
+        // --- Clipboard ---
+        copyToClipboard: (text) => clipboard.writeText(text),
 
         // --- Listeners ---
         onFolderChange: (callback) => {
