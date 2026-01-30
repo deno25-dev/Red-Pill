@@ -1,8 +1,8 @@
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 
-// 1. INCREASE HEAP TO 500MB (Phase 1: Memory Power-Up)
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=500');
+// 1. INCREASE HEAP TO 500MB (Phase 1: Memory Power-Up) + Expose GC for manual cleanup
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=500 --expose-gc');
 
 const path = require('path');
 const fs = require('fs');
@@ -280,6 +280,48 @@ const parseCSVFileSync = (filePath) => {
     }
 };
 
+const ingestData = (symbol, timeframe, filePath) => {
+    try {
+        logSystemEvent('DATA_INGEST_START', { symbol, filePath });
+        let rawData = parseCSVFileSync(filePath);
+        
+        if (rawData.length === 0) {
+             if (mainWindow) mainWindow.webContents.send('ingest-complete', { symbol, timeframe, count: 0 });
+             return;
+        }
+
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+            const stmt = db.prepare("INSERT OR IGNORE INTO ohlc_cache (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            
+            // Batch insert
+            rawData.forEach(r => {
+                stmt.run(symbol, timeframe, r.time, r.open, r.high, r.low, r.close, r.volume);
+            });
+            
+            stmt.finalize();
+            db.run("COMMIT", (err) => {
+                if (!err) {
+                    logSystemEvent('DATA_INGEST_COMPLETE', { symbol, count: rawData.length });
+                    if (mainWindow) mainWindow.webContents.send('ingest-complete', { symbol, timeframe, count: rawData.length });
+                } else {
+                    logSystemEvent('DATA_INGEST_FAILED', { error: err.message }, 'ERROR');
+                    if (mainWindow) mainWindow.webContents.send('ingest-complete', { symbol, timeframe, error: err.message });
+                }
+                
+                // Task 4: Explicit Memory Cleanup
+                rawData = null;
+                if (global.gc) {
+                    try { global.gc(); logSystemEvent('GC_TRIGGERED'); } catch(e) {}
+                }
+            });
+        });
+    } catch (e) {
+        logSystemEvent('DATA_INGEST_ERROR', { error: e.message }, 'ERROR');
+        if (mainWindow) mainWindow.webContents.send('ingest-complete', { symbol, timeframe, error: e.message });
+    }
+};
+
 ipcMain.handle('debug:get-global-state', async () => {
     // Collect state from main process memory
     const mem = process.memoryUsage();
@@ -328,7 +370,7 @@ ipcMain.handle('get-default-database-path', () => resolveAssetsPath());
 ipcMain.handle('get-internal-library', async () => runBootScan());
 
 ipcMain.handle('file:watch-folder', async (event, folderPath) => {
-  if (watcher) { watcher.close(); watcher = null; }
+  if (watcher) { watcher.close(); watcher = null; logSystemEvent('WATCH_FOLDER_STOP'); }
   logSystemEvent('WATCH_FOLDER_START', { path: folderPath });
   try {
     const getFilesRecursive = (dir) => {
@@ -380,14 +422,24 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     } catch (e) { return { exists: false, size: 0 }; }
 });
 
-// --- OPTIMIZED MARKET DATA HANDLER (Windowed + Atomic Ingest) ---
+// --- OPTIMIZED MARKET DATA HANDLER (Windowed + Async Ingest) ---
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
     try {
         if (!db) return { error: "Database not initialized" };
         
         // A. CHECK CACHE FIRST
         const fetchPromise = new Promise((resolve) => {
-            const fetchQuery = `SELECT time, open, high, low, close, volume FROM ohlc_cache WHERE symbol = ? AND timeframe = ? ${toTime ? 'AND time < ?' : ''} ORDER BY time DESC LIMIT ?`;
+            const fetchQuery = `
+                SELECT * FROM (
+                    SELECT time, open, high, low, close, volume 
+                    FROM ohlc_cache 
+                    WHERE symbol = ? AND timeframe = ? 
+                    ${toTime ? 'AND time < ?' : ''} 
+                    ORDER BY time DESC 
+                    LIMIT ?
+                ) 
+                ORDER BY time ASC
+            `;
             const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
             db.all(fetchQuery, params, (err, rows) => {
                 if (err) resolve([]);
@@ -397,60 +449,22 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
 
         const cachedRows = await fetchPromise;
 
-        // If we found data, return it (reversed to ascending)
+        // If we found data, return it immediately
         if (cachedRows && cachedRows.length > 0) {
-            // Note: If requesting history (toTime), any amount is success.
-            // If requesting initial (toTime=null), maybe check if we have enough?
-            // For now, prompt implies "Cache Miss" usually means "Not in DB".
-            // If we have some, we assume it's ingested.
-            
-            // NOTE: The query sorts DESC (newest first). UI needs ASC (oldest first).
-            const reversed = cachedRows.reverse();
-            logSystemEvent(`DATA_FETCH_CACHE`, { symbol, timeframe, count: reversed.length });
-            return { data: reversed };
+            logSystemEvent(`DATA_FETCH_CACHE`, { symbol, timeframe, count: cachedRows.length });
+            return { data: cachedRows };
         }
 
-        // B. CACHE MISS: ATOMIC BATCH INGEST
-        // Only if a file path is provided (Initial Load)
+        // B. CACHE MISS: ASYNC INGEST
         if (filePath && fs.existsSync(filePath)) {
-            logSystemEvent('DATA_INGEST_START', { symbol, filePath });
-            
-            const rawData = parseCSVFileSync(filePath); // Parse full file
-            
-            if (rawData.length === 0) return { data: [] };
-
-            // Atomic Transaction
-            await new Promise((resolve, reject) => {
-                db.serialize(() => {
-                    db.run("BEGIN TRANSACTION");
-                    const stmt = db.prepare("INSERT OR IGNORE INTO ohlc_cache (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                    
-                    // Batch insert
-                    rawData.forEach(r => {
-                        stmt.run(symbol, timeframe, r.time, r.open, r.high, r.low, r.close, r.volume);
-                    });
-                    
-                    stmt.finalize();
-                    db.run("COMMIT", (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
+            // Task 3: Prevent "Locked" Ingestion
+            // Return 'ingesting' status immediately to unlock UI
+            // Schedule the heavy ingest on the next tick
+            setImmediate(() => {
+                ingestData(symbol, timeframe, filePath);
             });
             
-            logSystemEvent('DATA_INGEST_COMPLETE', { symbol, count: rawData.length });
-
-            // C. RETURN WINDOW (The last N bars)
-            let resultData = rawData;
-            // If specific time requested (unlikely on ingest path unless mixed usage), filter
-            if (toTime) {
-                resultData = rawData.filter(d => d.time < toTime);
-            }
-            
-            // Slice last 'limit' items (newest)
-            const sliced = resultData.slice(-limit);
-            
-            return { data: sliced };
+            return { status: 'ingesting' };
         }
 
         return { data: [] }; // No data found and no file to ingest
@@ -510,7 +524,6 @@ ipcMain.handle('trades:save', async (event, trade) => {
 });
 
 ipcMain.handle('get-system-telemetry', async () => {
-    // This is the old handler, potentially deprecated by get-global-state, but kept for compatibility
     const mem = process.memoryUsage();
     return {
         processInfo: { version: process.versions.electron, uptime: Math.floor(process.uptime()), pid: process.pid },

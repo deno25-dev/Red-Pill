@@ -650,35 +650,68 @@ const App: React.FC = () => {
                   throw new Error(response.error);
               }
 
-              const cleanRawData = response.data || [];
-              const sourceId = getSourceId(filePath || fileName, 'asset');
-              
-              // Direct assignment - no resampling needed if DB is accurate
-              const displayData = cleanRawData; 
-
-              let replayIndex = displayData.length - 1;
-              if (preservedReplay?.replayGlobalTime) {
-                  const idx = displayData.findIndex(d => d.time >= preservedReplay.replayGlobalTime!);
-                  if (idx !== -1) replayIndex = idx;
+              // --- Handle Async Ingestion ---
+              if (response.status === 'ingesting') {
+                  debugLog('Data', `Ingestion started for ${symbol}. Waiting for event...`);
+                  
+                  // Keep loading spinner
+                  // Wait for completion event
+                  const cleanup = window.electronAPI.onIngestComplete(async (info) => {
+                      // Check if this event matches our request (simplistic check)
+                      if (info.symbol === symbol && info.timeframe === initialTf) {
+                          debugLog('Data', `Ingestion complete event received for ${symbol}`);
+                          cleanup();
+                          
+                          // Retry fetching data (now cached)
+                          try {
+                              const retryResponse = await window.electronAPI!.getMarketData(symbol, initialTf, undefined, null, 1000);
+                              
+                              if (retryResponse.data) {
+                                  finishLoading(retryResponse.data);
+                              } else {
+                                  setLoading(false);
+                                  alert("Data ingestion completed but no data returned.");
+                              }
+                          } catch (err) {
+                              console.error("Retry fetch failed", err);
+                              setLoading(false);
+                          }
+                      }
+                  });
+                  return; // Exit here, let event handler finish
               }
 
-              // Update Tab State with Windowed Data
-              // NOTE: rawData in electron mode is used just for reference or same as displayData to save memory
-              updateTabState(
-                  targetTabId, 
-                  fileName, 
-                  symbol, // Use symbol as ID for SQLite query consistency
-                  sourceId, 
-                  cleanRawData, 
-                  displayData, 
-                  initialTf, 
-                  filePath, 
-                  { isLoading: false, hasMore: true }, // Fake file state to allow "load more" via history trigger
-                  replayIndex, 
-                  preservedReplay
-              );
+              const cleanRawData = response.data || [];
+              finishLoading(cleanRawData);
+
+              function finishLoading(data: OHLCV[]) {
+                  const sourceId = getSourceId(filePath || fileName, 'asset');
+                  
+                  // Direct assignment
+                  const displayData = data; 
+
+                  let replayIndex = displayData.length - 1;
+                  if (preservedReplay?.replayGlobalTime) {
+                      const idx = displayData.findIndex(d => d.time >= preservedReplay.replayGlobalTime!);
+                      if (idx !== -1) replayIndex = idx;
+                  }
+
+                  updateTabState(
+                      targetTabId, 
+                      fileName, 
+                      symbol, 
+                      sourceId, 
+                      data, 
+                      displayData, 
+                      initialTf!, 
+                      filePath, 
+                      { isLoading: false, hasMore: true },
+                      replayIndex, 
+                      preservedReplay
+                  );
+                  setLoading(false);
+              }
               
-              setLoading(false);
               return;
           }
 
@@ -749,13 +782,13 @@ const App: React.FC = () => {
           );
 
           debugLog('Data', `File stream started successfully. Records: ${cleanRawData.length}`);
+          setLoading(false);
 
       } catch (e: any) {
           console.error("Error starting stream:", e);
           debugLog('Data', 'Error starting file stream', e.message);
           setLastError(e.message);
           alert("Failed to load file.");
-      } finally {
           setLoading(false);
       }
   }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab, reportFileLoad]);
