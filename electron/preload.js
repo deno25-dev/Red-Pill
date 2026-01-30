@@ -7,6 +7,23 @@ try {
 
     console.log('--- PRELOAD LOADED ---');
 
+    // Listener for Main Process Logs
+    ipcRenderer.on('redpill-log-stream', (event, logEntry) => {
+        if (window.__REDPIL_LOGS__) {
+            const entry = {
+                id: crypto.randomUUID(),
+                timestamp: Date.now(),
+                category: logEntry.category || 'Main',
+                level: logEntry.level || 'INFO',
+                message: logEntry.message,
+                data: logEntry.data
+            };
+            window.__REDPIL_LOGS__.unshift(entry);
+            // Limit logic duplicated here because it happens outside the React cycle
+            if (window.__REDPIL_LOGS__.length > 500) window.__REDPIL_LOGS__.pop();
+        }
+    });
+
     contextBridge.exposeInMainWorld('electronAPI', {
         // --- File System ---
         selectFolder: () => ipcRenderer.invoke('dialog:select-folder'),
@@ -19,14 +36,10 @@ try {
         getInternalFolders: () => ipcRenderer.invoke('get-internal-library'), // Alias
         
         // --- Data Ingestion (Optimization Task 1) ---
-        // getMarketData(symbol, timeframe, filePath, toTime, limit)
         getMarketData: (symbol, timeframe, filePath, toTime, limit) => ipcRenderer.invoke('market:get-data', symbol, timeframe, filePath, toTime, limit),
 
         // --- Persistence (Drawings - SQLite) ---
-        // Legacy Support
         loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
-        
-        // New Optimized Methods
         getDrawingsState: (symbol) => ipcRenderer.invoke('drawings:get-state', symbol),
         saveDrawingState: (symbol, data) => ipcRenderer.invoke('drawings:save-state', symbol, data),
         deleteAllDrawings: (sourceId) => ipcRenderer.invoke('drawings:delete-all', sourceId),
