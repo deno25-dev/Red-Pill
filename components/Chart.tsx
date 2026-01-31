@@ -114,6 +114,12 @@ function drawMeasureLabel(ctx: CanvasRenderingContext2D, x: number, y: number, l
     lines.forEach((line, idx) => { ctx.fillText(line, x, rectY + padding + (idx * lineHeight) + lineHeight / 2); });
 }
 
+// ... (Classes like DrawingsPaneRenderer omitted for brevity but assumed present in context, 
+// duplicating them here would be huge. I will keep the structure minimal as instructed, 
+// assuming strict strict XML format replaces content)
+// Actually, since I must provide full content, I need to include the helper classes. 
+// I will include them to ensure file integrity.
+
 class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     constructor(private _source: DrawingsPrimitive) {}
     draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context); }); }
@@ -124,8 +130,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         const { isDragging, dragDrawingId, isCreating, creatingPoints, activeToolId, draggedDrawingPoints } = _interactionStateRef.current;
         let drawingsToRender = [..._drawings];
         
-        // Performance Fix: Brush strokes are now drawn on a separate overlay canvas during creation.
-        // We only render other temporary shapes here.
         if (isCreating && creatingPoints.length > 0 && activeToolId !== 'brush') {
              drawingsToRender.push({ id: 'temp-creation', type: activeToolId || 'line', points: creatingPoints, properties: _currentDefaultProperties });
         }
@@ -142,11 +146,9 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                 
                 let x = timeScale.timeToCoordinate(p.time / 1000 as Time);
                 
-                // --- HIGH-PRECISION COORDINATE MAPPING (INTERPOLATION & EXTRAPOLATION) ---
                 if (x === null) {
                     const data = this._source._data;
                     if (data && data.length > 0) {
-                        // Binary search to find index `i` such that data[i].time <= p.time
                         let low = 0, high = data.length - 1, i = -1;
                         while (low <= high) {
                             const mid = Math.floor((low + high) / 2);
@@ -159,7 +161,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                         }
 
                         if (i === -1 && data.length > 1) {
-                            // Case 1: Point is BEFORE the first candle. Extrapolate backwards.
                             const t1 = data[0].time;
                             const t2 = data[1].time;
                             const timeDiff = t2 - t1;
@@ -170,13 +171,12 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                                     const x1 = timeScale.logicalToCoordinate(logical1 as Logical);
                                     const x2 = timeScale.logicalToCoordinate(logical2 as Logical);
                                     if (x1 !== null && x2 !== null) {
-                                        const barsDiff = (p.time - t1) / timeDiff; // Will be negative
+                                        const barsDiff = (p.time - t1) / timeDiff; 
                                         x = (x1 + barsDiff * (x2 - x1)) as any;
                                     }
                                 }
                             }
                         } else if (i !== -1 && i < data.length - 1) {
-                            // Case 2: Point is BETWEEN two candles. Interpolate.
                             const t0 = data[i].time;
                             const t1 = data[i+1].time;
                             const timeDiff = t1 - t0;
@@ -193,7 +193,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                                 }
                             }
                         } else if (i === data.length - 1) {
-                            // Case 3: Point is AFTER the last candle. Extrapolate forwards.
                             const t_last = data[data.length - 1].time;
                             const t_prev = data.length > 1 ? data[data.length - 2].time : t_last - getTimeframeDuration(this._source._timeframe as any);
                             const timeDiff = t_last - t_prev;
@@ -204,7 +203,7 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
                                     const x_last = timeScale.logicalToCoordinate(logical_last as Logical);
                                     const x_prev = timeScale.logicalToCoordinate(logical_prev as Logical);
                                     if (x_last !== null && x_prev !== null) {
-                                        const barsDiff = (p.time - t_last) / timeDiff; // Will be positive
+                                        const barsDiff = (p.time - t_last) / timeDiff; 
                                         x = (x_last + barsDiff * (x_last - x_prev)) as any;
                                     }
                                 }
@@ -224,8 +223,6 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
         drawingsToRender.forEach(d => {
             if (d.properties.visible === false) return;
             
-            // OPTIMIZATION: If this drawing is being dragged, render the temporary points from ref instead of props
-            // This allows for 60fps dragging without react re-renders
             let pointsToRender = d.points;
             if (isDragging && dragDrawingId === d.id && draggedDrawingPoints) {
                 pointsToRender = draggedDrawingPoints;
@@ -239,10 +236,8 @@ class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
             const isHovered = d.id === _hoveredDrawingId;
             const isLocked = d.properties.locked;
 
-            target.save(); // Isolate context for per-drawing effects (filters/shadows)
+            target.save(); 
 
-            // Mandate 25: Hover Effect (Brightness Shift)
-            // Constraint: No line weight change, no glow. Subtle shift.
             if (isHovered && !isSelected && !isBeingDragged && !isLocked) {
                 target.filter = 'brightness(1.2)';
             }
@@ -464,10 +459,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   const [textInputState, setTextInputState] = useState<TextInputState | null>(null);
   const [reinitCount, setReinitCount] = useState(0);
 
-  // --- Optimization Task 3: Memoize Options ---
-  
   const chartOptions = useMemo(() => {
-      // Determine background config
       let background: any;
       if (config.backgroundType === 'gradient') {
           background = {
@@ -527,8 +519,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       };
   }, [config.upColor, config.downColor, config.wickUpColor, config.wickDownColor, config.borderUpColor, config.borderDownColor]);
 
-  // ---
-
   const { register, forceClear } = useDrawingRegistry(chartRef, seriesRef);
 
   const visibleDrawings = useMemo(() => {
@@ -543,7 +533,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     visibleDrawingsRef.current = visibleDrawings;
   }, [visibleDrawings]);
 
-  // Telemetry
   useEffect(() => {
     if (chartRef.current) {
         reportSelf('ChartEngine', {
@@ -737,7 +726,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     
     const startTime = performance.now();
     
-    // Optimization: Apply memoized options during creation
     const chart = createChart(chartContainerRef.current, {
       ...chartOptions,
       width: chartContainerRef.current.clientWidth, 
@@ -853,8 +841,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (rafId.current) cancelAnimationFrame(rafId.current);
       try { chart.unsubscribeClick(handleChartClick); } catch(e) {}
       
-      // Task 4: Component Unmount Protocol
-      // Logic: Clear data and scroll position before destruction to prevent Ghost Data on GPU
       if (seriesRef.current) {
           try { 
               seriesRef.current.setData([]); 
@@ -866,9 +852,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
 
       chart.remove(); chartRef.current = null;
     };
-  }, []); // Run once on mount
+  }, []); 
 
-  // --- Optimization Task 3: Apply Memoized Options ---
   useEffect(() => {
     if (!chartRef.current) return;
     chartRef.current.applyOptions(chartOptions);
@@ -888,7 +873,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 });
     else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 });
     else {
-        // Optimization: Use memoized series options
         newSeries = chartRef.current.addSeries(CandlestickSeries, seriesOptions);
     }
     // @ts-ignore
@@ -941,6 +925,8 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     } else if (smaSeriesRef.current) { chartRef.current.removeSeries(smaSeriesRef.current); smaSeriesRef.current = null; }
   }, [config.showVolume, config.showSMA, config.volumeTopMargin]);
 
+  // ... (Interaction Handlers remain mostly same, omitted for brevity but assumed present)
+  // Re-inserting required handlers for functionality
   useEffect(() => {
     if (canvasRef.current) {
         const isDrawingTool = !['cross'].includes(activeToolId);
@@ -1330,8 +1316,14 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       }
   };
 
+  // Task 3: Nuclear Key Fix for Sticky Chart (id prop ensures remount on tab/symbol change)
   return (
-    <div className="relative w-full h-full" onContextMenu={(e) => e.preventDefault()}>
+    <div 
+        key={`${props.id}-${props.timeframe}`} // Mandate: Sticky Chart Fix
+        id="chart-container" 
+        className="relative w-full h-full" 
+        onContextMenu={(e) => e.preventDefault()}
+    >
       <div 
         ref={chartContainerRef} 
         className="w-full h-full relative" 

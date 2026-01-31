@@ -1,5 +1,6 @@
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { Worker } = require('worker_threads');
 
 // 1. INCREASE HEAP TO 500MB (Phase 1: Memory Power-Up)
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=500');
@@ -49,6 +50,7 @@ const logSystemEvent = (eventName, data = null, level = 'INFO') => {
 let mainWindow;
 let watcher = null;
 let db = null;
+let dbPathGlobal = null; // Store for worker
 
 // --- CONFIGURATION ---
 const IGNORED_DIRECTORIES = ['Database', '.git', 'node_modules', 'dist', 'build', 'release', 'src', 'src-tauri', 'public'];
@@ -60,7 +62,7 @@ let internalLibraryStorage = [];
 const setupDatabase = () => {
     const userDataPath = app.getPath('userData');
     const dbFolder = path.join(userDataPath, 'RedPill');
-    const dbPath = path.join(dbFolder, 'master.db');
+    dbPathGlobal = path.join(dbFolder, 'master.db');
 
     if (!fs.existsSync(dbFolder)) {
         try {
@@ -73,7 +75,7 @@ const setupDatabase = () => {
     }
 
     // Task 3: Non-Blocking SQLite (The WAL Verify)
-    db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+    db = new sqlite3.Database(dbPathGlobal, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
         if (err) {
             console.error('Database initialization failed:', err);
             logSystemEvent('DB_INIT_FAILED', { error: err.message }, 'CRITICAL');
@@ -201,85 +203,37 @@ const runBootScan = () => {
     return internalLibraryStorage;
 };
 
-// --- HELPER: CSV Parsing (Node.js) ---
-const parseCSVFileSync = (filePath) => {
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const lines = content.split('\n');
-        const data = [];
-        
-        for (const line of lines) {
-            // Skip empty lines or header lines (assuming header doesn't start with digit)
-            if (!line || !line.trim() || !/^\d/.test(line.trim())) continue;
-
-            const delimiter = line.indexOf(';') > -1 ? ';' : ',';
-            const parts = line.split(delimiter);
-
-            // Require at least 5 columns
-            if (parts.length < 5) continue;
-
-            try {
-                let dateStr = '';
-                let timestamp = 0;
-                let open = 0, high = 0, low = 0, close = 0, volume = 0;
-
-                const p0 = parts[0].trim();
-                const p1 = parts[1].trim();
-
-                // Check for Date + Time split columns
-                const isDateColumn = /^\d{8}$/.test(p0) || /^\d{4}[\.\-\/]\d{2}[\.\-\/]\d{2}$/.test(p0);
-                const isTimeColumn = p1.includes(':');
-
-                if (isDateColumn && isTimeColumn) {
-                    let cleanDate = p0.replace(/[\.\-\/]/g, '');
-                    if (cleanDate.length === 8) {
-                        cleanDate = `${cleanDate.substring(0,4)}-${cleanDate.substring(4,6)}-${cleanDate.substring(6,8)}`;
-                    }
-                    dateStr = `${cleanDate}T${p1}`;
-                    
-                    open = parseFloat(parts[2]);
-                    high = parseFloat(parts[3]);
-                    low = parseFloat(parts[4]);
-                    close = parseFloat(parts[5]);
-                    if (parts.length > 6) {
-                        const v = parseFloat(parts[6]);
-                        volume = isNaN(v) ? 0 : v;
-                    }
-                } else {
-                     // Single Column Date/Timestamp
-                     dateStr = p0;
-                     open = parseFloat(parts[1]);
-                     high = parseFloat(parts[2]);
-                     low = parseFloat(parts[3]);
-                     close = parseFloat(parts[4]);
-                     if (parts.length > 5) {
-                         const v = parseFloat(parts[5]);
-                         volume = isNaN(v) ? 0 : v;
-                     }
-                }
-
-                if (isNaN(open) || isNaN(close)) continue;
-
-                timestamp = new Date(dateStr).getTime();
-                if (isNaN(timestamp)) {
-                    timestamp = parseFloat(dateStr);
-                    if (!isNaN(timestamp) && timestamp < 10000000000) timestamp *= 1000;
-                }
-
-                if (isNaN(timestamp) || timestamp <= 0) continue;
-
-                data.push({ time: timestamp, open, high, low, close, volume });
-            } catch (e) {
-                // skip malformed
-            }
+// --- WORKER HANDLER ---
+const runIngestWorker = (filePath, symbol, timeframe) => {
+    return new Promise((resolve, reject) => {
+        // Resolve worker path
+        let workerPath = path.join(__dirname, 'ingestWorker.js');
+        // Handle production packaging path shifts if necessary
+        if (!fs.existsSync(workerPath)) {
+             workerPath = path.join(app.getAppPath(), 'electron', 'ingestWorker.js');
         }
+
+        const worker = new Worker(workerPath);
         
-        // Sort ascending
-        return data.sort((a, b) => a.time - b.time);
-    } catch(e) {
-        console.error("CSV Parse Error:", e);
-        return [];
-    }
+        worker.on('message', (result) => {
+            if (result.success) resolve(result);
+            else reject(new Error(result.error));
+        });
+        
+        worker.on('error', reject);
+        
+        worker.on('exit', (code) => {
+            if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
+        });
+
+        // Start worker
+        worker.postMessage({
+            dbPath: dbPathGlobal,
+            filePath,
+            symbol,
+            timeframe
+        });
+    });
 };
 
 ipcMain.handle('debug:get-global-state', async () => {
@@ -310,7 +264,6 @@ ipcMain.handle('debug:get-global-state', async () => {
         logBuffer: systemLogBuffer.slice(0, 50) // Last 50 system logs
     };
 
-    // CRITICAL: Sanitize before sending to Renderer to prevent Code 134
     return safeIPC(state);
 });
 
@@ -382,95 +335,96 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     } catch (e) { return { exists: false, size: 0 }; }
 });
 
-// --- OPTIMIZED MARKET DATA HANDLER (Windowed + Atomic Ingest) ---
+// --- OPTIMIZED MARKET DATA HANDLER (Worker + Flat Array) ---
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
     try {
         if (!db) return { error: "Database not initialized" };
         
         // A. CHECK CACHE FIRST (Task 2: Optimized Windowed Query)
         const fetchPromise = new Promise((resolve) => {
-            // Task 2: Windowed SQL Query
-            // Inner: Get latest N bars (DESC)
-            // Outer: Sort them chronologically (ASC)
             const fetchQuery = `
-                SELECT * FROM (
-                    SELECT time, open, high, low, close, volume 
-                    FROM ohlc_cache 
-                    WHERE symbol = ? AND timeframe = ? 
-                    ${toTime ? 'AND time < ?' : ''} 
-                    ORDER BY time DESC 
-                    LIMIT ?
-                ) 
-                ORDER BY time ASC
+                SELECT time, open, high, low, close, volume 
+                FROM ohlc_cache 
+                WHERE symbol = ? AND timeframe = ? 
+                ${toTime ? 'AND time < ?' : ''} 
+                ORDER BY time DESC 
+                LIMIT ?
             `;
             const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
             db.all(fetchQuery, params, (err, rows) => {
                 if (err) resolve([]);
-                else resolve(rows);
+                else {
+                    // Reverse to ASC order for chart
+                    resolve(rows.reverse());
+                }
             });
         });
 
-        const cachedRows = await fetchPromise;
+        let cachedRows = await fetchPromise;
 
-        // If we found data, return it directly (already ASC)
-        if (cachedRows && cachedRows.length > 0) {
-            logSystemEvent(`DATA_FETCH_CACHE`, { symbol, timeframe, count: cachedRows.length });
+        // B. CACHE MISS: WORKER THREAD INGEST
+        // If no data found and we have a source file, spawn worker
+        if ((!cachedRows || cachedRows.length === 0) && filePath && fs.existsSync(filePath)) {
+            logSystemEvent('WORKER_SPAWN', { symbol, filePath });
             
-            // Task 2: Binary-Lite Transformation [t, o, h, l, c, v]
-            // Reduces payload size by ~60%
-            const binaryLite = cachedRows.map(r => [r.time, r.open, r.high, r.low, r.close, r.volume]);
-            return { data: binaryLite, format: 'array' };
-        }
-
-        // B. CACHE MISS: ATOMIC BATCH INGEST
-        // Only if a file path is provided (Initial Load)
-        if (filePath && fs.existsSync(filePath)) {
-            logSystemEvent('DATA_INGEST_START', { symbol, filePath });
-            
-            const rawData = parseCSVFileSync(filePath); // Parse full file (ASC)
-            
-            if (rawData.length === 0) return { data: [] };
-
-            // Atomic Transaction
-            await new Promise((resolve, reject) => {
-                db.serialize(() => {
-                    db.run("BEGIN TRANSACTION");
-                    const stmt = db.prepare("INSERT OR IGNORE INTO ohlc_cache (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                    
-                    // Batch insert
-                    rawData.forEach(r => {
-                        stmt.run(symbol, timeframe, r.time, r.open, r.high, r.low, r.close, r.volume);
-                    });
-                    
-                    stmt.finalize();
-                    db.run("COMMIT", (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-            });
-            
-            logSystemEvent('DATA_INGEST_COMPLETE', { symbol, count: rawData.length });
-
-            // C. RETURN WINDOW (The last N bars)
-            let resultData = rawData;
-            // If specific time requested, filter
-            if (toTime) {
-                resultData = rawData.filter(d => d.time < toTime);
+            try {
+                await runIngestWorker(filePath, symbol, timeframe);
+                
+                // Re-fetch after worker completion
+                cachedRows = await fetchPromise;
+                logSystemEvent('WORKER_COMPLETE', { symbol, rowsLoaded: cachedRows.length });
+            } catch (err) {
+                logSystemEvent('WORKER_ERROR', { error: err.message }, 'ERROR');
+                return { error: `Ingestion failed: ${err.message}` };
             }
-            
-            // Slice last 'limit' items (newest)
-            const sliced = resultData.slice(-limit);
-            
-            // Binary-Lite Transform for fresh ingestion too
-            const binaryLite = sliced.map(r => [r.time, r.open, r.high, r.low, r.close, r.volume]);
-            return { data: binaryLite, format: 'array' };
         }
 
-        return { data: [] }; // No data found and no file to ingest
+        // C. RETURN OPTIMIZED PAYLOAD (Task 4: Flat Array)
+        if (cachedRows && cachedRows.length > 0) {
+            // Map to flat array [t, o, h, l, c, v]
+            const flatData = cachedRows.map(r => [r.time, r.open, r.high, r.low, r.close, r.volume]);
+            return { data: flatData, format: 'array' };
+        }
+
+        return { data: [] };
 
     } catch (e) {
         logSystemEvent('DATA_FETCH_ERROR', { error: e.message }, 'ERROR');
+        return { error: e.message };
+    }
+});
+
+// --- TAIL-FIRST ACCESS ---
+ipcMain.handle('market:get-tail', async (event, filePath) => {
+    try {
+        const stats = fs.statSync(filePath);
+        const size = stats.size;
+        const chunkSize = 200 * 1024; // 200KB tail
+        const start = Math.max(0, size - chunkSize);
+        
+        return new Promise((resolve, reject) => {
+            fs.open(filePath, 'r', (err, fd) => {
+                if (err) return reject(err);
+                const buffer = Buffer.alloc(size - start);
+                fs.read(fd, buffer, 0, buffer.length, start, (err, bytesRead, b) => {
+                    fs.close(fd, () => {});
+                    if (err) return reject(err);
+                    const text = b.toString('utf8');
+                    // Parse logic locally for tail (lightweight)
+                    const lines = text.split('\n');
+                    // Drop first potentially partial line
+                    if (lines.length > 1) lines.shift(); 
+                    // Use standard parsing logic here or helper if available
+                    // For tail, we can send raw text to renderer to parse to keep main light? 
+                    // Or implement mini-parser. Let's do simple flat array return if possible, 
+                    // but since parsing logic is complex, let's just return the raw string 
+                    // and let renderer parse the tail for immediate display.
+                    // Actually, consistent API is better.
+                    resolve({ text }); 
+                });
+            });
+        });
+    } catch (e) {
         return { error: e.message };
     }
 });
@@ -524,7 +478,6 @@ ipcMain.handle('trades:save', async (event, trade) => {
 });
 
 ipcMain.handle('get-system-telemetry', async () => {
-    // This is the old handler, potentially deprecated by get-global-state, but kept for compatibility
     const mem = process.memoryUsage();
     return {
         processInfo: { version: process.versions.electron, uptime: Math.floor(process.uptime()), pid: process.pid },
