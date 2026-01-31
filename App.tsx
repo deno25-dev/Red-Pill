@@ -650,7 +650,22 @@ const App: React.FC = () => {
                   throw new Error(response.error);
               }
 
-              const cleanRawData = response.data || [];
+              let cleanRawData: OHLCV[] = [];
+              if (response.data && Array.isArray(response.data)) {
+                  if (response.format === 'array') {
+                      cleanRawData = response.data.map((d: any[]) => ({
+                          time: d[0],
+                          open: d[1],
+                          high: d[2],
+                          low: d[3],
+                          close: d[4],
+                          volume: d[5]
+                      }));
+                  } else {
+                      cleanRawData = response.data;
+                  }
+              }
+
               const sourceId = getSourceId(filePath || fileName, 'asset');
               
               // Direct assignment - no resampling needed if DB is accurate
@@ -841,7 +856,19 @@ const App: React.FC = () => {
               const result = await window.electronAPI.getMarketData(tab.symbolId, tab.timeframe, undefined, oldestTime, 1000);
               
               if (result.data && result.data.length > 0) {
-                  const historyChunk = result.data; // Already reversed (ascending)
+                  let historyChunk: OHLCV[] = [];
+                  if (result.format === 'array') {
+                      historyChunk = result.data.map((d: any[]) => ({
+                          time: d[0],
+                          open: d[1],
+                          high: d[2],
+                          low: d[3],
+                          close: d[4],
+                          volume: d[5]
+                      }));
+                  } else {
+                      historyChunk = result.data;
+                  }
                   
                   // Prepend
                   const mergedData = [...historyChunk, ...tab.data];

@@ -72,7 +72,8 @@ const setupDatabase = () => {
         }
     }
 
-    db = new sqlite3.Database(dbPath, (err) => {
+    // Task 3: Non-Blocking SQLite (The WAL Verify)
+    db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
         if (err) {
             console.error('Database initialization failed:', err);
             logSystemEvent('DB_INIT_FAILED', { error: err.message }, 'CRITICAL');
@@ -82,7 +83,8 @@ const setupDatabase = () => {
             // 2. SQLITE OPTIMIZATION (Phase 1)
             db.serialize(() => {
                 db.run("PRAGMA journal_mode = WAL;");   // Write-Ahead Logging
-                db.run("PRAGMA synchronous = NORMAL;"); // Reduce disk-sync overhead
+                // Task 3: Non-Blocking Writes
+                db.run("PRAGMA synchronous = OFF;"); 
             });
 
             initializeTables();
@@ -413,7 +415,11 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
         // If we found data, return it directly (already ASC)
         if (cachedRows && cachedRows.length > 0) {
             logSystemEvent(`DATA_FETCH_CACHE`, { symbol, timeframe, count: cachedRows.length });
-            return { data: cachedRows };
+            
+            // Task 2: Binary-Lite Transformation [t, o, h, l, c, v]
+            // Reduces payload size by ~60%
+            const binaryLite = cachedRows.map(r => [r.time, r.open, r.high, r.low, r.close, r.volume]);
+            return { data: binaryLite, format: 'array' };
         }
 
         // B. CACHE MISS: ATOMIC BATCH INGEST
@@ -456,7 +462,9 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
             // Slice last 'limit' items (newest)
             const sliced = resultData.slice(-limit);
             
-            return { data: sliced };
+            // Binary-Lite Transform for fresh ingestion too
+            const binaryLite = sliced.map(r => [r.time, r.open, r.high, r.low, r.close, r.volume]);
+            return { data: binaryLite, format: 'array' };
         }
 
         return { data: [] }; // No data found and no file to ingest

@@ -428,6 +428,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     onActionStart, 
     isReplaySelecting, 
     onReplayPointSelect, 
+    onRequestMoreData, 
     areDrawingsLocked = false, 
     visibleRange, 
     fullData,
@@ -851,6 +852,18 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       if (rangeDebounceTimeout.current) clearTimeout(rangeDebounceTimeout.current);
       if (rafId.current) cancelAnimationFrame(rafId.current);
       try { chart.unsubscribeClick(handleChartClick); } catch(e) {}
+      
+      // Task 4: Component Unmount Protocol
+      // Logic: Clear data and scroll position before destruction to prevent Ghost Data on GPU
+      if (seriesRef.current) {
+          try { 
+              seriesRef.current.setData([]); 
+          } catch(e) {}
+      }
+      try { 
+          chart.timeScale().scrollToPosition(0, false); 
+      } catch(e) {}
+
       chart.remove(); chartRef.current = null;
     };
   }, []); // Run once on mount
@@ -914,8 +927,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
         smaSeriesRef.current.setData(smaSeriesData);
     }
   }, [data, smaData, config.chartType, processedData, config.upColor, config.downColor, handleSnapToRecent]); 
-
-  // ... (Rest of useEffects and handlers remain largely same, just ensuring stable refs) ...
 
   useEffect(() => {
     if (!chartRef.current) return;
