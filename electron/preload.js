@@ -40,12 +40,6 @@ try {
         
         // --- Data Ingestion ---
         getMarketData: (symbol, timeframe, filePath, toTime, limit) => ipcRenderer.invoke('market:get-data', symbol, timeframe, filePath, toTime, limit),
-        onIngestComplete: (callback) => {
-            const channel = 'ingest-complete';
-            const subscription = (event, ...args) => callback(...args);
-            ipcRenderer.on(channel, subscription);
-            return () => ipcRenderer.removeListener(channel, subscription);
-        },
 
         // --- Persistence ---
         loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
@@ -64,8 +58,9 @@ try {
 
         // --- Logs & Diagnostics ---
         getDbStatus: () => ipcRenderer.invoke('logs:get-db-status'),
-        sendLog: (category: string, message: string, data?: any) => void;
-
+        sendLog: (category, message, data) => ipcRenderer.send('log:send', category, message, data),
+        getSystemTelemetry: () => ipcRenderer.invoke('get-system-telemetry'),
+        
         // --- NEW: Global State Explorer ---
         getGlobalState: () => ipcRenderer.invoke('debug:get-global-state'),
 
