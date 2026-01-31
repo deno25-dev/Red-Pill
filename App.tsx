@@ -656,9 +656,16 @@ const App: React.FC = () => {
                   
                   // Keep loading spinner
                   // Wait for completion event
+                  // Create a timeout to prevent hanging forever
+                  const timeoutId = setTimeout(() => {
+                      setLoading(false);
+                      alert("Data ingestion timed out. Please try again.");
+                  }, 15000); // 15s timeout
+
                   const cleanup = window.electronAPI.onIngestComplete(async (info) => {
                       // Check if this event matches our request (simplistic check)
                       if (info.symbol === symbol && info.timeframe === initialTf) {
+                          clearTimeout(timeoutId);
                           debugLog('Data', `Ingestion complete event received for ${symbol}`);
                           cleanup();
                           

@@ -1,5 +1,5 @@
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
 import { reportSelf } from '../hooks/useTelemetry';
@@ -16,11 +16,14 @@ interface GlobalErrorBoundaryState {
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends Component<GlobalErrorBoundaryProps, GlobalErrorBoundaryState> {
-  public state: GlobalErrorBoundaryState = {
-    hasError: false,
-    error: null,
-  };
+export class GlobalErrorBoundary extends React.Component<GlobalErrorBoundaryProps, GlobalErrorBoundaryState> {
+  constructor(props: GlobalErrorBoundaryProps) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+    };
+  }
 
   static getDerivedStateFromError(error: Error): GlobalErrorBoundaryState {
     // Update state so the next render will show the fallback UI.

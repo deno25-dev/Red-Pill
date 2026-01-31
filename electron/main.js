@@ -460,9 +460,9 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
             // Task 3: Prevent "Locked" Ingestion
             // Return 'ingesting' status immediately to unlock UI
             // Schedule the heavy ingest on the next tick
-            setImmediate(() => {
+            setTimeout(() => {
                 ingestData(symbol, timeframe, filePath);
-            });
+            }, 50);
             
             return { status: 'ingesting' };
         }
