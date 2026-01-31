@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -843,13 +842,22 @@ const App: React.FC = () => {
       const tab = tabs.find(t => t.id === tabId);
       if (!tab) return;
       
+      const fallbackState = { 
+          file: null, 
+          cursor: 0, 
+          leftover: '', 
+          isLoading: false, 
+          hasMore: true, 
+          fileSize: 0 
+      };
+      
       // OPTIMIZATION TASK 2: Windowed Infinite Scroll (Electron)
       if (isBridgeAvailable && window.electronAPI && window.electronAPI.getMarketData) {
           if (tab.fileState?.isLoading) return; // Debounce concurrent requests
 
           const oldestTime = tab.data.length > 0 ? tab.data[0].time : Date.now();
           
-          updateTab(tabId, { fileState: { ...(tab.fileState || {}), isLoading: true } });
+          updateTab(tabId, { fileState: { ...(tab.fileState || fallbackState), isLoading: true } });
 
           try {
               // Fetch previous 1000 bars strictly before current oldestTime
@@ -880,17 +888,17 @@ const App: React.FC = () => {
                       // For now, let's keep them synced for consistency.
                       rawData: mergedData, 
                       replayIndex: tab.replayIndex + historyChunk.length,
-                      fileState: { ...(tab.fileState || {}), isLoading: false }
+                      fileState: { ...(tab.fileState || fallbackState), isLoading: false }
                   });
                   debugLog('Data', `Loaded history window: ${historyChunk.length} bars`);
               } else {
                   // End of history
                   debugLog('Data', 'End of history reached');
-                  updateTab(tabId, { fileState: { ...(tab.fileState || {}), isLoading: false, hasMore: false } });
+                  updateTab(tabId, { fileState: { ...(tab.fileState || fallbackState), isLoading: false, hasMore: false } });
               }
           } catch (e: any) {
               console.error("Error loading history window:", e);
-              updateTab(tabId, { fileState: { ...(tab.fileState || {}), isLoading: false } });
+              updateTab(tabId, { fileState: { ...(tab.fileState || fallbackState), isLoading: false } });
           }
           return;
       }

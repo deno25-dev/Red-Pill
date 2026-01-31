@@ -114,12 +114,6 @@ function drawMeasureLabel(ctx: CanvasRenderingContext2D, x: number, y: number, l
     lines.forEach((line, idx) => { ctx.fillText(line, x, rectY + padding + (idx * lineHeight) + lineHeight / 2); });
 }
 
-// ... (Classes like DrawingsPaneRenderer omitted for brevity but assumed present in context, 
-// duplicating them here would be huge. I will keep the structure minimal as instructed, 
-// assuming strict strict XML format replaces content)
-// Actually, since I must provide full content, I need to include the helper classes. 
-// I will include them to ensure file integrity.
-
 class DrawingsPaneRenderer implements IPrimitivePaneRenderer {
     constructor(private _source: DrawingsPrimitive) {}
     draw(target: any) { target.useMediaCoordinateSpace((scope: any) => { this._drawImpl(scope.context); }); }
@@ -553,6 +547,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     return () => window.removeEventListener('redpill-force-clear', handleForceClear);
   }, [forceClear]);
 
+  // STICKY CHART PREVENTION: Clear series on timeframe change
+  useEffect(() => {
+      if (seriesRef.current) {
+          try {
+             seriesRef.current.setData([]);
+          } catch(e) {}
+      }
+  }, [timeframe]);
+
   useChartReplay({
     seriesRef,
     fullData,
@@ -926,7 +929,6 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   }, [config.showVolume, config.showSMA, config.volumeTopMargin]);
 
   // ... (Interaction Handlers remain mostly same, omitted for brevity but assumed present)
-  // Re-inserting required handlers for functionality
   useEffect(() => {
     if (canvasRef.current) {
         const isDrawingTool = !['cross'].includes(activeToolId);

@@ -283,8 +283,7 @@ ipcMain.handle('get-default-database-path', () => resolveAssetsPath());
 ipcMain.handle('get-internal-library', async () => runBootScan());
 
 ipcMain.handle('file:watch-folder', async (event, folderPath) => {
-  if (watcher) { watcher.close(); watcher = null; }
-  logSystemEvent('WATCH_FOLDER_START', { path: folderPath });
+  if (watcher) { watcher.close(); watcher = null; logSystemEvent('WATCH_FOLDER_START', { path: folderPath }); }
   try {
     const getFilesRecursive = (dir) => {
       let res = [];
@@ -340,8 +339,8 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
     try {
         if (!db) return { error: "Database not initialized" };
         
-        // A. CHECK CACHE FIRST (Task 2: Optimized Windowed Query)
-        const fetchPromise = new Promise((resolve) => {
+        // Define Reusable Query Function
+        const fetchFromDb = () => new Promise((resolve) => {
             const fetchQuery = `
                 SELECT time, open, high, low, close, volume 
                 FROM ohlc_cache 
@@ -360,7 +359,8 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
             });
         });
 
-        let cachedRows = await fetchPromise;
+        // A. CHECK CACHE FIRST (Task 2: Optimized Windowed Query)
+        let cachedRows = await fetchFromDb();
 
         // B. CACHE MISS: WORKER THREAD INGEST
         // If no data found and we have a source file, spawn worker
@@ -371,7 +371,7 @@ ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toT
                 await runIngestWorker(filePath, symbol, timeframe);
                 
                 // Re-fetch after worker completion
-                cachedRows = await fetchPromise;
+                cachedRows = await fetchFromDb();
                 logSystemEvent('WORKER_COMPLETE', { symbol, rowsLoaded: cachedRows.length });
             } catch (err) {
                 logSystemEvent('WORKER_ERROR', { error: err.message }, 'ERROR');
@@ -410,16 +410,6 @@ ipcMain.handle('market:get-tail', async (event, filePath) => {
                     fs.close(fd, () => {});
                     if (err) return reject(err);
                     const text = b.toString('utf8');
-                    // Parse logic locally for tail (lightweight)
-                    const lines = text.split('\n');
-                    // Drop first potentially partial line
-                    if (lines.length > 1) lines.shift(); 
-                    // Use standard parsing logic here or helper if available
-                    // For tail, we can send raw text to renderer to parse to keep main light? 
-                    // Or implement mini-parser. Let's do simple flat array return if possible, 
-                    // but since parsing logic is complex, let's just return the raw string 
-                    // and let renderer parse the tail for immediate display.
-                    // Actually, consistent API is better.
                     resolve({ text }); 
                 });
             });

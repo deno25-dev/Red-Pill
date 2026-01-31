@@ -1,21 +1,27 @@
+
 const { parentPort } = require('worker_threads');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
+const readline = require('readline');
 
-// Standalone CSV Parser for Worker Isolation
-const parseCSVFileSync = (filePath) => {
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const lines = content.split('\n');
+// Stream-based CSV Parser for Worker Isolation
+const parseCSVFileStream = (filePath) => {
+    return new Promise((resolve, reject) => {
         const data = [];
+        const fileStream = fs.createReadStream(filePath);
         
-        for (const line of lines) {
-            if (!line || !line.trim() || !/^\d/.test(line.trim())) continue;
+        const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity
+        });
+
+        rl.on('line', (line) => {
+            if (!line || !line.trim() || !/^\d/.test(line.trim())) return;
 
             const delimiter = line.indexOf(';') > -1 ? ';' : ',';
             const parts = line.split(delimiter);
 
-            if (parts.length < 5) continue;
+            if (parts.length < 5) return;
 
             try {
                 let dateStr = '';
@@ -55,7 +61,7 @@ const parseCSVFileSync = (filePath) => {
                      }
                 }
 
-                if (isNaN(open) || isNaN(close)) continue;
+                if (isNaN(open) || isNaN(close)) return;
 
                 timestamp = new Date(dateStr).getTime();
                 if (isNaN(timestamp)) {
@@ -63,71 +69,82 @@ const parseCSVFileSync = (filePath) => {
                     if (!isNaN(timestamp) && timestamp < 10000000000) timestamp *= 1000;
                 }
 
-                if (isNaN(timestamp) || timestamp <= 0) continue;
+                if (isNaN(timestamp) || timestamp <= 0) return;
 
                 data.push({ time: timestamp, open, high, low, close, volume });
             } catch (e) {
-                // skip malformed
+                // skip malformed line
             }
-        }
-        
-        return data.sort((a, b) => a.time - b.time);
-    } catch(e) {
-        return [];
-    }
+        });
+
+        rl.on('close', () => {
+            // Sort in-memory before insert (necessary for ordered time)
+            data.sort((a, b) => a.time - b.time);
+            resolve(data);
+        });
+
+        rl.on('error', (err) => {
+            reject(err);
+        });
+    });
 };
 
-parentPort.on('message', (task) => {
+parentPort.on('message', async (task) => {
     const { dbPath, filePath, symbol, timeframe } = task;
     
-    // Connect to DB (Will use WAL mode from main config ideally, but we set explicit pragmas here)
+    // Connect to DB
     const db = new sqlite3.Database(dbPath);
     
-    db.serialize(() => {
-        // Optimization for bulk inserts
-        db.run("PRAGMA synchronous = OFF;");
-        db.run("PRAGMA journal_mode = WAL;");
+    try {
+        // 1. Parse File Stream
+        const rawData = await parseCSVFileStream(filePath);
+        
+        db.serialize(() => {
+            // Optimization for bulk inserts & Concurrency
+            db.run("PRAGMA synchronous = OFF;");
+            db.run("PRAGMA journal_mode = WAL;");
 
-        // 1. Parse File
-        const rawData = parseCSVFileSync(filePath);
-        
-        if (rawData.length === 0) {
-            db.close();
-            parentPort.postMessage({ success: true, count: 0 });
-            return;
-        }
+            if (rawData.length === 0) {
+                db.close();
+                parentPort.postMessage({ success: true, count: 0 });
+                return;
+            }
 
-        // 2. Batch Insert with Transaction Chunking
-        const CHUNK_SIZE = 2000;
-        let processed = 0;
-        
-        db.run("BEGIN TRANSACTION");
-        const stmt = db.prepare("INSERT OR IGNORE INTO ohlc_cache (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        
-        try {
-            rawData.forEach((r) => {
-                stmt.run(symbol, timeframe, r.time, r.open, r.high, r.low, r.close, r.volume);
-                processed++;
+            // 2. Batch Insert with Transaction Chunking
+            const CHUNK_SIZE = 2000;
+            let processed = 0;
+            
+            db.run("BEGIN TRANSACTION");
+            const stmt = db.prepare("INSERT OR IGNORE INTO ohlc_cache (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            
+            try {
+                rawData.forEach((r) => {
+                    stmt.run(symbol, timeframe, r.time, r.open, r.high, r.low, r.close, r.volume);
+                    processed++;
+                    
+                    // Commit every 2000 rows to prevent DB lock contention
+                    if (processed % CHUNK_SIZE === 0) {
+                        db.run("COMMIT");
+                        db.run("BEGIN TRANSACTION");
+                    }
+                });
                 
-                // Commit every 2000 rows to prevent DB lock contention
-                if (processed % CHUNK_SIZE === 0) {
-                    db.run("COMMIT");
-                    db.run("BEGIN TRANSACTION");
-                }
-            });
-            
-            db.run("COMMIT");
-            stmt.finalize();
-            
-            db.close((err) => {
-                if (err) parentPort.postMessage({ success: false, error: err.message });
-                else parentPort.postMessage({ success: true, count: processed });
-            });
-        } catch (err) {
-            // Rollback on catastrophe
-            db.run("ROLLBACK");
-            db.close();
-            parentPort.postMessage({ success: false, error: err.message });
-        }
-    });
+                db.run("COMMIT");
+                stmt.finalize();
+                
+                db.close((err) => {
+                    if (err) parentPort.postMessage({ success: false, error: err.message });
+                    else parentPort.postMessage({ success: true, count: processed });
+                });
+            } catch (err) {
+                // Rollback on catastrophe
+                db.run("ROLLBACK");
+                db.close();
+                parentPort.postMessage({ success: false, error: err.message });
+            }
+        });
+    } catch (parseErr) {
+        db.close();
+        parentPort.postMessage({ success: false, error: parseErr.message });
+    }
 });
