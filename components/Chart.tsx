@@ -917,17 +917,7 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
   useEffect(() => {
     if (!chartRef.current) return;
     // Cast to any to handle type overlap issues, we know the series types
-    if (seriesRef.current) { 
-        if (chartRef.current) {
-            try {
-                // Defensive removal to prevent "Value is undefined" crashes on splash screen
-                chartRef.current.removeSeries(seriesRef.current as any); 
-            } catch (e) {
-                // Ignore removal errors during hot-reload or race conditions
-            }
-            seriesRef.current = null; 
-        }
-    }
+    if (seriesRef.current) { chartRef.current.removeSeries(seriesRef.current as any); seriesRef.current = null; }
     let newSeries;
     if (config.chartType === 'line') newSeries = chartRef.current.addSeries(LineSeries, { color: COLORS.line, lineWidth: 2 });
     else if (config.chartType === 'area') newSeries = chartRef.current.addSeries(AreaSeries, { lineColor: COLORS.line, topColor: COLORS.areaTop, bottomColor: COLORS.areaBottom, lineWidth: 2 });

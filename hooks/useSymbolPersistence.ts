@@ -41,18 +41,12 @@ export const useSymbolPersistence = ({
     try {
       let state: ChartState | null = null;
 
-      if (electron && electron.getDrawingsState) {
-          // New SQLite Path: Load specific symbol only
-          const result = await electron.getDrawingsState(symbol);
-          state = result;
-      } else if (electron && electron.loadMasterDrawings) {
-          // Fallback legacy
+      if (electron) {
           const result = await electron.loadMasterDrawings();
           if (result.success && result.data && result.data[symbol]) {
               state = result.data[symbol];
           }
       } else {
-          // Web Mode
           const masterStore = await loadMasterDrawingsStore();
           if (masterStore && masterStore[symbol]) {
             state = masterStore[symbol];
@@ -96,17 +90,12 @@ export const useSymbolPersistence = ({
       };
 
       try {
-        if (electron && electron.saveDrawingState) {
-            // New SQLite Path
-            await electron.saveDrawingState(symbol, stateToSave);
-        } else if (electron && electron.saveMasterDrawings) {
-            // Fallback Legacy
+        if (electron) {
             const result = await electron.loadMasterDrawings();
             const masterStore = result?.data || {};
             masterStore[symbol] = stateToSave;
             await electron.saveMasterDrawings(masterStore);
         } else {
-            // Web Mode
             const masterStore = (await loadMasterDrawingsStore()) || {};
             masterStore[symbol] = stateToSave;
             await saveMasterDrawingsStore(masterStore);

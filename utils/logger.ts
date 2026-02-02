@@ -9,23 +9,10 @@ export interface LogEntry {
   data?: any;
 }
 
-const MAX_LOGS = 200;
-
-// Declare global log array
-declare global {
-  interface Window {
-    __REDPIL_LOGS__: LogEntry[];
-  }
-}
-
-// Ensure it exists on load
-if (typeof window !== 'undefined') {
-  window.__REDPIL_LOGS__ = window.__REDPIL_LOGS__ || [];
-}
-
+const MAX_LOGS = 100;
 const logHistory: LogEntry[] = [];
 
-// Dispatch event for the UI to pick up (Legacy/Reactive support)
+// Dispatch event for the UI to pick up
 const dispatchLogEvent = (entry: LogEntry) => {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('redpill-debug-log', { detail: entry }));
@@ -41,44 +28,24 @@ export const debugLog = (category: LogCategory, message: string, data?: any) => 
     data
   };
 
-  // 1. Console output with styling (Standard DevTools)
+  // Console output
   const style = `color: ${getCategoryColor(category)}; font-weight: bold;`;
   console.log(`%c[${category}]`, style, message, data || '');
 
-  // 2. Global Window Persistence (Red Pill Mandate)
-  // ALWAYS push to global window object regardless of bridge status
-  if (typeof window !== 'undefined') {
-      if (!window.__REDPIL_LOGS__) window.__REDPIL_LOGS__ = [];
-      window.__REDPIL_LOGS__.unshift(entry);
-      if (window.__REDPIL_LOGS__.length > MAX_LOGS) window.__REDPIL_LOGS__.pop();
-  }
-
-  // 3. Internal module history (Legacy)
+  // Internal history
   logHistory.unshift(entry);
   if (logHistory.length > MAX_LOGS) logHistory.pop();
 
-  // 4. Electron Bridge Transmission
-  // If bridge is present, send log to the terminal
-  if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.sendLog) {
-      window.electronAPI.sendLog(category, message, data);
-  }
-
-  // 5. Dispatch Event for UI reactivity
   dispatchLogEvent(entry);
 };
 
-export const getLogHistory = () => {
-    if (typeof window !== 'undefined' && window.__REDPIL_LOGS__) {
-        return [...window.__REDPIL_LOGS__];
-    }
-    return [...logHistory];
-};
+export const getLogHistory = () => [...logHistory];
 
 export const clearLogs = () => {
   logHistory.length = 0;
+  // Dispatch clear event (using empty detail to signal clear)
   if (typeof window !== 'undefined') {
-      window.__REDPIL_LOGS__ = [];
-      window.dispatchEvent(new CustomEvent('redpill-debug-clear'));
+    window.dispatchEvent(new CustomEvent('redpill-debug-clear'));
   }
 };
 

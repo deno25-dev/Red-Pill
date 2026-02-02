@@ -12,7 +12,7 @@ import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog'
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
@@ -102,7 +102,7 @@ const App: React.FC = () => {
 
   // Electron File System Hook
   // Now includes reportFileLoad for telemetry wiring
-  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad, retryConnection } = useFileSystem();
+  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -144,18 +144,16 @@ const App: React.FC = () => {
   // Initial Boot Sequence
   useEffect(() => {
       const electron = window.electronAPI;
+      console.log('Window Object:', electron); // Verify Bridge Availability
       
       if (electron) {
-          const initBridge = async () => {
-              try {
-                  // No global hydration needed; tabs hydrate individually via useSymbolPersistence.
-                  // Connection check is implicit.
-              } catch (e: any) {
-                  console.warn("Bridge initialization warning:", e.message);
-                  debugLog('Auth', 'Bridge Init Failed', e.message);
-              }
-          };
-          initBridge();
+          // Load Drawing States
+          if (electron.getDrawingsState) {
+              electron.getDrawingsState().then(() => {
+                  // The global lock state is now derived from active tab's drawings.
+                  // This avoids stale state from a JSON file.
+              });
+          }
       }
   }, []); // Run once on mount
 
@@ -1433,7 +1431,6 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
-                        onRetryBridge={retryConnection}
                     />
 
                     <CandleSettingsDialog 

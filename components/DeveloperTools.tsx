@@ -1,15 +1,14 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, Server, Zap, ChevronDown, Check, Code, RotateCcw, HardDrive, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Terminal, Copy, X, Trash2, Activity, Database, AlertCircle, Cpu, ShieldAlert, Server, Zap, ChevronDown, Check, Code, Settings, RotateCcw } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import { LogEntry, debugLog, clearLogs } from '../utils/logger';
+import { LogEntry, debugLog, clearLogs, getLogHistory } from '../utils/logger';
 import { useTelemetry } from '../hooks/useTelemetry';
 
 interface DeveloperToolsProps {
   activeDataSource: string;
   lastError: string | null;
   chartRenderTime: number | null;
-  onRetryBridge?: () => void;
 }
 
 const MAX_HISTORY_DISPLAY = 200;
@@ -17,14 +16,12 @@ const MAX_HISTORY_DISPLAY = 200;
 export const DeveloperTools: React.FC<DeveloperToolsProps> = ({ 
   activeDataSource, 
   lastError,
-  chartRenderTime,
-  onRetryBridge
+  chartRenderTime
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'logs' | 'telemetry'>('logs');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [systemHealth, setSystemHealth] = useState<any>(null);
-  const [dbStatus, setDbStatus] = useState<{ connected: boolean; error?: string }>({ connected: false });
   
   // Log Explorer State
   const [selectedComponent, setSelectedComponent] = useState<string>('');
@@ -70,60 +67,27 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isDropdownOpen]);
 
-  // Log Polling (Robust Electron Support)
-  // Reads directly from window.__REDPIL_LOGS__ to ensure visibility even if React state lags
+  // Log listener
   useEffect(() => {
-    if (!isOpen) return;
+    setLogs(getLogHistory());
 
-    const pollLogs = () => {
-        if (window.__REDPIL_LOGS__) {
-            // Create a new array reference to force re-render
-            setLogs([...window.__REDPIL_LOGS__]);
-        }
+    const handleLog = (e: any) => {
+      const newEntry = e.detail as LogEntry;
+      setLogs(prev => [newEntry, ...prev]);
     };
 
-    // Initial fetch
-    pollLogs();
+    const handleClear = () => {
+      setLogs([]);
+    };
 
-    // Poll frequently for live updates
-    const interval = setInterval(pollLogs, 250);
-    return () => clearInterval(interval);
-  }, [isOpen]);
+    window.addEventListener('redpill-debug-log', handleLog);
+    window.addEventListener('redpill-debug-clear', handleClear);
 
-  // DB Status Check & System Telemetry Polling
-  useEffect(() => {
-      if (!isOpen) return;
-      
-      const electron = window.electronAPI;
-      
-      const checkHealth = async () => {
-          if (electron) {
-              // 1. Get DB Status (New IPC)
-              if (electron.getDbStatus) {
-                  try {
-                      const status = await electron.getDbStatus();
-                      setDbStatus(status);
-                  } catch (e) {
-                      setDbStatus({ connected: false, error: 'IPC Failed' });
-                  }
-              }
-
-              // 2. Get Telemetry (If on tab)
-              if (activeTab === 'telemetry' && electron.getSystemTelemetry) {
-                  try {
-                      const data = await electron.getSystemTelemetry();
-                      setSystemHealth(data);
-                  } catch (e) {
-                      console.error("Telemetry fetch failed", e);
-                  }
-              }
-          }
-      };
-
-      checkHealth();
-      const interval = setInterval(checkHealth, 2000); // Check DB every 2s
-      return () => clearInterval(interval);
-  }, [isOpen, activeTab]);
+    return () => {
+      window.removeEventListener('redpill-debug-log', handleLog);
+      window.removeEventListener('redpill-debug-clear', handleClear);
+    };
+  }, []);
 
   // Auto-Clear Listener
   useEffect(() => {
@@ -139,13 +103,33 @@ export const DeveloperTools: React.FC<DeveloperToolsProps> = ({
       return () => window.removeEventListener('GLOBAL_ASSET_CHANGE', handleAssetChange);
   }, [autoClearOnSymbolChange, clearReports]);
 
+  // System Telemetry Polling
+  useEffect(() => {
+      if (!isOpen || activeTab !== 'telemetry') return;
+      
+      const electron = window.electronAPI;
+      const fetchHealth = async () => {
+          if (electron && electron.getSystemTelemetry) {
+              try {
+                  const data = await electron.getSystemTelemetry();
+                  setSystemHealth(data);
+              } catch (e) {
+                  console.error("Telemetry fetch failed", e);
+              }
+          }
+      };
+
+      fetchHealth();
+      const interval = setInterval(fetchHealth, 1000); // Faster polling for "Pulse" feel
+      return () => clearInterval(interval);
+  }, [isOpen, activeTab]);
+
   const generateFeedbackReport = async () => {
     const report = `
 === RED PILL DIAGNOSTIC REPORT ===
 Timestamp: ${new Date().toISOString()}
 Browser: ${navigator.userAgent}
 Connection: ${isOnline ? 'Online' : 'Offline'}
-DB Status: ${dbStatus.connected ? 'Connected' : `Disconnected (${dbStatus.error || 'Unknown'})`}
 Active Data Source: ${activeDataSource || 'None'}
 Last Chart Render: ${chartRenderTime ? `${chartRenderTime.toFixed(2)}ms` : 'N/A'}
 Last Error: ${lastError || 'None'}
@@ -231,27 +215,27 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
             {/* Status Grid */}
             <div className="grid grid-cols-2 gap-px bg-emerald-900/30 border-b border-emerald-900/50 shrink-0">
                 <div className="bg-black/40 p-3 flex flex-col gap-1">
-                    <span className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">IO Status</span>
-                    <div className="flex items-center gap-2">
-                        <HardDrive size={14} className={dbStatus.connected ? "text-emerald-400" : "text-red-500"} />
-                        <span className="text-emerald-100">{dbStatus.connected ? 'DB WRITABLE' : 'DB ERROR'}</span>
-                    </div>
+                <span className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">Connection</span>
+                <div className="flex items-center gap-2">
+                    <Activity size={14} className={isOnline ? "text-emerald-400" : "text-red-500"} />
+                    <span className="text-emerald-100">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                </div>
                 </div>
                 <div className="bg-black/40 p-3 flex flex-col gap-1">
-                    <span className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">Render Time</span>
-                    <div className="flex items-center gap-2">
-                        <Cpu size={14} className="text-emerald-600" />
-                        <span className="text-emerald-100">{chartRenderTime ? `${chartRenderTime.toFixed(1)}ms` : '--'}</span>
-                    </div>
+                <span className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">Render Time</span>
+                <div className="flex items-center gap-2">
+                    <Cpu size={14} className="text-emerald-600" />
+                    <span className="text-emerald-100">{chartRenderTime ? `${chartRenderTime.toFixed(1)}ms` : '--'}</span>
+                </div>
                 </div>
                 <div className="bg-black/40 p-3 flex flex-col gap-1 col-span-2">
-                    <span className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">Active Data Source</span>
-                    <div className="flex items-center gap-2 overflow-hidden">
-                        <Database size={14} className="shrink-0 text-emerald-600" />
-                        <span className="text-emerald-100 truncate" title={activeDataSource}>
-                        {activeDataSource || 'No Data Loaded'}
-                        </span>
-                    </div>
+                <span className="text-[10px] text-emerald-700 uppercase font-bold tracking-wider">Active Data Source</span>
+                <div className="flex items-center gap-2 overflow-hidden">
+                    <Database size={14} className="shrink-0 text-emerald-600" />
+                    <span className="text-emerald-100 truncate" title={activeDataSource}>
+                    {activeDataSource || 'No Data Loaded'}
+                    </span>
+                </div>
                 </div>
             </div>
 
@@ -268,33 +252,30 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
 
             {/* Log Feed */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-0.5 bg-black/60">
-                {logs.length === 0 ? (
-                    <div className="text-center text-emerald-900 py-10 italic">No logs available</div>
-                ) : (
-                    logs.map((log) => (
-                    <div key={log.id} className="flex gap-3 text-[11px] hover:bg-emerald-900/10 p-1.5 rounded group border-b border-emerald-900/10 last:border-0">
-                        <span className="text-emerald-800 shrink-0 font-mono">
-                        {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}.<span className="text-emerald-900">{new Date(log.timestamp).getMilliseconds().toString().padStart(3, '0')}</span>
-                        </span>
-                        <span className={`font-bold w-16 shrink-0 text-center uppercase tracking-tighter rounded px-1 py-0.5 text-[9px] h-fit ${
-                        log.category === 'UI' ? 'bg-purple-900/20 text-purple-400' :
-                        log.category === 'Network' ? 'bg-yellow-900/20 text-yellow-400' :
-                        log.category === 'Data' ? 'bg-blue-900/20 text-blue-400' :
-                        log.category === 'Auth' ? 'bg-red-900/20 text-red-400' :
-                        'bg-emerald-900/20 text-emerald-400'
-                        }`}>
-                        {log.category}
-                        </span>
-                        <span className="text-emerald-100/90 break-all leading-tight">{log.message}</span>
-                    </div>
-                    ))
-                )}
+                {logs.map((log) => (
+                <div key={log.id} className="flex gap-3 text-[11px] hover:bg-emerald-900/10 p-1.5 rounded group border-b border-emerald-900/10 last:border-0">
+                    <span className="text-emerald-800 shrink-0 font-mono">
+                    {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit' })}.<span className="text-emerald-900">{new Date(log.timestamp).getMilliseconds().toString().padStart(3, '0')}</span>
+                    </span>
+                    <span className={`font-bold w-16 shrink-0 text-center uppercase tracking-tighter rounded px-1 py-0.5 text-[9px] h-fit ${
+                    log.category === 'UI' ? 'bg-purple-900/20 text-purple-400' :
+                    log.category === 'Network' ? 'bg-yellow-900/20 text-yellow-400' :
+                    log.category === 'Data' ? 'bg-blue-900/20 text-blue-400' :
+                    log.category === 'Auth' ? 'bg-red-900/20 text-red-400' :
+                    'bg-emerald-900/20 text-emerald-400'
+                    }`}>
+                    {log.category}
+                    </span>
+                    <span className="text-emerald-100/90 break-all leading-tight">{log.message}</span>
+                </div>
+                ))}
                 <div ref={logsEndRef} />
             </div>
           </>
       ) : (
           <div className="flex-1 flex flex-col h-full overflow-hidden bg-black/60">
-              {/* ... (Telemetry View) ... */}
+              
+              {/* --- SECTION 1: SYSTEM PULSE (Bridge/Main Process) --- */}
               {isBridgeActive ? (
                   <div className="p-4 border-b border-emerald-900/50 bg-emerald-950/10 shrink-0">
                       <div className="flex items-center justify-between mb-3">
@@ -325,21 +306,11 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
                           <Zap size={14} />
                           <span>BRIDGE DISCONNECTED</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-red-500/70">Web Mode Limits Active</span>
-                          {onRetryBridge && (
-                              <button 
-                                onClick={onRetryBridge}
-                                className="flex items-center gap-1 px-2 py-1 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-800/30 rounded text-[10px] uppercase font-bold transition-colors"
-                              >
-                                  <RefreshCw size={10} /> Retry
-                              </button>
-                          )}
-                      </div>
+                      <span className="text-[10px] text-red-500/70">Web Mode Limits Active</span>
                   </div>
               )}
 
-              {/* ... (Log Explorer / JSON Tree) ... */}
+              {/* --- SECTION 2: LOG EXPLORER (Renderer) --- */}
               <div className="flex-1 flex flex-col min-h-0">
                   {/* Explorer Header */}
                   <div className="flex items-center justify-between p-3 border-b border-emerald-900/30 bg-black/40 gap-4">
@@ -445,6 +416,8 @@ ${logs.slice(0, 20).map(l => `[${new Date(l.timestamp).toISOString().split('T')[
     </div>
   );
 };
+
+// --- Sub-components & Utilities ---
 
 const PulseMetric = ({ label, value }: { label: string, value: string }) => (
     <div className="bg-emerald-950/30 border border-emerald-900/30 p-2 rounded flex flex-col">

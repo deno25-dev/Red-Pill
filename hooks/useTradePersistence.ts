@@ -13,7 +13,6 @@ export const useTradePersistence = (sourceId?: string) => {
         
         setLoading(true);
         try {
-            // Updated to use the new efficient SQLite handler via Preload
             const result = await electron.getTradesBySource(sourceId);
             setTrades(result || []);
             debugLog('Data', `Loaded ${result.length} trades for source ${sourceId}`);

@@ -202,8 +202,7 @@ export interface IElectronAPI {
   // Persistence (SQLite/JSON Store)
   loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;
   saveMasterDrawings: (data: any) => Promise<{ success: boolean; error?: string }>;
-  getDrawingsState: (symbol: string) => Promise<any>;
-  saveDrawingState: (symbol: string, data: any) => Promise<{ success: boolean; error?: string }>;
+  getDrawingsState: () => Promise<any>;
   deleteAllDrawings: (sourceId: string) => Promise<{ success: boolean; error?: string }>;
   
   // Layouts
@@ -215,10 +214,6 @@ export interface IElectronAPI {
   getTradesBySource: (sourceId: string) => Promise<Trade[]>;
   saveTrade: (trade: Trade) => Promise<{ success: boolean; error?: string }>;
   
-  // Logs & Diagnostics
-  getDbStatus: () => Promise<{ connected: boolean; error?: string }>;
-  sendLog: (category: string, message: string, data?: any) => void;
-
   // Telemetry & Events
   getSystemTelemetry: () => Promise<any>;
   onFolderChange: (callback: (files: any[]) => void) => () => void;

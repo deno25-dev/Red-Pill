@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { debugLog } from '../utils/logger';
 import { reportSelf } from './useTelemetry';
-import { SanitizationStats } from '../types';
+import { SanitizationStats, IElectronAPI } from '../types';
 
 export interface FileSystemFile {
   name: string;
@@ -17,7 +17,6 @@ export const useFileSystem = () => {
   
   // 1. Strict State: Only Initializing or Sovereign.
   const [status, setStatus] = useState<'Initializing' | 'ELECTRON_SOVEREIGN' | 'INITIALIZATION_FAILED'>('Initializing');
-  const [retryCount, setRetryCount] = useState(0);
 
   const accessHistory = useRef<{ name: string, time: number }[]>([]);
   const electronRef = useRef<any>(null);
@@ -46,13 +45,10 @@ export const useFileSystem = () => {
 
   // 2. Initialization Effect with Polling (NO FALLBACK)
   useEffect(() => {
-    // If we've already failed or succeeded, don't poll (unless retrying)
-    if (status === 'ELECTRON_SOVEREIGN') return;
-
     let mounted = true;
     let attempts = 0;
-    const MAX_ATTEMPTS = 25; // 5 seconds (25 * 200ms) - Increased robustness
-    const POLLING_INTERVAL = 200; // Increased interval to allow preload to settle
+    const MAX_ATTEMPTS = 50; // 5 seconds total (50 * 100ms)
+    const POLLING_INTERVAL = 100;
 
     const checkBridge = () => {
         if (!mounted) return;
@@ -78,7 +74,7 @@ export const useFileSystem = () => {
             });
 
             try {
-                api.onFolderChange((updatedFiles: any[]) => {
+                const cleanup = api.onFolderChange((updatedFiles: any[]) => {
                     debugLog('Data', 'FileSystem: Folder content changed', { count: updatedFiles.length });
                     setFiles(updatedFiles);
                 });
@@ -94,7 +90,7 @@ export const useFileSystem = () => {
             // Keep polling
             setTimeout(checkBridge, POLLING_INTERVAL);
         } else {
-            // LOUD FAILURE - DO NOT FALLBACK until fully expired
+            // LOUD FAILURE - DO NOT FALLBACK
             console.error("CRITICAL: Electron Bridge Handshake Failed after 5s.");
             setStatus('INITIALIZATION_FAILED');
             debugLog('Auth', 'Bridge initialization failed. App halted.');
@@ -108,15 +104,13 @@ export const useFileSystem = () => {
         }
     };
 
-    // Start polling immediately when status is Initializing (reset by retry)
-    if (status === 'Initializing') {
-        checkBridge();
-    }
+    // Start polling
+    checkBridge();
 
     return () => {
         mounted = false;
     };
-  }, [status, retryCount]); // Depend on retryCount to re-trigger
+  }, []);
 
   const reportFileLoad = useCallback((filename: string, stats?: SanitizationStats) => {
       const newEntry = { name: filename, time: Date.now() };
@@ -225,12 +219,6 @@ export const useFileSystem = () => {
       return stats.exists;
   }, []);
 
-  const retryConnection = useCallback(() => {
-      setStatus('Initializing');
-      setRetryCount(prev => prev + 1);
-      debugLog('Auth', 'Manual bridge handshake retry triggered');
-  }, []);
-
   return {
     files,
     currentPath,
@@ -241,7 +229,6 @@ export const useFileSystem = () => {
     disconnect,
     checkFileExists,
     reportFileLoad,
-    retryConnection,
     status // Export status for UI feedback
   };
 };

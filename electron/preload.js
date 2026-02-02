@@ -18,13 +18,10 @@ try {
         getInternalLibrary: () => ipcRenderer.invoke('get-internal-library'),
         getInternalFolders: () => ipcRenderer.invoke('get-internal-library'), // Alias
         
-        // --- Persistence (Drawings - SQLite) ---
-        // Legacy Support
+        // --- Persistence (Drawings) ---
         loadMasterDrawings: () => ipcRenderer.invoke('master-drawings:load'),
-        
-        // New Optimized Methods
-        getDrawingsState: (symbol) => ipcRenderer.invoke('drawings:get-state', symbol),
-        saveDrawingState: (symbol, data) => ipcRenderer.invoke('drawings:save-state', symbol, data),
+        saveMasterDrawings: (data) => ipcRenderer.invoke('master-drawings:save', data),
+        getDrawingsState: () => ipcRenderer.invoke('drawings:get-state'),
         deleteAllDrawings: (sourceId) => ipcRenderer.invoke('drawings:delete-all', sourceId),
 
         // --- Persistence (Layouts) ---
@@ -32,13 +29,9 @@ try {
         loadLayout: (name) => ipcRenderer.invoke('layouts:load', name),
         listLayouts: () => ipcRenderer.invoke('layouts:list'),
 
-        // --- Trade Persistence (SQLite) ---
-        getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-ledger', sourceId),
+        // --- Trade Persistence ---
+        getTradesBySource: (sourceId) => ipcRenderer.invoke('trades:get-by-source', sourceId),
         saveTrade: (trade) => ipcRenderer.invoke('trades:save', trade),
-
-        // --- Logs & Diagnostics ---
-        getDbStatus: () => ipcRenderer.invoke('logs:get-db-status'),
-        sendLog: (category, message, data) => ipcRenderer.send('log:send', category, message, data),
 
         // --- Telemetry ---
         getSystemTelemetry: () => ipcRenderer.invoke('get-system-telemetry'),
