@@ -199,9 +199,6 @@ export interface IElectronAPI {
   getInternalFolders: () => Promise<any[]>;
   getInternalLibrary: () => Promise<any[]>;
   
-  // Data Ingestion (Optimization)
-  getMarketData: (symbol: string, timeframe: string, filePath?: string, toTime?: number | null, limit?: number) => Promise<{ data?: any[]; format?: 'array'; error?: string }>;
-
   // Persistence (SQLite/JSON Store)
   loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;
   saveMasterDrawings: (data: any) => Promise<{ success: boolean; error?: string }>;
@@ -224,8 +221,6 @@ export interface IElectronAPI {
 
   // Telemetry & Events
   getSystemTelemetry: () => Promise<any>;
-  getGlobalState: () => Promise<any>;
-  copyToClipboard: (text: string) => void; // Added
   onFolderChange: (callback: (files: any[]) => void) => () => void;
 }
 

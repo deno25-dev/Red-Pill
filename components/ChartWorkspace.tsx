@@ -413,12 +413,8 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
   }, [selectedDrawingId, drawings, activeToolId]);
 
   const chartComponentKey = useMemo(() => {
-      // Mandate 1: Hard Reset on Timeframe Change
-      // We combine symbol, timeframe, and unique tab ID to ensure a full React remount
-      // whenever the context changes. This prevents the chart engine from getting "stuck"
-      // with old data states.
-      return `chart-${tab.symbolId || tab.title}-${tab.timeframe}-${tab.id}`;
-  }, [tab.symbolId, tab.title, tab.timeframe, tab.id]);
+      return `${tab.id}-${tab.filePath || 'local'}-${tab.title}-${tab.timeframe}`;
+  }, [tab.id, tab.filePath, tab.title, tab.timeframe]);
 
   return (
     <div ref={workspaceRef} className="flex-1 flex flex-col relative min-w-0 h-full bg-[#0f172a]">

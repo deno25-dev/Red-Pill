@@ -1,6 +1,5 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { debugLog } from '../utils/logger';
 
 const TELEMETRY_EVENT = 'redpill-telemetry-report';
 const MAX_HISTORY = 200;
@@ -12,6 +11,21 @@ export interface TelemetryReport {
 
 export type TelemetryState = Record<string, TelemetryReport[]>;
 
+/**
+ * Dispatches a telemetry report event.
+ * Can be imported and used by any component, hook, or utility function 
+ * to report its status to the central telemetry hub.
+ * 
+ * Supports nested state objects for detailed diagnostics.
+ * Example Usage:
+ * reportSelf('ChartEngine', { 
+ *    pipeline: { bufferSize: 500, latency: 12 }, 
+ *    renderer: { fps: 60, drawCalls: 150 } 
+ * });
+ * 
+ * @param name Unique name of the reporter (e.g., 'ChartEngine', 'DataFeed')
+ * @param status Any serializable object representing the current state tree
+ */
 export const reportSelf = (name: string, status: Record<string, any> | any) => {
   if (typeof window !== 'undefined') {
     const event = new CustomEvent(TELEMETRY_EVENT, {
@@ -22,39 +36,11 @@ export const reportSelf = (name: string, status: Record<string, any> | any) => {
 };
 
 /**
- * Higher-Order Function to wrap critical logic with automatic telemetry.
- * Captures arguments, errors, and source code upon failure.
+ * Hook to aggregate telemetry reports from across the application.
+ * Listens for 'redpill-telemetry-report' events and updates local state.
+ * 
+ * Ideally used in DeveloperTools or a Dashboard component.
  */
-export function withTelemetry<T extends (...args: any[]) => Promise<any>>(
-    fn: T,
-    category: 'Data' | 'Network' | 'ChartEngine' = 'Data'
-): T {
-    return (async (...args: any[]) => {
-        const funcName = fn.name || 'AnonymousFunc';
-        try {
-            // Optional: Verbose tracing
-            // debugLog(category, `Exec: ${funcName}`, { args }, 'INFO', funcName);
-            return await fn(...args);
-        } catch (error: any) {
-            console.error(`[Telemetry] Captured Error in ${funcName}`, error);
-            
-            debugLog(
-                category, 
-                `CRITICAL FAILURE: ${funcName}`, 
-                { 
-                    error: error.message, 
-                    stack: error.stack, 
-                    arguments: args 
-                }, 
-                'CRITICAL',
-                funcName,
-                fn.toString() // Capture Source Code
-            );
-            throw error;
-        }
-    }) as T;
-}
-
 export const useTelemetry = () => {
   const [reports, setReports] = useState<TelemetryState>({});
 
@@ -91,10 +77,15 @@ export const useTelemetry = () => {
     setReports({});
   }, []);
 
+  /**
+   * Retrieves a formatted, stringified JSON representation of a specific component's LATEST report.
+   * Useful for debugging or exporting state snapshots.
+   */
   const getComponentJSON = useCallback((name: string) => {
     const history = reports[name];
     if (!history || history.length === 0) return JSON.stringify({ error: `Component '${name}' not found` }, null, 2);
     
+    // Default to latest entry
     const report = history[0];
     
     const exportData = {
@@ -106,6 +97,10 @@ export const useTelemetry = () => {
     return JSON.stringify(exportData, null, 2);
   }, [reports]);
 
+  /**
+   * Copies the provided text to the system clipboard.
+   * Useful for exporting JSON logs to external tools.
+   */
   const copyToClipboard = useCallback(async (text: string) => {
       if (!navigator?.clipboard) {
           console.warn("[Telemetry] Clipboard API unavailable");
