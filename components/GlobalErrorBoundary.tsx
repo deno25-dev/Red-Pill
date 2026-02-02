@@ -1,28 +1,27 @@
-
 import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { debugLog } from '../utils/logger';
 import { reportSelf } from '../hooks/useTelemetry';
 
-interface Props {
+interface GlobalErrorBoundaryProps {
   children?: ReactNode;
   fallback?: ReactNode;
   errorMessage?: string; // Optional custom message
   onErrorCaptured?: (error: string) => void;
 }
 
-interface State {
+interface GlobalErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
 }
 
-export class GlobalErrorBoundary extends React.Component<Props, State> {
-  public state: State = {
+export class GlobalErrorBoundary extends React.Component<GlobalErrorBoundaryProps, GlobalErrorBoundaryState> {
+  public state: GlobalErrorBoundaryState = {
     hasError: false,
     error: null,
   };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): GlobalErrorBoundaryState {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }

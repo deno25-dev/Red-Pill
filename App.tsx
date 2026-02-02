@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -12,7 +11,7 @@ import { BackgroundSettingsDialog } from './components/BackgroundSettingsDialog'
 import { AssetLibrary } from './components/AssetLibrary';
 import { SplashController } from './components/SplashController';
 import { OHLCV, Timeframe, TabSession, Trade, HistorySnapshot, ChartState } from './types';
-import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, getLocalChartData, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
+import { parseCSVChunk, resampleData, findFileForTimeframe, getBaseSymbolName, detectTimeframe, readChunk, sanitizeData, getTimeframeDuration, getSymbolId, getSourceId, loadProtectedSession } from './utils/dataUtils';
 import { saveAppState, loadAppState, getDatabaseHandle, deleteChartMeta } from './utils/storage';
 import { ExternalLink } from 'lucide-react';
 import { DeveloperTools } from './components/DeveloperTools';
@@ -102,7 +101,7 @@ const App: React.FC = () => {
 
   // Electron File System Hook
   // Now includes reportFileLoad for telemetry wiring
-  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad } = useFileSystem();
+  const { checkFileExists, isBridgeAvailable, currentPath: databasePath, connectDefaultDatabase, reportFileLoad, retryConnection } = useFileSystem();
 
   // Performance Listener
   useEffect(() => {
@@ -144,16 +143,18 @@ const App: React.FC = () => {
   // Initial Boot Sequence
   useEffect(() => {
       const electron = window.electronAPI;
-      console.log('Window Object:', electron); // Verify Bridge Availability
       
       if (electron) {
-          // Load Drawing States
-          if (electron.getDrawingsState) {
-              electron.getDrawingsState().then(() => {
-                  // The global lock state is now derived from active tab's drawings.
-                  // This avoids stale state from a JSON file.
-              });
-          }
+          const initBridge = async () => {
+              try {
+                  // No global hydration needed; tabs hydrate individually via useSymbolPersistence.
+                  // Connection check is implicit.
+              } catch (e: any) {
+                  console.warn("Bridge initialization warning:", e.message);
+                  debugLog('Auth', 'Bridge Init Failed', e.message);
+              }
+          };
+          initBridge();
       }
   }, []); // Run once on mount
 
@@ -322,7 +323,6 @@ const App: React.FC = () => {
     }
   }, [activeTabId, updateTab, tabs]);
   
-  // FIX: Destructure 'isHydrating' from the hook to make it available in the component scope.
   const { isHydrating } = useSymbolPersistence({
       symbol: activeSourceId,
       onStateLoaded: handleStateLoaded,
@@ -580,10 +580,12 @@ const App: React.FC = () => {
     if (layoutMode === 'single') setLayoutTabIds([id]);
   };
 
+  // --- Optimized Data Loading ---
   const loadPreviousChunk = async (tab: TabSession, fileState: any) => {
+      // In Web Mode, paginate file
       if (!fileState.hasMore || fileState.isLoading) return null;
 
-      const fileSource = isBridgeAvailable ? tab.filePath : fileState.file;
+      const fileSource = fileState.file;
       if (!fileSource) return null;
 
       const cursor = fileState.cursor;
@@ -620,17 +622,90 @@ const App: React.FC = () => {
       setLoading(true);
       debugLog('Data', `Starting file stream for ${fileName}`);
       try {
+          // --- Optimization Task 1: Check for Optimized Bridge ---
+          if (isBridgeAvailable && window.electronAPI && window.electronAPI.getMarketData) {
+              const filePath = fileSource.path;
+              // Default to '1h' if detecting fails
+              let initialTf = forceTimeframe;
+              if (!initialTf) {
+                  if (fileName.includes('1m') || fileName.includes('1M')) initialTf = Timeframe.M1;
+                  else if (fileName.includes('5m')) initialTf = Timeframe.M5;
+                  else if (fileName.includes('15m')) initialTf = Timeframe.M15;
+                  else if (fileName.includes('1h')) initialTf = Timeframe.H1;
+                  else if (fileName.includes('4h')) initialTf = Timeframe.H4;
+                  else if (fileName.includes('1d') || fileName.includes('1D')) initialTf = Timeframe.D1;
+                  else initialTf = Timeframe.H1; 
+              }
+
+              const symbol = getBaseSymbolName(fileName);
+              
+              // Load only latest 1000 bars (Windowed Mode)
+              debugLog('Data', `Invoking optimized ingest for ${symbol} (${initialTf}) - Windowed`);
+              
+              // Pass null for toTime to get latest
+              const response = await window.electronAPI.getMarketData(symbol, initialTf, filePath, null, 1000);
+              
+              if (response.error) {
+                  throw new Error(response.error);
+              }
+
+              let cleanRawData: OHLCV[] = [];
+              if (response.data && Array.isArray(response.data)) {
+                  if (response.format === 'array') {
+                      cleanRawData = response.data.map((d: any[]) => ({
+                          time: d[0],
+                          open: d[1],
+                          high: d[2],
+                          low: d[3],
+                          close: d[4],
+                          volume: d[5]
+                      }));
+                  } else {
+                      cleanRawData = response.data;
+                  }
+              }
+
+              const sourceId = getSourceId(filePath || fileName, 'asset');
+              
+              // Direct assignment - no resampling needed if DB is accurate
+              const displayData = cleanRawData; 
+
+              let replayIndex = displayData.length - 1;
+              if (preservedReplay?.replayGlobalTime) {
+                  const idx = displayData.findIndex(d => d.time >= preservedReplay.replayGlobalTime!);
+                  if (idx !== -1) replayIndex = idx;
+              }
+
+              // Update Tab State with Windowed Data
+              // NOTE: rawData in electron mode is used just for reference or same as displayData to save memory
+              updateTabState(
+                  targetTabId, 
+                  fileName, 
+                  symbol, // Use symbol as ID for SQLite query consistency
+                  sourceId, 
+                  cleanRawData, 
+                  displayData, 
+                  initialTf, 
+                  filePath, 
+                  { isLoading: false, hasMore: true }, // Fake file state to allow "load more" via history trigger
+                  replayIndex, 
+                  preservedReplay
+              );
+              
+              setLoading(false);
+              return;
+          }
+
+          // --- Fallback: Web Mode Logic ---
           let actualSource = fileSource;
           let filePath = undefined;
           
-          if (isBridgeAvailable && fileSource.path) {
+          if (fileSource.path) {
               actualSource = fileSource.path;
               filePath = fileSource.path;
           }
 
-          // Use loadProtectedSession wrapper for read-only enforcement
           const result = await loadProtectedSession(actualSource, CHUNK_SIZE);
-          
           const { rawData, cursor, leftover, fileSize } = result;
           
           let displayTitle = getBaseSymbolName(fileName);
@@ -649,7 +724,6 @@ const App: React.FC = () => {
           const tfMs = getTimeframeDuration(initialTf);
           const { data: cleanRawData, stats: sanitizationReport } = sanitizeData(rawData, tfMs);
           
-          // TELEMETRY: Report Sanitization & File Stats via FileSystem Hook (Mandate)
           if (reportFileLoad) {
               reportFileLoad(fileName, sanitizationReport);
           }
@@ -664,19 +738,18 @@ const App: React.FC = () => {
               if (idx !== -1) replayIndex = idx;
           }
 
-          // Use the robust source ID generator which handles timeframe stripping
           const sourceId = getSourceId(filePath || fileName, isBridgeAvailable ? 'asset' : 'local');
 
-          // Base update object with new data
-          const baseUpdates: Partial<TabSession> = {
-              title: displayTitle,
-              symbolId: getSymbolId(displayTitle),
-              sourceId: sourceId,
-              rawData: cleanRawData,
-              data: displayData,
-              timeframe: initialTf,
-              filePath: filePath,
-              fileState: {
+          updateTabState(
+              targetTabId, 
+              displayTitle, 
+              getSymbolId(displayTitle), 
+              sourceId, 
+              cleanRawData, 
+              displayData, 
+              initialTf, 
+              filePath, 
+              {
                   file: (actualSource instanceof File) ? actualSource : null,
                   path: (typeof actualSource === 'string') ? actualSource : undefined,
                   cursor: cursor,
@@ -685,58 +758,10 @@ const App: React.FC = () => {
                   hasMore: cursor > 0,
                   fileSize
               },
-              replayIndex: replayIndex,
-              isReplayPlaying: false,
-              isReplayMode: preservedReplay?.isReplayMode ?? false,
-              isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
-              replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
-              visibleRange: null // Reset view on new data load
-          };
+              replayIndex, 
+              preservedReplay
+          );
 
-          const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
-
-          setTabs(currentTabs => {
-              const targetTabExists = currentTabs.find(t => t.id === tabIdToUpdate);
-              
-              if (!targetTabExists) {
-                  // Create new tab
-                  const newTab = createNewTab(tabIdToUpdate);
-                  // New tabs start empty drawings
-                  const fullUpdates = { ...baseUpdates, drawings: [], folders: [] };
-                  // Update layout and active state as side effects outside this reducer? 
-                  // No, we need to do it here or after. 
-                  // Since we are inside setTabs updater, we can't side-effect easily.
-                  // We'll return the new array.
-                  return [...currentTabs, { ...newTab, ...fullUpdates }];
-              }
-
-              // Update existing tabs (Single or Sync)
-              return currentTabs.map(t => {
-                  const shouldUpdate = (t.id === tabIdToUpdate) || (isSymbolSync && layoutTabIds.includes(t.id));
-                  
-                  if (shouldUpdate) {
-                      // STATE LIFT: Check if we are staying on the same source (e.g. timeframe switch)
-                      // If sourceId matches, KEEP existing drawings/folders.
-                      // If sourceId changes, RESET them (to be rehydrated by persistence hook).
-                      const isSameSource = t.sourceId === sourceId;
-                      
-                      return {
-                          ...t,
-                          ...baseUpdates,
-                          drawings: isSameSource ? t.drawings : [],
-                          folders: isSameSource ? t.folders : []
-                      };
-                  }
-                  return t;
-              });
-          });
-
-          // Ensure active tab and layout if it was a new tab
-          if (!tabs.find(t => t.id === tabIdToUpdate)) {
-              setActiveTabId(tabIdToUpdate);
-              setLayoutTabIds([tabIdToUpdate]);
-          }
-          
           debugLog('Data', `File stream started successfully. Records: ${cleanRawData.length}`);
 
       } catch (e: any) {
@@ -749,9 +774,137 @@ const App: React.FC = () => {
       }
   }, [explorerFolderName, activeTabId, isSymbolSync, layoutTabIds, isBridgeAvailable, tabs, createNewTab, reportFileLoad]);
 
+  // Helper to update tabs to avoid duplication in startFileStream
+  const updateTabState = (
+      targetTabId: string | undefined,
+      displayTitle: string,
+      symbolId: string,
+      sourceId: string,
+      rawData: OHLCV[],
+      data: OHLCV[],
+      timeframe: Timeframe,
+      filePath: string | undefined,
+      fileState: any,
+      replayIndex: number,
+      preservedReplay: any
+  ) => {
+      const baseUpdates: Partial<TabSession> = {
+          title: displayTitle,
+          symbolId: symbolId,
+          sourceId: sourceId,
+          rawData: rawData,
+          data: data,
+          timeframe: timeframe,
+          filePath: filePath,
+          fileState: fileState,
+          replayIndex: replayIndex,
+          isReplayPlaying: false,
+          isReplayMode: preservedReplay?.isReplayMode ?? false,
+          isAdvancedReplayMode: preservedReplay?.isAdvancedReplayMode ?? false,
+          replayGlobalTime: preservedReplay?.replayGlobalTime ?? null,
+          visibleRange: null // Reset view on new data load
+      };
+
+      const tabIdToUpdate = targetTabId || activeTabId || crypto.randomUUID();
+
+      setTabs(currentTabs => {
+          const targetTabExists = currentTabs.find(t => t.id === tabIdToUpdate);
+          
+          if (!targetTabExists) {
+              const newTab = createNewTab(tabIdToUpdate);
+              const fullUpdates = { ...baseUpdates, drawings: [], folders: [] };
+              return [...currentTabs, { ...newTab, ...fullUpdates }];
+          }
+
+          return currentTabs.map(t => {
+              const shouldUpdate = (t.id === tabIdToUpdate) || (isSymbolSync && layoutTabIds.includes(t.id));
+              
+              if (shouldUpdate) {
+                  const isSameSource = t.sourceId === sourceId;
+                  return {
+                      ...t,
+                      ...baseUpdates,
+                      drawings: isSameSource ? t.drawings : [],
+                      folders: isSameSource ? t.folders : []
+                  };
+              }
+              return t;
+          });
+      });
+
+      if (!tabs.find(t => t.id === tabIdToUpdate)) {
+          setActiveTabId(tabIdToUpdate);
+          setLayoutTabIds([tabIdToUpdate]);
+      }
+  };
+
   const handleRequestHistory = useCallback(async (tabId: string) => {
       const tab = tabs.find(t => t.id === tabId);
-      if (!tab || !tab.fileState || !tab.fileState.hasMore || tab.fileState.isLoading) return;
+      if (!tab) return;
+      
+      const fallbackState = { 
+          file: null, 
+          cursor: 0, 
+          leftover: '', 
+          isLoading: false, 
+          hasMore: true, 
+          fileSize: 0 
+      };
+      
+      // OPTIMIZATION TASK 2: Windowed Infinite Scroll (Electron)
+      if (isBridgeAvailable && window.electronAPI && window.electronAPI.getMarketData) {
+          if (tab.fileState?.isLoading) return; // Debounce concurrent requests
+
+          const oldestTime = tab.data.length > 0 ? tab.data[0].time : Date.now();
+          
+          updateTab(tabId, { fileState: { ...(tab.fileState || fallbackState), isLoading: true } });
+
+          try {
+              // Fetch previous 1000 bars strictly before current oldestTime
+              const result = await window.electronAPI.getMarketData(tab.symbolId, tab.timeframe, undefined, oldestTime, 1000);
+              
+              if (result.data && result.data.length > 0) {
+                  let historyChunk: OHLCV[] = [];
+                  if (result.format === 'array') {
+                      historyChunk = result.data.map((d: any[]) => ({
+                          time: d[0],
+                          open: d[1],
+                          high: d[2],
+                          low: d[3],
+                          close: d[4],
+                          volume: d[5]
+                      }));
+                  } else {
+                      historyChunk = result.data;
+                  }
+                  
+                  // Prepend
+                  const mergedData = [...historyChunk, ...tab.data];
+                  
+                  updateTab(tabId, {
+                      data: mergedData,
+                      // We don't necessarily update rawData here to save memory, 
+                      // or we can if we want full session in RAM.
+                      // For now, let's keep them synced for consistency.
+                      rawData: mergedData, 
+                      replayIndex: tab.replayIndex + historyChunk.length,
+                      fileState: { ...(tab.fileState || fallbackState), isLoading: false }
+                  });
+                  debugLog('Data', `Loaded history window: ${historyChunk.length} bars`);
+              } else {
+                  // End of history
+                  debugLog('Data', 'End of history reached');
+                  updateTab(tabId, { fileState: { ...(tab.fileState || fallbackState), isLoading: false, hasMore: false } });
+              }
+          } catch (e: any) {
+              console.error("Error loading history window:", e);
+              updateTab(tabId, { fileState: { ...(tab.fileState || fallbackState), isLoading: false } });
+          }
+          return;
+      }
+
+      // Legacy Web Mode Chunking
+      if (!tab.fileState || !tab.fileState.hasMore || tab.fileState.isLoading) return;
 
       updateTab(tabId, { 
           fileState: { ...tab.fileState, isLoading: true } 
@@ -807,7 +960,7 @@ const App: React.FC = () => {
              fileState: { ...tab.fileState, isLoading: false } 
           });
       }
-  }, [tabs, updateTab]);
+  }, [tabs, updateTab, isBridgeAvailable]);
 
 
   const handleFileUpload = useCallback((file: File) => {
@@ -890,6 +1043,7 @@ const App: React.FC = () => {
             return; 
         }
 
+        // Fallback: Resample if file not found (though optimization logic prefers native file)
         const resampled = resampleData(targetTab.rawData, tf);
         
         let newReplayIndex = resampled.length - 1;
@@ -1431,6 +1585,7 @@ const App: React.FC = () => {
                         activeDataSource={activeDataSource} 
                         lastError={lastError} 
                         chartRenderTime={chartRenderTime}
+                        onRetryBridge={retryConnection}
                     />
 
                     <CandleSettingsDialog 

@@ -1,23 +1,56 @@
 
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { Worker } = require('worker_threads');
+
+// 1. INCREASE HEAP TO 500MB (Phase 1: Memory Power-Up)
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=500');
+
 const path = require('path');
 const fs = require('fs');
 const v8 = require('v8');
+const sqlite3 = require('sqlite3').verbose();
+const readline = require('readline');
 
 // [TELEMETRY] Initialize Session Start Time
 const sessionStartTime = Date.now();
 const systemLogBuffer = [];
 const MAX_SYSTEM_LOGS = 200;
 
-const logSystemEvent = (eventName) => {
-    const entry = { event: eventName, timestamp: Date.now() };
+// Helper: Sanitize for IPC (Prevent Code 134)
+const safeIPC = (data) => {
+    try {
+        return JSON.parse(JSON.stringify(data));
+    } catch (e) {
+        return { error: 'Serialization Failed', details: e.message };
+    }
+};
+
+const logSystemEvent = (eventName, data = null, level = 'INFO') => {
+    const entry = { 
+        event: eventName, 
+        timestamp: Date.now(),
+        level,
+        data: safeIPC(data) 
+    };
     systemLogBuffer.unshift(entry);
     if (systemLogBuffer.length > MAX_SYSTEM_LOGS) systemLogBuffer.pop();
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('redpill-log-stream', {
+            category: 'IPC BRIDGE',
+            level,
+            message: eventName,
+            data: safeIPC(data),
+            timestamp: entry.timestamp // Pass timestamp to maintain accuracy across bridge
+        });
+    }
     console.log(`[SYS_EVENT] ${eventName}`);
 };
 
 let mainWindow;
 let watcher = null;
+let db = null;
+let dbPathGlobal = null; // Store for worker
 
 // --- CONFIGURATION ---
 const IGNORED_DIRECTORIES = ['Database', '.git', 'node_modules', 'dist', 'build', 'release', 'src', 'src-tauri', 'public'];
@@ -25,26 +58,78 @@ const IGNORED_DIRECTORIES = ['Database', '.git', 'node_modules', 'dist', 'build'
 // --- INTERNAL LIBRARY STORAGE (BOOT CACHE) ---
 let internalLibraryStorage = [];
 
-const createWindow = () => {
-  // TASK 1: HARDEN PRELOAD PATH RESOLUTION
-  // Explicitly resolve relative to this file
-  const preloadPath = path.resolve(__dirname, 'preload.js');
+// --- DATABASE SETUP ---
+const setupDatabase = () => {
+    const userDataPath = app.getPath('userData');
+    const dbFolder = path.join(userDataPath, 'RedPill');
+    dbPathGlobal = path.join(dbFolder, 'master.db');
 
-  // --- TASK 2: DIAGNOSTIC PATH VERIFICATION ---
-  console.log('================================================');
-  console.log('[Bridge-Debug] Configuring Window...');
-  console.log(`[Bridge-Debug] Environment: ${app.isPackaged ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-  console.log(`[Bridge-Debug] App Path: ${app.getAppPath()}`);
-  console.log(`[Bridge-Debug] __dirname: ${__dirname}`);
-  console.log(`[Bridge-Debug] Target Preload Path: ${preloadPath}`);
-  console.log(`[Bridge-Debug] Preload Exists on Disk: ${fs.existsSync(preloadPath)}`);
-  
-  if (!fs.existsSync(preloadPath)) {
-      console.error('[Bridge-Critical] ❌ Preload script NOT FOUND at target!');
-  } else {
-      console.log('[Bridge-Debug] ✅ Preload script found.');
+    if (!fs.existsSync(dbFolder)) {
+        try {
+            fs.mkdirSync(dbFolder, { recursive: true });
+        } catch (e) {
+            console.error('Failed to create database directory:', e);
+            logSystemEvent('DB_DIR_CREATE_FAILED', { error: e.message }, 'CRITICAL');
+            return;
+        }
+    }
+
+    // Task 3: Non-Blocking SQLite (The WAL Verify)
+    db = new sqlite3.Database(dbPathGlobal, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+        if (err) {
+            console.error('Database initialization failed:', err);
+            logSystemEvent('DB_INIT_FAILED', { error: err.message }, 'CRITICAL');
+        } else {
+            logSystemEvent('DB_CONNECTED');
+            
+            // 2. SQLITE OPTIMIZATION (Phase 1)
+            db.serialize(() => {
+                db.run("PRAGMA journal_mode = WAL;");   // Write-Ahead Logging
+                // Task 3: Non-Blocking Writes
+                db.run("PRAGMA synchronous = OFF;"); 
+            });
+
+            initializeTables();
+        }
+    });
+};
+
+const initializeTables = () => {
+    db.serialize(() => {
+        db.run(`CREATE TABLE IF NOT EXISTS drawings (symbol TEXT PRIMARY KEY, data TEXT)`);
+        db.run(`CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, sourceId TEXT, data TEXT, timestamp INTEGER)`);
+        db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
+        db.run(`
+            CREATE TABLE IF NOT EXISTS ohlc_cache (
+                symbol TEXT,
+                timeframe TEXT,
+                time INTEGER,
+                open REAL, high REAL, low REAL, close REAL, volume REAL,
+                UNIQUE(symbol, timeframe, time)
+            )
+        `);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_ohlc_lookup ON ohlc_cache (symbol, timeframe, time)`);
+        logSystemEvent('DB_TABLES_READY');
+    });
+};
+
+const createWindow = () => {
+  const potentialPaths = [
+    path.join(__dirname, 'preload.js'),
+    path.join(process.cwd(), 'electron', 'preload.js'),
+    path.join(app.getAppPath(), 'electron', 'preload.js'),
+    path.join(app.getAppPath(), 'dist-electron', 'preload.js')
+  ];
+
+  let resolvedPath = null;
+  for (const p of potentialPaths) {
+    if (fs.existsSync(p)) {
+      resolvedPath = p;
+      break;
+    }
   }
-  console.log('================================================');
+
+  if (!resolvedPath) resolvedPath = path.join(__dirname, 'preload.js'); 
 
   logSystemEvent('WINDOW_CREATING');
 
@@ -56,74 +141,40 @@ const createWindow = () => {
     backgroundColor: '#0f172a',
     title: 'Red Pill Charting',
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-        color: '#0f172a',
-        symbolColor: '#94a3b8',
-        height: 30
-    },
+    titleBarOverlay: { color: '#0f172a', symbolColor: '#94a3b8', height: 30 },
     webPreferences: {
-      nodeIntegration: false, // SECURITY: Must be false for contextBridge
-      contextIsolation: true, // SECURITY: Must be true for contextBridge
-      sandbox: false,         // Disable sandbox to allow file system access in Main via IPC
-      webSecurity: false,     // Allow local file loading (file://)
-      preload: preloadPath    // Explicitly resolved path
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      webSecurity: false,
+      preload: resolvedPath
     },
     autoHideMenuBar: true
   });
 
   const isDev = !app.isPackaged;
-
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    const loadWithRetry = () => {
+      mainWindow.loadURL('http://localhost:5173').catch(() => {
+        setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) loadWithRetry(); }, 1000);
+      });
+    };
+    loadWithRetry();
   } else {
     mainWindow.loadFile(path.join(app.getAppPath(), 'dist/index.html'));
   }
   
-  mainWindow.once('ready-to-show', () => {
-      logSystemEvent('WINDOW_READY');
-  });
+  mainWindow.once('ready-to-show', () => logSystemEvent('WINDOW_READY'));
 };
 
-// --- VALIDATION ---
-const validatePath = (filePath) => {
-  if (!filePath || typeof filePath !== 'string') throw new Error("Invalid path");
-  return true;
-};
-
-// --- PATH RESOLVERS ---
-
-// 1. Assets (Market Data)
 const resolveAssetsPath = () => {
     let assetsPath;
-    if (app.isPackaged) {
-        assetsPath = path.join(path.dirname(process.execPath), 'Assets');
-    } else {
-        assetsPath = path.join(__dirname, '..', 'Assets');
-    }
-    if (!fs.existsSync(assetsPath)) {
-        try { fs.mkdirSync(assetsPath, { recursive: true }); } catch (e) {}
-    }
+    if (app.isPackaged) assetsPath = path.join(path.dirname(process.execPath), 'Assets');
+    else assetsPath = path.join(__dirname, '..', 'Assets');
+    if (!fs.existsSync(assetsPath)) try { fs.mkdirSync(assetsPath, { recursive: true }); } catch (e) {}
     return assetsPath;
 };
 
-// 2. Database (Metadata Firewall - System Data)
-const resolveDatabasePath = () => {
-    const dbPath = path.join(app.getPath('userData'), 'Database');
-    if (!fs.existsSync(dbPath)) {
-        try { 
-            fs.mkdirSync(dbPath, { recursive: true }); 
-            // Subdirectories for organization
-            fs.mkdirSync(path.join(dbPath, 'Layouts'), { recursive: true });
-            fs.mkdirSync(path.join(dbPath, 'StickyNotes'), { recursive: true });
-            fs.mkdirSync(path.join(dbPath, 'Trades'), { recursive: true });
-        } catch (e) {
-            console.error("Could not create Database folder structure:", e);
-        }
-    }
-    return dbPath;
-};
-
-// --- BOOT SCAN FUNCTION (Assets Only) ---
 const runBootScan = () => {
     const assetsPath = resolveAssetsPath();
     const results = [];
@@ -133,67 +184,113 @@ const runBootScan = () => {
         try {
             const list = fs.readdirSync(dir);
             list.forEach((file) => {
-                if (IGNORED_DIRECTORIES.includes(file)) return; // Firewall check
-
+                if (IGNORED_DIRECTORIES.includes(file)) return;
                 const fullPath = path.join(dir, file);
                 try {
                     const stat = fs.statSync(fullPath);
-                    if (stat && stat.isDirectory()) {
-                        scanDir(fullPath);
-                    } else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.json')) {
-                        let folderName = path.relative(assetsPath, dir);
-                        results.push({
-                            name: file,
-                            path: fullPath,
-                            kind: 'file',
-                            folder: folderName || '.'
-                        });
+                    if (stat && stat.isDirectory()) scanDir(fullPath);
+                    else if (file.toLowerCase().endsWith('.csv') || file.toLowerCase().endsWith('.json')) {
+                        results.push({ name: file, path: fullPath, kind: 'file', folder: path.relative(assetsPath, dir) || '.' });
                     }
                 } catch (e) {}
             });
         } catch (e) {}
     };
 
-    if (fs.existsSync(assetsPath)) {
-        scanDir(assetsPath);
-    }
-    
-    logSystemEvent('BOOT_SCAN_COMPLETE');
+    if (fs.existsSync(assetsPath)) scanDir(assetsPath);
+    logSystemEvent('BOOT_SCAN_COMPLETE', { count: results.length });
     internalLibraryStorage = results;
     return internalLibraryStorage;
 };
 
-// --- IPC HANDLERS ---
+// --- WORKER HANDLER ---
+const runIngestWorker = (filePath, symbol, timeframe) => {
+    return new Promise((resolve, reject) => {
+        // Resolve worker path
+        let workerPath = path.join(__dirname, 'ingestWorker.js');
+        // Handle production packaging path shifts if necessary
+        if (!fs.existsSync(workerPath)) {
+             workerPath = path.join(app.getAppPath(), 'electron', 'ingestWorker.js');
+        }
+
+        const worker = new Worker(workerPath);
+        
+        worker.on('message', (result) => {
+            if (result.success) resolve(result);
+            else reject(new Error(result.error));
+        });
+        
+        worker.on('error', reject);
+        
+        worker.on('exit', (code) => {
+            if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
+        });
+
+        // Start worker
+        worker.postMessage({
+            dbPath: dbPathGlobal,
+            filePath,
+            symbol,
+            timeframe
+        });
+    });
+};
+
+ipcMain.handle('debug:get-global-state', async () => {
+    // Collect state from main process memory
+    const mem = process.memoryUsage();
+    
+    const state = {
+        app: {
+            version: app.getVersion(),
+            userData: app.getPath('userData'),
+            assetsPath: resolveAssetsPath(),
+            uptime: process.uptime()
+        },
+        resources: {
+            memoryMB: Math.round(mem.rss / 1024 / 1024),
+            heapMB: Math.round(mem.heapUsed / 1024 / 1024)
+        },
+        database: {
+            connected: !!db,
+            path: db ? 'master.db' : 'null'
+        },
+        library: {
+            fileCount: internalLibraryStorage.length
+        },
+        watcher: {
+            active: !!watcher
+        },
+        logBuffer: systemLogBuffer.slice(0, 50) // Last 50 system logs
+    };
+
+    return safeIPC(state);
+});
+
+ipcMain.on('log:send', (event, category, message, data) => {
+    if (data && (data.level === 'ERROR' || data.level === 'CRITICAL')) {
+        console.log(`[RENDERER-${category}] ${message}`, data);
+    }
+});
 
 ipcMain.handle('dialog:select-folder', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-        properties: ['openDirectory']
-    });
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
     if (canceled) return null;
     return { path: filePaths[0], name: path.basename(filePaths[0]) };
 });
 
-ipcMain.handle('get-default-database-path', () => {
-    // This refers to the Assets library path for the UI display
-    return resolveAssetsPath();
-});
-
-ipcMain.handle('get-internal-library', async () => {
-    return runBootScan();
-});
+ipcMain.handle('get-default-database-path', () => resolveAssetsPath());
+ipcMain.handle('get-internal-library', async () => runBootScan());
 
 ipcMain.handle('file:watch-folder', async (event, folderPath) => {
-  if (watcher) { watcher.close(); watcher = null; }
-  logSystemEvent('WATCH_FOLDER_START');
-  
+  if (watcher) { watcher.close(); watcher = null; logSystemEvent('WATCH_FOLDER_START', { path: folderPath }); }
   try {
     const getFilesRecursive = (dir) => {
       let res = [];
       try {
           const list = fs.readdirSync(dir);
           list.forEach((file) => {
-            if (IGNORED_DIRECTORIES.includes(file)) return; // Firewall check
-
+            if (IGNORED_DIRECTORIES.includes(file)) return;
             const fullPath = path.join(dir, file);
             try {
                 const stat = fs.statSync(fullPath);
@@ -204,31 +301,17 @@ ipcMain.handle('file:watch-folder', async (event, folderPath) => {
       } catch(e) {}
       return res;
     };
-
     const initialFiles = getFilesRecursive(folderPath);
-    
     watcher = fs.watch(folderPath, { recursive: true }, (eventType, filename) => {
-      if (filename) {
-          // Check ignore list on changed file/folder
-          const parts = filename.split(path.sep);
-          if (parts.some(p => IGNORED_DIRECTORIES.includes(p))) return;
-
-          if (filename.endsWith('.csv') || filename.endsWith('.json')) {
-            if (mainWindow) mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
-          }
+      if (filename && (filename.endsWith('.csv') || filename.endsWith('.json'))) {
+         if (mainWindow) mainWindow.webContents.send('folder-changed', getFilesRecursive(folderPath));
       }
     });
     return initialFiles;
   } catch (e) { throw e; }
 });
 
-ipcMain.handle('file:unwatch-folder', () => {
-    if (watcher) {
-        watcher.close();
-        watcher = null;
-        logSystemEvent('WATCH_FOLDER_STOP');
-    }
-});
+ipcMain.handle('file:unwatch-folder', () => { if (watcher) { watcher.close(); watcher = null; logSystemEvent('WATCH_FOLDER_STOP'); } });
 
 ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
   return new Promise((resolve, reject) => {
@@ -246,166 +329,165 @@ ipcMain.handle('file:read-chunk', async (event, filePath, start, length) => {
 
 ipcMain.handle('file:get-details', async (event, filePath) => {
     try {
-        validatePath(filePath);
         const stats = fs.statSync(filePath);
         return { exists: true, size: stats.size };
-    } catch (e) {
-        return { exists: false, size: 0 };
-    }
+    } catch (e) { return { exists: false, size: 0 }; }
 });
 
-// --- PERSISTENCE (SYSTEM METADATA FIREWALL) ---
-
-// Drawings
-const getMasterDrawingsPath = () => path.join(resolveDatabasePath(), 'drawings_master.json');
-
-ipcMain.handle('master-drawings:load', async () => {
+// --- OPTIMIZED MARKET DATA HANDLER (Worker + Flat Array) ---
+ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
     try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = fs.readFileSync(dbPath, 'utf8');
-            return { success: true, data: JSON.parse(data) };
+        if (!db) return { error: "Database not initialized" };
+        
+        // Define Reusable Query Function
+        const fetchFromDb = () => new Promise((resolve) => {
+            const fetchQuery = `
+                SELECT time, open, high, low, close, volume 
+                FROM ohlc_cache 
+                WHERE symbol = ? AND timeframe = ? 
+                ${toTime ? 'AND time < ?' : ''} 
+                ORDER BY time DESC 
+                LIMIT ?
+            `;
+            const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
+            db.all(fetchQuery, params, (err, rows) => {
+                if (err) resolve([]);
+                else {
+                    // Reverse to ASC order for chart
+                    resolve(rows.reverse());
+                }
+            });
+        });
+
+        // A. CHECK CACHE FIRST (Task 2: Optimized Windowed Query)
+        let cachedRows = await fetchFromDb();
+
+        // B. CACHE MISS: WORKER THREAD INGEST
+        // If no data found and we have a source file, spawn worker
+        if ((!cachedRows || cachedRows.length === 0) && filePath && fs.existsSync(filePath)) {
+            logSystemEvent('WORKER_SPAWN', { symbol, filePath });
+            
+            try {
+                await runIngestWorker(filePath, symbol, timeframe);
+                
+                // Re-fetch after worker completion
+                cachedRows = await fetchFromDb();
+                logSystemEvent('WORKER_COMPLETE', { symbol, rowsLoaded: cachedRows.length });
+            } catch (err) {
+                logSystemEvent('WORKER_ERROR', { error: err.message }, 'ERROR');
+                return { error: `Ingestion failed: ${err.message}` };
+            }
         }
-        return { success: true, data: {} };
+
+        // C. RETURN OPTIMIZED PAYLOAD (Task 4: Flat Array)
+        if (cachedRows && cachedRows.length > 0) {
+            // Map to flat array [t, o, h, l, c, v]
+            const flatData = cachedRows.map(r => [r.time, r.open, r.high, r.low, r.close, r.volume]);
+            return { data: flatData, format: 'array' };
+        }
+
+        return { data: [] };
+
     } catch (e) {
-        return { success: false, error: e.message };
+        logSystemEvent('DATA_FETCH_ERROR', { error: e.message }, 'ERROR');
+        return { error: e.message };
     }
 });
 
-ipcMain.handle('master-drawings:save', async (event, data) => {
+// --- TAIL-FIRST ACCESS ---
+ipcMain.handle('market:get-tail', async (event, filePath) => {
     try {
-        const dbPath = getMasterDrawingsPath();
-        fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-        return { success: true };
+        const stats = fs.statSync(filePath);
+        const size = stats.size;
+        const chunkSize = 200 * 1024; // 200KB tail
+        const start = Math.max(0, size - chunkSize);
+        
+        return new Promise((resolve, reject) => {
+            fs.open(filePath, 'r', (err, fd) => {
+                if (err) return reject(err);
+                const buffer = Buffer.alloc(size - start);
+                fs.read(fd, buffer, 0, buffer.length, start, (err, bytesRead, b) => {
+                    fs.close(fd, () => {});
+                    if (err) return reject(err);
+                    const text = b.toString('utf8');
+                    resolve({ text }); 
+                });
+            });
+        });
     } catch (e) {
-        return { success: false, error: e.message };
+        return { error: e.message };
     }
+});
+
+ipcMain.handle('drawings:get-state', async (event, symbol) => {
+    return new Promise((resolve) => {
+        db.get('SELECT data FROM drawings WHERE symbol = ?', [symbol], (err, row) => resolve(row ? JSON.parse(row.data) : null));
+    });
+});
+
+ipcMain.handle('drawings:save-state', async (event, symbol, data) => {
+    return new Promise((resolve) => {
+        db.run('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)', [symbol, JSON.stringify(data)], (err) => resolve({ success: !err, error: err ? err.message : undefined }));
+    });
 });
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
-    try {
-        const dbPath = getMasterDrawingsPath();
-        if (fs.existsSync(dbPath)) {
-            const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-            if (data[sourceId]) {
-                delete data[sourceId]; // Nuclear delete
-                fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+    return new Promise((resolve) => {
+        db.run('DELETE FROM drawings WHERE symbol = ?', [sourceId], (err) => resolve({ success: !err, error: err ? err.message : undefined }));
+    });
+});
+
+ipcMain.handle('master-drawings:load', async () => {
+    return new Promise((resolve) => {
+        db.all('SELECT symbol, data FROM drawings', [], (err, rows) => {
+            if (err) resolve({ success: false, error: err.message });
+            else {
+                const map = {};
+                try { rows.forEach(row => { map[row.symbol] = JSON.parse(row.data); }); resolve({ success: true, data: map }); } 
+                catch (e) { resolve({ success: false, error: 'Failed to parse legacy drawings' }); }
             }
-        }
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+        });
+    });
 });
 
-// Layouts
-ipcMain.handle('layouts:save', async (event, layoutName, layoutData) => {
-    try {
-        const layoutsDir = path.join(resolveDatabasePath(), 'Layouts');
-        const filePath = path.join(layoutsDir, `${layoutName}.json`);
-        fs.writeFileSync(filePath, JSON.stringify(layoutData, null, 2));
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('layouts:load', async (event, layoutName) => {
-    try {
-        const filePath = path.join(resolveDatabasePath(), 'Layouts', `${layoutName}.json`);
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath, 'utf8');
-            return { success: true, data: JSON.parse(data) };
-        }
-        return { success: false, error: 'Layout not found' };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('layouts:list', async () => {
-    try {
-        const layoutsDir = path.join(resolveDatabasePath(), 'Layouts');
-        if (!fs.existsSync(layoutsDir)) return [];
-        const files = fs.readdirSync(layoutsDir);
-        return files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', ''));
-    } catch (e) {
-        return [];
-    }
-});
-
-// Trades
-const getTradesDbPath = () => path.join(resolveDatabasePath(), 'Trades', 'trades_ledger.json');
-
-const readTradesDb = () => {
-    const dbPath = getTradesDbPath();
-    if (fs.existsSync(dbPath)) {
-        try { return JSON.parse(fs.readFileSync(dbPath, 'utf8')); } 
-        catch { return {}; }
-    }
-    return {};
-};
-
-const writeTradesDb = (data) => {
-    const dbPath = getTradesDbPath();
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
-};
-
-ipcMain.handle('trades:get-by-source', async (event, sourceId) => {
-    const db = readTradesDb();
-    return db[sourceId] || [];
+ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
+    return new Promise((resolve) => {
+        db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
+            try { resolve(err ? [] : (rows || []).map(r => JSON.parse(r.data))); } catch (e) { resolve([]); }
+        });
+    });
 });
 
 ipcMain.handle('trades:save', async (event, trade) => {
-    try {
-        const db = readTradesDb();
-        if (!db[trade.sourceId]) db[trade.sourceId] = [];
-        db[trade.sourceId].push(trade);
-        writeTradesDb(db);
-        logSystemEvent('TRADE_SAVED');
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+    return new Promise((resolve) => {
+        db.run('INSERT INTO trades (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)', [trade.id, trade.sourceId, JSON.stringify(trade), trade.timestamp], (err) => {
+            if (!err) logSystemEvent('TRADE_SAVED', { id: trade.id });
+            resolve({ success: !err, error: err ? err.message : undefined });
+        });
+    });
 });
 
-// --- TELEMETRY ---
 ipcMain.handle('get-system-telemetry', async () => {
     const mem = process.memoryUsage();
-    const cpu = process.cpuUsage();
-    const heapStats = v8.getHeapStatistics();
-    const dbPath = resolveDatabasePath();
-    
     return {
-        processInfo: {
-            version: process.versions.electron,
-            uptime: Math.floor(process.uptime()),
-            pid: process.pid
-        },
-        resources: {
-            memory: {
-                rss: (mem.rss / 1024 / 1024).toFixed(2) + ' MB',
-                heapUsed: (mem.heapUsed / 1024 / 1024).toFixed(2) + ' MB'
-            },
-            cpu: cpu,
-            v8Heap: {
-                used: (heapStats.used_heap_size / 1024 / 1024).toFixed(2) + ' MB'
-            }
-        },
-        ioStatus: {
-            connectionState: fs.existsSync(dbPath) ? 'Online' : 'Initializing',
-            dbPath: dbPath
-        },
+        processInfo: { version: process.versions.electron, uptime: Math.floor(process.uptime()), pid: process.pid },
+        resources: { memory: { rss: (mem.rss / 1024 / 1024).toFixed(2) + ' MB' } },
         logBuffer: systemLogBuffer
     };
 });
 
-// --- APP LIFECYCLE ---
+ipcMain.handle('logs:get-db-status', async () => {
+    return new Promise((resolve) => {
+        if (!db) resolve({ connected: false, error: 'DB Null' });
+        else db.get("SELECT 1", (err) => resolve({ connected: !err, error: err ? err.message : undefined }));
+    });
+});
 
 app.whenReady().then(() => {
   logSystemEvent('APP_READY');
+  setupDatabase();
   runBootScan();
   createWindow();
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => { if (db) db.close(); if (process.platform !== 'darwin') app.quit(); });

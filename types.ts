@@ -199,10 +199,14 @@ export interface IElectronAPI {
   getInternalFolders: () => Promise<any[]>;
   getInternalLibrary: () => Promise<any[]>;
   
+  // Data Ingestion (Optimization)
+  getMarketData: (symbol: string, timeframe: string, filePath?: string, toTime?: number | null, limit?: number) => Promise<{ data?: any[]; format?: 'array'; error?: string }>;
+
   // Persistence (SQLite/JSON Store)
   loadMasterDrawings: () => Promise<{ success: boolean; data: any; error?: string }>;
   saveMasterDrawings: (data: any) => Promise<{ success: boolean; error?: string }>;
-  getDrawingsState: () => Promise<any>;
+  getDrawingsState: (symbol: string) => Promise<any>;
+  saveDrawingState: (symbol: string, data: any) => Promise<{ success: boolean; error?: string }>;
   deleteAllDrawings: (sourceId: string) => Promise<{ success: boolean; error?: string }>;
   
   // Layouts
@@ -214,8 +218,14 @@ export interface IElectronAPI {
   getTradesBySource: (sourceId: string) => Promise<Trade[]>;
   saveTrade: (trade: Trade) => Promise<{ success: boolean; error?: string }>;
   
+  // Logs & Diagnostics
+  getDbStatus: () => Promise<{ connected: boolean; error?: string }>;
+  sendLog: (category: string, message: string, data?: any) => void;
+
   // Telemetry & Events
   getSystemTelemetry: () => Promise<any>;
+  getGlobalState: () => Promise<any>;
+  copyToClipboard: (text: string) => void; // Added
   onFolderChange: (callback: (files: any[]) => void) => () => void;
 }
 
