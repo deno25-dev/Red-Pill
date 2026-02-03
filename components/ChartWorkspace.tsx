@@ -538,6 +538,7 @@ export const ChartWorkspace: React.FC<ChartWorkspaceProps> = ({
         <FinancialChart 
           key={chartComponentKey} 
           id={tab.id} 
+          symbol={tab.symbolId || tab.title} // Pass symbol for Sticky Fix
           data={displayedData} 
           smaData={smaData} 
           config={tab.config} 

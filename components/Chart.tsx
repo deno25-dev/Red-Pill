@@ -32,6 +32,7 @@ import { reportSelf } from '../hooks/useTelemetry';
 
 interface ChartProps {
   id?: string;
+  symbol?: string; // Mandate 4: Added for Sticky Key Fix
   data: OHLCV[]; // Currently displayed data (slice)
   smaData: (number | null)[];
   config: ChartConfig;
@@ -403,6 +404,7 @@ interface TextInputState {
 
 export const FinancialChart: React.FC<ChartProps> = (props) => {
   const { 
+    symbol, // Mandate 4: Added for Sticky Key Fix
     data, 
     smaData, 
     config, 
@@ -547,14 +549,15 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
     return () => window.removeEventListener('redpill-force-clear', handleForceClear);
   }, [forceClear]);
 
-  // STICKY CHART PREVENTION: Clear series on timeframe change
+  // STICKY CHART PREVENTION: Clear series on timeframe OR SYMBOL change
   useEffect(() => {
       if (seriesRef.current) {
           try {
+             // Mandate 4: Clean State
              seriesRef.current.setData([]);
           } catch(e) {}
       }
-  }, [timeframe]);
+  }, [timeframe, symbol]);
 
   useChartReplay({
     seriesRef,
@@ -1318,10 +1321,11 @@ export const FinancialChart: React.FC<ChartProps> = (props) => {
       }
   };
 
-  // Task 3: Nuclear Key Fix for Sticky Chart (id prop ensures remount on tab/symbol change)
+  // Task 3 & 4: Nuclear Key Fix for Sticky Chart (id prop ensures remount on tab/symbol change)
+  // Mandate: The key={`${symbol}-${timeframe}`} forces a hard remount when asset changes.
   return (
     <div 
-        key={`${props.id}-${props.timeframe}`} // Mandate: Sticky Chart Fix
+        key={`${symbol}-${timeframe}`} // Mandate 4: Sticky Chart Fix
         id="chart-container" 
         className="relative w-full h-full" 
         onContextMenu={(e) => e.preventDefault()}

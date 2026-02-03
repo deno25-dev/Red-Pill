@@ -7,9 +7,7 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=500');
 
 const path = require('path');
 const fs = require('fs');
-const v8 = require('v8');
-const sqlite3 = require('sqlite3').verbose();
-const readline = require('readline');
+const Database = require('better-sqlite3');
 
 // [TELEMETRY] Initialize Session Start Time
 const sessionStartTime = Date.now();
@@ -61,56 +59,52 @@ let internalLibraryStorage = [];
 // --- DATABASE SETUP ---
 const setupDatabase = () => {
     const userDataPath = app.getPath('userData');
-    const dbFolder = path.join(userDataPath, 'RedPill');
-    dbPathGlobal = path.join(dbFolder, 'master.db');
+    // Mandate: Open database at app.getPath('userData')/redpill.db
+    dbPathGlobal = path.join(userDataPath, 'redpill.db');
 
-    if (!fs.existsSync(dbFolder)) {
-        try {
-            fs.mkdirSync(dbFolder, { recursive: true });
-        } catch (e) {
-            console.error('Failed to create database directory:', e);
-            logSystemEvent('DB_DIR_CREATE_FAILED', { error: e.message }, 'CRITICAL');
-            return;
-        }
+    try {
+        // Task 3: Non-Blocking SQLite (The WAL Verify)
+        db = new Database(dbPathGlobal, { verbose: null }); // Set verbose: console.log for debugging
+        logSystemEvent('DB_CONNECTED');
+
+        // 2. SQLITE OPTIMIZATION (Phase 1)
+        // Performance Pragmas per PRD
+        db.pragma('journal_mode = WAL');
+        db.pragma('synchronous = NORMAL');
+
+        initializeTables();
+    } catch (err) {
+        console.error('Database initialization failed:', err);
+        logSystemEvent('DB_INIT_FAILED', { error: err.message }, 'CRITICAL');
     }
-
-    // Task 3: Non-Blocking SQLite (The WAL Verify)
-    db = new sqlite3.Database(dbPathGlobal, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
-        if (err) {
-            console.error('Database initialization failed:', err);
-            logSystemEvent('DB_INIT_FAILED', { error: err.message }, 'CRITICAL');
-        } else {
-            logSystemEvent('DB_CONNECTED');
-            
-            // 2. SQLITE OPTIMIZATION (Phase 1)
-            db.serialize(() => {
-                db.run("PRAGMA journal_mode = WAL;");   // Write-Ahead Logging
-                // Task 3: Non-Blocking Writes
-                db.run("PRAGMA synchronous = OFF;"); 
-            });
-
-            initializeTables();
-        }
-    });
 };
 
 const initializeTables = () => {
-    db.serialize(() => {
-        db.run(`CREATE TABLE IF NOT EXISTS drawings (symbol TEXT PRIMARY KEY, data TEXT)`);
-        db.run(`CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, sourceId TEXT, data TEXT, timestamp INTEGER)`);
-        db.run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`);
-        db.run(`
-            CREATE TABLE IF NOT EXISTS ohlc_cache (
+    try {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS drawings (symbol TEXT PRIMARY KEY, data TEXT);
+            CREATE TABLE IF NOT EXISTS trades (id TEXT PRIMARY KEY, sourceId TEXT, data TEXT, timestamp INTEGER);
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+            
+            -- Mandate: market_data table with Compound Index
+            CREATE TABLE IF NOT EXISTS market_data (
                 symbol TEXT,
                 timeframe TEXT,
-                time INTEGER,
-                open REAL, high REAL, low REAL, close REAL, volume REAL,
-                UNIQUE(symbol, timeframe, time)
-            )
+                timestamp INTEGER, -- Renamed from 'time' per PRD source of truth
+                open REAL, 
+                high REAL, 
+                low REAL, 
+                close REAL, 
+                volume REAL,
+                UNIQUE(symbol, timeframe, timestamp)
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_market_data ON market_data (symbol, timeframe, timestamp);
         `);
-        db.run(`CREATE INDEX IF NOT EXISTS idx_ohlc_lookup ON ohlc_cache (symbol, timeframe, time)`);
         logSystemEvent('DB_TABLES_READY');
-    });
+    } catch (e) {
+        logSystemEvent('DB_SCHEMA_ERROR', { error: e.message }, 'CRITICAL');
+    }
 };
 
 const createWindow = () => {
@@ -252,8 +246,8 @@ ipcMain.handle('debug:get-global-state', async () => {
             heapMB: Math.round(mem.heapUsed / 1024 / 1024)
         },
         database: {
-            connected: !!db,
-            path: db ? 'master.db' : 'null'
+            connected: !!db && db.open,
+            path: dbPathGlobal
         },
         library: {
             fileCount: internalLibraryStorage.length
@@ -334,48 +328,63 @@ ipcMain.handle('file:get-details', async (event, filePath) => {
     } catch (e) { return { exists: false, size: 0 }; }
 });
 
-// --- OPTIMIZED MARKET DATA HANDLER (Worker + Flat Array) ---
+// --- OPTIMIZED MARKET DATA HANDLER (Sync Better-SQLite3) ---
 ipcMain.handle('market:get-data', async (event, symbol, timeframe, filePath, toTime = null, limit = 1000) => {
     try {
         if (!db) return { error: "Database not initialized" };
         
-        // Define Reusable Query Function
-        const fetchFromDb = () => new Promise((resolve) => {
-            const fetchQuery = `
-                SELECT time, open, high, low, close, volume 
-                FROM ohlc_cache 
+        // Define Reusable Query Function using synchronous API
+        const fetchFromDb = () => {
+            // Mapping timestamp -> time for frontend compatibility
+            let query = `
+                SELECT timestamp as time, open, high, low, close, volume 
+                FROM market_data 
                 WHERE symbol = ? AND timeframe = ? 
-                ${toTime ? 'AND time < ?' : ''} 
-                ORDER BY time DESC 
-                LIMIT ?
             `;
-            const params = toTime ? [symbol, timeframe, toTime, limit] : [symbol, timeframe, limit];
-            db.all(fetchQuery, params, (err, rows) => {
-                if (err) resolve([]);
-                else {
-                    // Reverse to ASC order for chart
-                    resolve(rows.reverse());
-                }
-            });
-        });
+            const params = [symbol, timeframe];
+
+            // Windowed Logic: Visible slice based on toTime
+            if (toTime) {
+                query += ' AND timestamp < ?';
+                params.push(toTime);
+            }
+
+            query += ' ORDER BY timestamp DESC LIMIT ?';
+            params.push(limit);
+
+            const stmt = db.prepare(query);
+            const rows = stmt.all(...params);
+            
+            // Reverse to ASC order for chart
+            return rows.reverse();
+        };
 
         // A. CHECK CACHE FIRST (Task 2: Optimized Windowed Query)
-        let cachedRows = await fetchFromDb();
+        let cachedRows = fetchFromDb();
 
         // B. CACHE MISS: WORKER THREAD INGEST
-        // If no data found and we have a source file, spawn worker
+        // Optimization: Only try ingest if we have NO data for this symbol/tf, or if explicit refresh needed.
+        // If we found 0 rows but we have a source file, we need to check if the DB is actually empty for this key.
+        // If the DB has data but our query returned 0 (e.g. scrolled past beginning), do NOT re-ingest.
+        
         if ((!cachedRows || cachedRows.length === 0) && filePath && fs.existsSync(filePath)) {
-            logSystemEvent('WORKER_SPAWN', { symbol, filePath });
-            
-            try {
-                await runIngestWorker(filePath, symbol, timeframe);
+            // Check if any data exists for this symbol/timeframe
+            const checkStmt = db.prepare('SELECT 1 FROM market_data WHERE symbol = ? AND timeframe = ? LIMIT 1');
+            const hasData = checkStmt.get(symbol, timeframe);
+
+            if (!hasData) {
+                logSystemEvent('WORKER_SPAWN', { symbol, filePath });
                 
-                // Re-fetch after worker completion
-                cachedRows = await fetchFromDb();
-                logSystemEvent('WORKER_COMPLETE', { symbol, rowsLoaded: cachedRows.length });
-            } catch (err) {
-                logSystemEvent('WORKER_ERROR', { error: err.message }, 'ERROR');
-                return { error: `Ingestion failed: ${err.message}` };
+                try {
+                    await runIngestWorker(filePath, symbol, timeframe);
+                    
+                    // Re-fetch after worker completion
+                    cachedRows = fetchFromDb();
+                    logSystemEvent('WORKER_COMPLETE', { symbol, rowsLoaded: cachedRows.length });
+                } catch (err) {
+                    logSystemEvent('WORKER_ERROR', { error: err.message }, 'ERROR');
+                    return { error: `Ingestion failed: ${err.message}` };
+                }
             }
         }
 
@@ -420,51 +429,66 @@ ipcMain.handle('market:get-tail', async (event, filePath) => {
 });
 
 ipcMain.handle('drawings:get-state', async (event, symbol) => {
-    return new Promise((resolve) => {
-        db.get('SELECT data FROM drawings WHERE symbol = ?', [symbol], (err, row) => resolve(row ? JSON.parse(row.data) : null));
-    });
+    try {
+        const stmt = db.prepare('SELECT data FROM drawings WHERE symbol = ?');
+        const row = stmt.get(symbol);
+        return row ? JSON.parse(row.data) : null;
+    } catch (e) {
+        return null;
+    }
 });
 
 ipcMain.handle('drawings:save-state', async (event, symbol, data) => {
-    return new Promise((resolve) => {
-        db.run('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)', [symbol, JSON.stringify(data)], (err) => resolve({ success: !err, error: err ? err.message : undefined }));
-    });
+    try {
+        const stmt = db.prepare('INSERT OR REPLACE INTO drawings (symbol, data) VALUES (?, ?)');
+        stmt.run(symbol, JSON.stringify(data));
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
 
 ipcMain.handle('drawings:delete-all', async (event, sourceId) => {
-    return new Promise((resolve) => {
-        db.run('DELETE FROM drawings WHERE symbol = ?', [sourceId], (err) => resolve({ success: !err, error: err ? err.message : undefined }));
-    });
+    try {
+        const stmt = db.prepare('DELETE FROM drawings WHERE symbol = ?');
+        stmt.run(sourceId);
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
 
 ipcMain.handle('master-drawings:load', async () => {
-    return new Promise((resolve) => {
-        db.all('SELECT symbol, data FROM drawings', [], (err, rows) => {
-            if (err) resolve({ success: false, error: err.message });
-            else {
-                const map = {};
-                try { rows.forEach(row => { map[row.symbol] = JSON.parse(row.data); }); resolve({ success: true, data: map }); } 
-                catch (e) { resolve({ success: false, error: 'Failed to parse legacy drawings' }); }
-            }
-        });
-    });
+    try {
+        const stmt = db.prepare('SELECT symbol, data FROM drawings');
+        const rows = stmt.all();
+        const map = {};
+        rows.forEach(row => { map[row.symbol] = JSON.parse(row.data); });
+        return { success: true, data: map };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
 
 ipcMain.handle('trades:get-ledger', async (event, sourceId) => {
-    return new Promise((resolve) => {
-        db.all('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC', [sourceId], (err, rows) => {
-            try { resolve(err ? [] : (rows || []).map(r => JSON.parse(r.data))); } catch (e) { resolve([]); }
-        });
-    });
+    try {
+        const stmt = db.prepare('SELECT data FROM trades WHERE sourceId = ? ORDER BY timestamp DESC');
+        const rows = stmt.all(sourceId);
+        return rows.map(r => JSON.parse(r.data));
+    } catch (e) {
+        return [];
+    }
 });
 
 ipcMain.handle('trades:save', async (event, trade) => {
-    return new Promise((resolve) => {
-        db.run('INSERT INTO trades (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)', [trade.id, trade.sourceId, JSON.stringify(trade), trade.timestamp], (err) => {
-            if (!err) logSystemEvent('TRADE_SAVED', { id: trade.id });
-            resolve({ success: !err, error: err ? err.message : undefined });
-        });
-    });
+    try {
+        const stmt = db.prepare('INSERT INTO trades (id, sourceId, data, timestamp) VALUES (?, ?, ?, ?)');
+        stmt.run(trade.id, trade.sourceId, JSON.stringify(trade), trade.timestamp);
+        logSystemEvent('TRADE_SAVED', { id: trade.id });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 });
 
 ipcMain.handle('get-system-telemetry', async () => {
@@ -477,10 +501,13 @@ ipcMain.handle('get-system-telemetry', async () => {
 });
 
 ipcMain.handle('logs:get-db-status', async () => {
-    return new Promise((resolve) => {
-        if (!db) resolve({ connected: false, error: 'DB Null' });
-        else db.get("SELECT 1", (err) => resolve({ connected: !err, error: err ? err.message : undefined }));
-    });
+    try {
+        if (!db) return { connected: false, error: 'DB Null' };
+        db.prepare("SELECT 1").get();
+        return { connected: true };
+    } catch (err) {
+        return { connected: false, error: err.message };
+    }
 });
 
 app.whenReady().then(() => {
