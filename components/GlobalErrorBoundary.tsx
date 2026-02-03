@@ -16,13 +16,10 @@ interface GlobalErrorBoundaryState {
 }
 
 export class GlobalErrorBoundary extends React.Component<GlobalErrorBoundaryProps, GlobalErrorBoundaryState> {
-  constructor(props: GlobalErrorBoundaryProps) {
-    super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
-  }
+  public state: GlobalErrorBoundaryState = {
+    hasError: false,
+    error: null,
+  };
 
   static getDerivedStateFromError(error: Error): GlobalErrorBoundaryState {
     // Update state so the next render will show the fallback UI.
